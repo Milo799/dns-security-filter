@@ -18,3 +18,8 @@ pytest-cache-files-*
 # 其他
 .DS_Store
 *.log
+
+# SQLite 运行时数据
+*.db
+*.db-shm
+*.db-wal
