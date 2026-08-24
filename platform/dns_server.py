@@ -8,6 +8,7 @@
 """
 
 import asyncio
+import ipaddress
 import logging
 import socket
 
@@ -19,20 +20,93 @@ from detectors import process_query
 logger = logging.getLogger("platform.dns")
 
 
+def _skip_name(data: bytes, pos: int) -> int:
+    """跳过一个域名（标签序列或压缩指针），返回下一个字段的位置。"""
+    while True:
+        if pos >= len(data):
+            raise IndexError("报文越界")
+        length = data[pos]
+        if length == 0:            # 根标签结束
+            return pos + 1
+        if length & 0xC0 == 0xC0:  # 压缩指针（2 字节）
+            return pos + 2
+        pos += 1 + length
+
+
+def _parse_ecs_option(opt: bytes) -> str | None:
+    """解析单个 ECS option 数据（RFC 7871）：
+    family(2B) + src_prefix(1B) + scope_prefix(1B) + address(按前缀截断)
+    地址不足整字节长度时右补零还原。
+    """
+    if len(opt) < 4:
+        return None
+    family = int.from_bytes(opt[0:2], "big")
+    addr_part = opt[4:]
+    if family == 1:      # IPv4
+        if not addr_part:
+            return None
+        addr = (addr_part[:4] + b"\x00" * 4)[:4]
+        return str(ipaddress.IPv4Address(addr))
+    if family == 2:      # IPv6
+        if not addr_part:
+            return None
+        addr = (addr_part[:16] + b"\x00" * 16)[:16]
+        return str(ipaddress.IPv6Address(addr))
+    return None
+
+
 def extract_client_ip(data: bytes) -> str | None:
     """从查询报文提取 EDNS0 Client Subnet（RFC 7871, option code 8）中的客户端 IP。
 
     Windows DNS 转发时附加客户端子网；代理原样透传（含 OPT RR）。
     无 ECS 或解析失败返回 None（日志中 client_ip 记为空，不影响过滤）。
 
-    TODO(AI): dnslib 对 ECS option 的原生支持有限，此处按 RFC 7871 手动解析：
-      OPT RR (type 41) 的 rdata 中，option 依次为 [code(2B) + length(2B) + data]。
-      code=8 时 data 为 [family(2B) + src_prefix(1B) + scope_prefix(1B) + address(NB)]，
-      family=1 为 IPv4（address 4B），family=2 为 IPv6（address 16B）。
-    当前为占位实现，返回 None；请按上述规范完成并用 tests 中的用例验证。
+    实现方式：按 RFC 1035 手动遍历报文 additional 段定位 OPT RR
+    （type=41），再遍历其 rdata 中的 option 序列 [code(2B)+len(2B)+data]，
+    取 code=8（ECS）。不依赖 dnslib 对 EDNS0 的内部表示。
     """
     try:
-        # TODO(AI): 解析 OPT RR 中的 ECS option，返回客户端 IP 字符串
+        if len(data) < 12:
+            return None
+        qdcount = int.from_bytes(data[4:6], "big")
+        ancount = int.from_bytes(data[6:8], "big")
+        nscount = int.from_bytes(data[8:10], "big")
+        arcount = int.from_bytes(data[10:12], "big")
+
+        pos = 12
+        # 跳过 question 段
+        for _ in range(qdcount):
+            pos = _skip_name(data, pos)
+            pos += 4  # qtype + qclass
+        # 跳过 answer / authority 段
+        for _ in range(ancount + nscount):
+            pos = _skip_name(data, pos)
+            pos += 8  # type + class + ttl
+            rdlen = int.from_bytes(data[pos:pos + 2], "big")
+            pos += 2 + rdlen
+        # 遍历 additional 段找 OPT RR
+        for _ in range(arcount):
+            pos = _skip_name(data, pos)
+            rtype = int.from_bytes(data[pos:pos + 2], "big")
+            pos += 2  # type
+            pos += 2  # class（OPT 中为 UDP payload size）
+            pos += 4  # ttl（OPT 中为扩展rcode/flags）
+            rdlen = int.from_bytes(data[pos:pos + 2], "big")
+            pos += 2
+            rdata = data[pos:pos + rdlen]
+            if rtype == 41:
+                # 遍历 rdata 中的 option 序列
+                p = 0
+                while p + 4 <= len(rdata):
+                    code = int.from_bytes(rdata[p:p + 2], "big")
+                    olen = int.from_bytes(rdata[p + 2:p + 4], "big")
+                    opt = rdata[p + 4:p + 4 + olen]
+                    p += 4 + olen
+                    if code == 8:
+                        ip = _parse_ecs_option(opt)
+                        if ip:
+                            return ip
+            pos += rdlen
         return None
     except Exception:
         return None

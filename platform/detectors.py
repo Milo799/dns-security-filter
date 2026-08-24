@@ -99,15 +99,16 @@ def query_threatintel_domain(domain: str) -> tuple[bool, str]:
       reason 形如 "threatintel:any:virustotal,abuseipdb"。
 
     规则（PRD 5.3）：
+      - 只调用声明 supports_domain 的启用源（如 AbuseIPDB 不支持域名查询）；
+      - 没有任何源支持域名查询 → 跳过威胁情报检测（返回 False）；
       - 超时/异常（None）的源不参与统计；
       - any（默认）/ majority / all 三种融合策略；
-      - 全部源无结论时**默认拦截**，不自动放行。
-    TODO(AI): 当前为串行调用，QPS 高时可改为 asyncio 并发；
-      并补充各源查询的 api_timeout_ms 超时控制。
+      - 有支持源但全部无结论时**默认拦截**，不自动放行（fail-safe）。
+    TODO(AI): 当前为串行调用，QPS 高时可改为 asyncio 并发。
     """
-    adapters = get_enabled_adapters()
+    adapters = [a for a in get_enabled_adapters() if a.supports_domain]
     if not adapters:
-        return False, ""  # 未启用任何情报源：跳过威胁情报检测
+        return False, ""  # 无支持域名查询的情报源：跳过威胁情报检测
 
     results = []
     for adapter in adapters:
@@ -131,10 +132,9 @@ def query_threatintel_domain(domain: str) -> tuple[bool, str]:
 def query_threatintel_ip(ip: str) -> tuple[bool, str]:
     """对单个 IP（IPv4/IPv6）执行威胁情报融合判断，返回 (is_malicious, reason)。
 
-    逻辑与 query_threatintel_domain 一致，仅调用适配器的 query_ip。
-    TODO(AI): 实现（参照 query_threatintel_domain）。
+    逻辑与 query_threatintel_domain 一致，仅调用声明 supports_ip 的适配器。
     """
-    adapters = get_enabled_adapters()
+    adapters = [a for a in get_enabled_adapters() if a.supports_ip]
     if not adapters:
         return False, ""
 
@@ -216,12 +216,16 @@ def ip_postfilter(ips: list[str]) -> tuple[list[str], list[str]]:
     """对解析结果 IP 逐条校验，返回 (保留IP列表, 恶意IP列表)。
 
     - 命中本地 IP 黑名单（含 CIDR）→ 剔除
-    TODO(AI): 对剩余 IP 追加威胁情报融合判断（query_threatintel_ip），
-      恶意则剔除；注意并发与超时控制。
+    - 威胁情报融合判定恶意（声明 supports_ip 的启用源）→ 剔除
+    TODO(AI): QPS 高时改为 asyncio 并发查询。
     """
     kept, malicious = [], []
     for ip in ips:
         if is_ip_blacklisted(ip):
+            malicious.append(ip)
+            continue
+        bad, _ = query_threatintel_ip(ip)
+        if bad:
             malicious.append(ip)
         else:
             kept.append(ip)
