@@ -2,12 +2,15 @@
 
 与真实检测链路共用同一批底层函数（detectors 的名单匹配 / adapters 的
 情报源查询），但不写日志、不影响运行时状态。用于上线前验证规则、
-排查"为什么某个域名被拦/没被拦"。
+排查"为什么某个域名/ IP 被拦、没被拦"。
 
 接口：
   POST /api/test/domain  {domain, query_type?, client_ip?}
+                         query_type: A / AAAA / PTR（PTR 输入 IP 或 PTR 名均可）
   POST /api/test/ip      {ip}
 """
+
+import ipaddress
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -16,7 +19,7 @@ from adapters import get_enabled_adapters, run_fusion, ThreatResult
 from app.auth import get_current_user
 from app.db import get_enabled_list
 from config import CONFIG
-from detectors import _match_domain, _match_ip, query_upstream
+from detectors import _match_domain, _match_ip, extract_ptr_ip, query_upstream
 
 router = APIRouter(prefix="/api/test", tags=["test"])
 
@@ -27,15 +30,29 @@ STATUS_LABEL = {
     "skip": "不支持",
 }
 
+VALID_QTYPES = ("A", "AAAA", "PTR")
+
 
 class DomainTestBody(BaseModel):
     domain: str
-    query_type: str = "A"      # A / AAAA
+    query_type: str = "A"      # A / AAAA / PTR
     client_ip: str = ""        # 可选，仅用于模拟日志场景（不做真实性校验）
 
 
 class IpTestBody(BaseModel):
     ip: str
+
+
+def ip_to_ptr(ip: str) -> str | None:
+    """IP → PTR 查询名（4.3.2.1.in-addr.arpa / ip6.arpa 反转），非法返回 None。"""
+    try:
+        addr = ipaddress.ip_address(ip.strip())
+    except ValueError:
+        return None
+    if isinstance(addr, ipaddress.IPv4Address):
+        return ".".join(reversed(str(addr).split("."))) + ".in-addr.arpa"
+    hex_str = addr.exploded.replace(":", "")
+    return ".".join(reversed(list(hex_str))) + ".ip6.arpa"
 
 
 def _find_domain_rule(list_type: str, domain: str) -> str | None:
@@ -103,12 +120,18 @@ def _fusion_verdict(probe: list[dict]) -> tuple[bool, str]:
 
 @router.post("/domain")
 def test_domain(body: DomainTestBody, _: str = Depends(get_current_user)):
+    qtype = body.query_type.upper()
+    if qtype not in VALID_QTYPES:
+        raise HTTPException(status_code=400,
+                            detail="query_type 须为 A/AAAA/PTR")
+
+    # ---- PTR 反向解析测试：按查询的 IP 走过滤链路 ----
+    if qtype == "PTR":
+        return _test_ptr(body)
+
     domain = body.domain.strip().lower().rstrip(".")
     if not domain:
         raise HTTPException(status_code=400, detail="domain 不能为空")
-    qtype = body.query_type.upper()
-    if qtype not in ("A", "AAAA"):
-        raise HTTPException(status_code=400, detail="query_type 须为 A/AAAA")
 
     out = {
         "domain": domain,
@@ -199,3 +222,73 @@ def test_ip(body: IpTestBody, _: str = Depends(get_current_user)):
         "reason": (f"本地黑名单命中：{ip_rule}" if ip_rule
                    else (reason if bad else "全部情报源未命中")),
     }}
+
+
+def _test_ptr(body: DomainTestBody) -> dict:
+    """PTR 反向解析测试：输入 IP 或 PTR 名，模拟真实链路按 IP 过滤。
+
+    返回结构与域名测试对齐（whitelist / local_blacklist 为 IP 维度）：
+      - 白名单 IP 命中 → 放行
+      - 黑名单 IP 命中 → 拦截
+      - 威胁情报 IP 融合 → 恶意拦截 / 放行
+    不写日志、不影响运行时状态。
+    """
+    raw = body.domain.strip().lower().rstrip(".")
+    if not raw:
+        raise HTTPException(status_code=400, detail="PTR 测试需提供 IP 或查询名")
+
+    ptr_name = ip_to_ptr(raw) if ip_to_ptr(raw) is not None else raw
+    ip = extract_ptr_ip(ptr_name)
+    if ip is None:
+        raise HTTPException(
+            status_code=400,
+            detail="无法解析为 IP：请输入 IP 地址或合法的 in-addr.arpa/ip6.arpa 查询名")
+
+    out = {
+        "domain": ptr_name,
+        "query_type": "PTR",
+        "client_ip": body.client_ip,
+        "detection_enabled": bool(CONFIG.detection_enabled),
+        "ptr_ip": ip,
+        "whitelist": {"matched": False, "rule": None},
+        "local_blacklist": {"matched": False, "rule": None},
+        "threatintel_domain": [],
+        "domain_verdict": None,
+        "resolution": None,
+        "ip_checks": [],
+        "final_verdict": None,
+    }
+
+    # 1) 白名单 IP（优先级最高）
+    wl = _find_ip_rule("whitelist", ip)
+    if wl:
+        out["whitelist"] = {"matched": True, "rule": wl}
+        out["domain_verdict"] = {"action": "allow",
+                                 "reason": f"白名单 IP 命中：{wl}"}
+        out["final_verdict"] = {"action": "allow",
+                                "reason": "PTR 直接放行（白名单）"}
+        return {"code": 0, "message": "ok", "data": out}
+
+    # 2) 本地 IP 黑名单
+    bl = _find_ip_rule("blacklist", ip)
+    if bl:
+        out["local_blacklist"] = {"matched": True, "rule": bl}
+        out["domain_verdict"] = {"action": "intercept",
+                                 "reason": f"本地 IP 黑名单命中：{bl}"}
+        out["final_verdict"] = {"action": "intercept",
+                                "reason": "PTR 返回空应答（NOERROR 无记录）"}
+        return {"code": 0, "message": "ok", "data": out}
+
+    # 3) 威胁情报 IP 检测
+    probe = _probe("ip", ip)
+    out["threatintel_domain"] = probe
+    bad, reason = _fusion_verdict(probe)
+    if bad:
+        out["domain_verdict"] = {"action": "intercept", "reason": reason}
+        out["final_verdict"] = {"action": "intercept",
+                                "reason": "PTR 返回空应答（NOERROR 无记录）"}
+        return {"code": 0, "message": "ok", "data": out}
+
+    out["domain_verdict"] = {"action": "forward", "reason": reason or "无命中规则"}
+    out["final_verdict"] = {"action": "forward", "reason": "IP 全部通过，PTR 正常转发"}
+    return {"code": 0, "message": "ok", "data": out}

@@ -32,6 +32,35 @@ logger = logging.getLogger("platform.detectors")
 FILTERABLE_TYPES = {QTYPE.A, QTYPE.AAAA}
 
 
+def extract_ptr_ip(ptr_name: str) -> str | None:
+    """从 PTR 查询名（in-addr.arpa / ip6.arpa）提取 IP，失败返回 None。
+
+    - IPv4：4.3.2.1.in-addr.arpa → 1.2.3.4
+    - IPv6：32 个半字节反转 + .ip6.arpa → 压缩格式 IPv6 地址
+    """
+    name = (ptr_name or "").rstrip(".").lower()
+    if name.endswith(".in-addr.arpa"):
+        labels = name[: -len(".in-addr.arpa")].split(".")
+        if len(labels) != 4:
+            return None
+        if not all(l.isdigit() and 0 <= int(l) <= 255 for l in labels):
+            return None
+        return ".".join(reversed(labels))
+    if name.endswith(".ip6.arpa"):
+        nibbles = name[: -len(".ip6.arpa")].split(".")
+        if len(nibbles) != 32:
+            return None
+        if not all(len(n) == 1 and n in "0123456789abcdef" for n in nibbles):
+            return None
+        hex_str = "".join(reversed(nibbles))          # 32 个十六进制字符
+        groups = [hex_str[i:i + 4] for i in range(0, 32, 4)]
+        try:
+            return str(ipaddress.IPv6Address(":".join(groups)))
+        except ValueError:
+            return None
+    return None
+
+
 # ---------------------------------------------------------------------------
 # 1. 名单匹配（白名单 / 黑名单）
 # ---------------------------------------------------------------------------
@@ -160,7 +189,13 @@ def query_threatintel_ip(ip: str) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 def _qtype_name(qtype: int) -> str:
-    return "A" if qtype == QTYPE.A else "AAAA"
+    if qtype == QTYPE.A:
+        return "A"
+    if qtype == QTYPE.AAAA:
+        return "AAAA"
+    if qtype == QTYPE.PTR:
+        return "PTR"
+    return str(qtype)
 
 
 def _upstream_target() -> tuple[str, int]:
@@ -313,17 +348,21 @@ def process_query(request: DNSRecord, client_ip: str | None = None) -> DNSRecord
     if not CONFIG.detection_enabled:
         return query_upstream_reply(request)
 
-    # 1) 非 A/AAAA → 直接转发公网解析（不做过滤）
+    # 1) PTR 反向解析：按查询的 IP 过滤（白名单→黑名单→威胁情报），不能漏
+    if qtype == QTYPE.PTR:
+        return _process_ptr(request, domain, client_ip or "")
+
+    # 2) 非 A/AAAA → 直接转发公网解析（不做过滤）
     if qtype not in FILTERABLE_TYPES:
         return query_upstream_reply(request)
 
-    # 2) 白名单 → 直接放行（写放行日志，若开启）
+    # 3) 白名单 → 直接放行（写放行日志，若开启）
     if is_whitelisted(domain):
         if CONFIG.allow_log_enabled:
             write_allow_log(client_ip or "", domain, qtype)
         return query_upstream_reply(request)
 
-    # 3) 域名前置检测
+    # 4) 域名前置检测
     if is_blacklisted(domain):
         write_filter_log(client_ip or "", domain, qtype,
                          "local_blacklist", "intercept", [],
@@ -337,7 +376,7 @@ def process_query(request: DNSRecord, client_ip: str | None = None) -> DNSRecord
                          "alert_ip:" + CONFIG.alert_ip)
         return build_intercept_reply(request, qtype)
 
-    # 4) 公网解析 → IP 后置过滤
+    # 5) 公网解析 → IP 后置过滤
     ips = query_upstream(domain, qtype)
     if not ips:
         # 解析失败：回 SERVFAIL，不拦截不误报
@@ -359,5 +398,36 @@ def process_query(request: DNSRecord, client_ip: str | None = None) -> DNSRecord
                          "ip_filter", "remove_ip", malicious_ips, final)
         return build_remaining_reply(request, qtype, kept)
 
-    # 5) 全部正常 → 原样返回
+    # 6) 全部正常 → 原样返回
+    return query_upstream_reply(request)
+
+
+def _process_ptr(request: DNSRecord, ptr_name: str, client_ip: str) -> DNSRecord:
+    """PTR 反向解析过滤：从查询名提取 IP，按 IP 走白名单→黑名单→威胁情报。
+
+    - 非标准 PTR 名（无法提取 IP）→ 直接转发上游，不误拦；
+    - 白名单 IP 命中 → 放行（最高优先级）；
+    - 本地 IP 黑名单命中 / 威胁情报判定恶意 → 拦截（空应答 NOERROR）；
+    - 拦截记录写过滤日志（domain 存 PTR 查询名，malicious_ips 存提取的 IP）。
+    """
+    ip = extract_ptr_ip(ptr_name)
+    if ip is None:
+        return query_upstream_reply(request)
+
+    if _match_ip(ip, get_enabled_list("whitelist", "ip")):
+        if CONFIG.allow_log_enabled:
+            write_allow_log(client_ip, ptr_name, QTYPE.PTR)
+        return query_upstream_reply(request)
+
+    if _match_ip(ip, get_enabled_list("blacklist", "ip")):
+        write_filter_log(client_ip, ptr_name, QTYPE.PTR, "local_blacklist",
+                         "intercept", [ip], "empty")
+        return build_intercept_reply(request, QTYPE.PTR)
+
+    bad, reason = query_threatintel_ip(ip)
+    if bad:
+        write_filter_log(client_ip, ptr_name, QTYPE.PTR, reason,
+                         "intercept", [ip], "empty")
+        return build_intercept_reply(request, QTYPE.PTR)
+
     return query_upstream_reply(request)

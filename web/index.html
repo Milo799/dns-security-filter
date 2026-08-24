@@ -181,7 +181,8 @@ table.sap tbody tr:hover{background:#f5faff}
       <div class="nav-item active" data-page="dashboard"><span>📊</span>仪表盘</div>
       <div class="nav-item" data-page="logs"><span>📋</span>过滤日志</div>
       <div class="nav-group-title">策略管理</div>
-      <div class="nav-item" data-page="lists"><span>🛡️</span>黑白名单</div>
+      <div class="nav-item" data-page="whitelist"><span>🟢</span>白名单</div>
+      <div class="nav-item" data-page="blacklist"><span>🔴</span>黑名单</div>
       <div class="nav-item" data-page="testcenter"><span>🧪</span>测试中心</div>
       <div class="nav-item" data-page="threatintel"><span>🌐</span>威胁情报源</div>
       <div class="nav-group-title">系统</div>
@@ -234,29 +235,53 @@ table.sap tbody tr:hover{background:#f5faff}
         </div>
       </div>
 
-      <!-- 黑白名单 -->
-      <div class="page" id="page-lists">
+      <!-- 白名单 -->
+      <div class="page" id="page-whitelist">
         <div class="page-head">
-          <div><div class="page-title">黑白名单</div><div class="page-sub">白名单优先级高于黑名单</div></div>
+          <div><div class="page-title">白名单</div><div class="page-sub">优先级最高：命中的域名 / IP 直接放行，跳过全部检测</div></div>
           <div class="toolbar">
-            <button class="btn btn-normal btn-compact" onclick="importList()">⬆ 导入 CSV</button>
-            <button class="btn btn-normal btn-compact" onclick="exportList()">⬇ 导出</button>
-            <button class="btn btn-emphasized btn-compact" onclick="openListDialog()">＋ 新建条目</button>
+            <button class="btn btn-normal btn-compact" onclick="importList('whitelist')">⬆ 导入 CSV</button>
+            <button class="btn btn-normal btn-compact" onclick="exportList('whitelist')">⬇ 导出</button>
+            <button class="btn btn-emphasized btn-compact" onclick="openListDialog('whitelist')">＋ 新建条目</button>
           </div>
         </div>
         <div class="card">
           <div class="filter-bar">
-            <div class="f-item"><label>名单类型</label><select id="lsType" onchange="listPage=1;loadLists()"><option value="">全部</option><option value="blacklist">黑名单</option><option value="whitelist">白名单</option></select></div>
-            <div class="f-item"><label>目标类型</label><select id="lsTarget" onchange="listPage=1;loadLists()"><option value="">全部</option><option value="domain">域名</option><option value="ip">IP / CIDR</option></select></div>
-            <div class="f-item"><label>关键字</label><input id="lsKw" placeholder="域名或 IP 片段" onkeydown="if(event.key==='Enter'){listPage=1;loadLists()}"></div>
-            <button class="btn btn-emphasized btn-compact" onclick="listPage=1;loadLists()">查询</button>
-            <span class="count-note" id="lsCount"></span>
+            <div class="f-item"><label>目标类型</label><select id="wlTarget" onchange="wlPage=1;loadWhitelist()"><option value="">全部</option><option value="domain">域名</option><option value="ip">IP / CIDR</option></select></div>
+            <div class="f-item"><label>关键字</label><input id="wlKw" placeholder="域名或 IP 片段" onkeydown="if(event.key==='Enter'){wlPage=1;loadWhitelist()}"></div>
+            <button class="btn btn-emphasized btn-compact" onclick="wlPage=1;loadWhitelist()">查询</button>
+            <span class="count-note" id="wlCount"></span>
           </div>
           <div class="table-wrap">
             <table class="sap"><thead><tr><th>值</th><th>类型</th><th>状态</th><th>备注</th><th>创建人</th><th>更新时间</th><th>操作</th></tr></thead>
-            <tbody id="listRows"><tr><td colspan="7"><div class="loading">加载中…</div></td></tr></tbody></table>
+            <tbody id="wlRows"><tr><td colspan="7"><div class="loading">加载中…</div></td></tr></tbody></table>
           </div>
-          <div class="pager" id="lsPager"></div>
+          <div class="pager" id="wlPager"></div>
+        </div>
+      </div>
+
+      <!-- 黑名单 -->
+      <div class="page" id="page-blacklist">
+        <div class="page-head">
+          <div><div class="page-title">黑名单</div><div class="page-sub">命中的域名 / IP 直接拦截，不进行公网解析</div></div>
+          <div class="toolbar">
+            <button class="btn btn-normal btn-compact" onclick="importList('blacklist')">⬆ 导入 CSV</button>
+            <button class="btn btn-normal btn-compact" onclick="exportList('blacklist')">⬇ 导出</button>
+            <button class="btn btn-emphasized btn-compact" onclick="openListDialog('blacklist')">＋ 新建条目</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="filter-bar">
+            <div class="f-item"><label>目标类型</label><select id="blTarget" onchange="blPage=1;loadBlacklist()"><option value="">全部</option><option value="domain">域名</option><option value="ip">IP / CIDR</option></select></div>
+            <div class="f-item"><label>关键字</label><input id="blKw" placeholder="域名或 IP 片段" onkeydown="if(event.key==='Enter'){blPage=1;loadBlacklist()}"></div>
+            <button class="btn btn-emphasized btn-compact" onclick="blPage=1;loadBlacklist()">查询</button>
+            <span class="count-note" id="blCount"></span>
+          </div>
+          <div class="table-wrap">
+            <table class="sap"><thead><tr><th>值</th><th>类型</th><th>状态</th><th>备注</th><th>创建人</th><th>更新时间</th><th>操作</th></tr></thead>
+            <tbody id="blRows"><tr><td colspan="7"><div class="loading">加载中…</div></td></tr></tbody></table>
+          </div>
+          <div class="pager" id="blPager"></div>
         </div>
       </div>
 
@@ -276,8 +301,8 @@ table.sap tbody tr:hover{background:#f5faff}
               <button class="t-tab" id="tabIp" onclick="switchTestTab('ip')">IP 测试</button>
             </div>
             <div class="filter-bar" id="domainTestForm" style="padding-left:0;padding-right:0">
-              <div class="f-item" style="flex:1;min-width:240px"><label>域名</label><input id="ttDomain" placeholder="如 example.com" style="width:100%"></div>
-              <div class="f-item"><label>查询类型</label><select id="ttQtype"><option>A</option><option>AAAA</option></select></div>
+              <div class="f-item" style="flex:1;min-width:240px"><label>域名 / IP（PTR）</label><input id="ttDomain" placeholder="如 example.com" style="width:100%"></div>
+              <div class="f-item"><label>查询类型</label><select id="ttQtype" onchange="ttDomainPlaceholder()"><option>A</option><option>AAAA</option><option>PTR</option></select></div>
               <div class="f-item"><label>客户端 IP（可选）</label><input id="ttCip" placeholder="如 192.168.1.100"></div>
               <button class="btn btn-emphasized btn-compact" onclick="runDomainTest()">▶ 开始测试</button>
             </div>
@@ -370,7 +395,7 @@ table.sap tbody tr:hover{background:#f5faff}
     <div class="modal-head"><span>新建名单条目</span><button class="icon-btn" onclick="closeModal('listModal')">✕</button></div>
     <div class="modal-body">
       <div class="form-grid" style="grid-template-columns:1fr 1fr">
-        <div class="form-row"><label class="req">名单类型</label><select id="mListType"><option value="blacklist">黑名单</option><option value="whitelist">白名单</option></select></div>
+        <div class="form-row"><label class="req">名单类型</label><input type="hidden" id="mListType" value="whitelist"><span id="mListTypeLabel" style="line-height:36px;font-weight:600"></span></div>
         <div class="form-row"><label class="req">目标类型</label><select id="mTarget"><option value="domain">域名（支持通配符）</option><option value="ip">IP / CIDR</option></select></div>
       </div>
       <div class="form-row"><label class="req">值</label><input id="mValue" placeholder="如 *.example.com 或 93.184.216.0/24"></div>
@@ -471,7 +496,7 @@ document.getElementById('loginPass').addEventListener('keydown',function(e){if(e
 document.querySelectorAll('.nav-item').forEach(function(el){
   el.addEventListener('click',function(){go(el.dataset.page)});
 });
-var PAGE_LOADERS={dashboard:loadDashboard,logs:loadLogs,lists:loadLists,threatintel:loadThreatintel,config:loadConfig,audit:loadAudit};
+var PAGE_LOADERS={dashboard:loadDashboard,logs:loadLogs,whitelist:loadWhitelist,blacklist:loadBlacklist,threatintel:loadThreatintel,config:loadConfig,audit:loadAudit};
 function go(page){
   document.querySelectorAll('.nav-item').forEach(function(n){n.classList.toggle('active',n.dataset.page===page)});
   document.querySelectorAll('.page').forEach(function(p){p.classList.toggle('active',p.id==='page-'+page)});
@@ -551,33 +576,40 @@ function downloadBlob(blob,name){
   setTimeout(function(){URL.revokeObjectURL(a.href)},1000);
 }
 
-/* ================= 黑白名单 ================= */
-var listPage=1;
-async function loadLists(page){
-  if(page)listPage=page;
-  var q=new URLSearchParams({page:listPage,size:20});
-  if(document.getElementById('lsType').value)q.set('list_type',document.getElementById('lsType').value);
-  if(document.getElementById('lsTarget').value)q.set('target',document.getElementById('lsTarget').value);
-  var kw=document.getElementById('lsKw').value.trim();
+/* ================= 白名单 / 黑名单（两个独立页面，公共渲染） ================= */
+function loadListData(page,listType,ids){
+  if(page)ids.page=page;
+  var q=new URLSearchParams({page:ids.page,size:20,list_type:listType});
+  var t=document.getElementById(ids.target).value;
+  if(t)q.set('target',t);
+  var kw=document.getElementById(ids.kw).value.trim();
   if(kw)q.set('keyword',kw);
-  try{
-    var d=(await api('GET','/api/list?'+q)).data;
-    document.getElementById('lsCount').textContent='共 '+d.total+' 条';
-    document.getElementById('listRows').innerHTML=d.items.length?d.items.map(function(x){
+  api('GET','/api/list?'+q).then(function(d){
+    document.getElementById(ids.count).textContent='共 '+d.data.total+' 条';
+    document.getElementById(ids.rows).innerHTML=d.data.items.length?d.data.items.map(function(x){
       return '<tr><td class="mono">'+esc(x.value)+'</td>'
         +'<td>'+(x.target==='domain'?'<span class="tag tag-blue">域名</span>':'<span class="tag tag-neutral">IP/CIDR</span>')+'</td>'
         +'<td>'+(x.enabled?'<span class="tag tag-success"><span class="dot"></span>启用</span>':'<span class="tag tag-neutral">停用</span>')+'</td>'
         +'<td style="white-space:normal">'+esc(x.remark||'')+'</td><td>'+esc(x.created_by)+'</td><td class="mono">'+esc(x.updated_at)+'</td>'
         +'<td><div class="row-actions">'
-        +'<button class="icon-btn" title="'+(x.enabled?'停用':'启用')+'" onclick="toggleListItem('+x.id+','+(!x.enabled?1:0)+')">'+(x.enabled?'⏸':'▶')+'</button>'
-        +'<button class="icon-btn" title="编辑备注" onclick="editListItem('+x.id+')">✎</button>'
-        +'<button class="icon-btn" title="删除" onclick="delListItem('+x.id+',\''+esc(x.value).replace(/'/g,"")+'\')">🗑</button>'
+        +'<button class="icon-btn" title="'+(x.enabled?'停用':'启用')+'" onclick="toggleListItem('+x.id+','+(!x.enabled?1:0)+',\''+listType+'\')">'+(x.enabled?'⏸':'▶')+'</button>'
+        +'<button class="icon-btn" title="编辑备注" onclick="editListItem('+x.id+',\''+listType+'\')">✎</button>'
+        +'<button class="icon-btn" title="删除" onclick="delListItem('+x.id+',\''+esc(x.value).replace(/'/g,"")+'\',\''+listType+'\')">🗑</button>'
         +'</div></td></tr>';
     }).join(''):'<tr><td colspan="7"><div class="empty-tip">暂无条目</div></td></tr>';
-    pager(document.getElementById('lsPager'),d.total,listPage,20,'loadLists');
-  }catch(e){toast(e.message,true)}
+    pager(document.getElementById(ids.pager),d.data.total,ids.page,20,ids.loader);
+  }).catch(function(e){toast(e.message,true)});
 }
-function openListDialog(){document.getElementById('listModal').classList.add('show')}
+var wlPage=1, blPage=1;
+var WL_IDS={page:1,target:'wlTarget',kw:'wlKw',count:'wlCount',rows:'wlRows',pager:'wlPager',loader:'loadWhitelist'};
+var BL_IDS={page:1,target:'blTarget',kw:'blKw',count:'blCount',rows:'blRows',pager:'blPager',loader:'loadBlacklist'};
+function loadWhitelist(page){loadListData(page,'whitelist',WL_IDS)}
+function loadBlacklist(page){loadListData(page,'blacklist',BL_IDS)}
+function openListDialog(listType){
+  document.getElementById('mListType').value=listType;
+  document.getElementById('mListTypeLabel').textContent=listType==='whitelist'?'🟢 白名单':'🔴 黑名单';
+  document.getElementById('listModal').classList.add('show');
+}
 async function saveListEntry(){
   var body={list_type:document.getElementById('mListType').value,
             target:document.getElementById('mTarget').value,
@@ -588,26 +620,34 @@ async function saveListEntry(){
     await api('POST','/api/list',body);
     closeModal('listModal');
     document.getElementById('mValue').value='';document.getElementById('mRemark').value='';
-    toast('已创建（已记入审计）');loadLists(1);
+    toast('已创建（已记入审计）');
+    (body.list_type==='whitelist'?loadWhitelist:loadBlacklist)(1);
   }catch(e){toast(e.message,true)}
 }
-async function toggleListItem(id,to){
-  try{await api('PUT','/api/list/'+id,{enabled:!!to});toast(to?'已启用':'已停用');loadLists()}
-  catch(e){toast(e.message,true)}
+function toggleListItem(id,to,listType){
+  api('PUT','/api/list/'+id,{enabled:!!to}).then(function(){
+    toast(to?'已启用':'已停用');
+    (listType==='whitelist'?loadWhitelist:loadBlacklist)();
+  }).catch(function(e){toast(e.message,true)});
 }
-async function editListItem(id){
+function editListItem(id,listType){
   var remark=prompt('修改备注：');
   if(remark===null)return;
-  try{await api('PUT','/api/list/'+id,{remark:remark});toast('已更新');loadLists()}
-  catch(e){toast(e.message,true)}
+  api('PUT','/api/list/'+id,{remark:remark}).then(function(){
+    toast('已更新');
+    (listType==='whitelist'?loadWhitelist:loadBlacklist)();
+  }).catch(function(e){toast(e.message,true)});
 }
-async function delListItem(id,value){
+function delListItem(id,value,listType){
   if(!confirm('确认删除条目 '+value+' ？'))return;
-  try{await api('DELETE','/api/list/'+id);toast('已删除（已记入审计）');loadLists()}
-  catch(e){toast(e.message,true)}
+  api('DELETE','/api/list/'+id).then(function(){
+    toast('已删除（已记入审计）');
+    (listType==='whitelist'?loadWhitelist:loadBlacklist)();
+  }).catch(function(e){toast(e.message,true)});
 }
-function importList(){
+function importList(listType){
   document.getElementById('importResult').textContent='';
+  document.getElementById('mCsv').value=listType+',domain,example.com,1,示例\n'+listType+',ip,10.0.0.0/8,,整段';
   document.getElementById('importModal').classList.add('show');
 }
 async function doImportList(){
@@ -616,18 +656,21 @@ async function doImportList(){
   try{
     var d=(await api('POST','/api/list/import',csv,true)).data;
     document.getElementById('importResult').textContent='导入 '+d.imported+' 条，跳过 '+d.skipped+' 条'+(d.errors&&d.errors.length?('：'+d.errors.join('；')):'');
-    if(d.imported>0)loadLists(1);
+    if(d.imported>0){loadWhitelist(1);loadBlacklist(1);}
   }catch(e){toast(e.message,true)}
 }
-async function exportList(){
-  var t=document.getElementById('lsType').value;
+async function exportList(listType){
   try{
-    var r=await api('GET','/api/list/export'+(t?'?list_type='+t:''));
-    downloadBlob(await r.blob(),'filter_list.csv');toast('已导出');
+    var r=await api('GET','/api/list/export?list_type='+listType);
+    downloadBlob(await r.blob(),listType+'.csv');toast('已导出');
   }catch(e){toast(e.message,true)}
 }
 
 /* ================= 测试中心 ================= */
+function ttDomainPlaceholder(){
+  var el=document.getElementById('ttDomain');
+  el.placeholder=document.getElementById('ttQtype').value==='PTR'?'如 8.8.8.8 或 8.8.8.8.in-addr.arpa':'如 example.com';
+}
 function switchTestTab(tab){
   document.getElementById('tabDomain').classList.toggle('active',tab==='domain');
   document.getElementById('tabIp').classList.toggle('active',tab==='ip');
@@ -668,14 +711,15 @@ async function runDomainTest(){
 }
 function renderDomainResult(d){
   var fv=d.final_verdict;
+  var isPtr=d.query_type==='PTR';
   var html=verdictBanner(fv.action,fv.action==='intercept'?'判定：拦截':'判定：放行/转发',fv.reason);
   if(!d.detection_enabled)
     html+='<div class="verdict-banner verdict-neutral" style="margin-top:-6px"><span class="vb-icon">⏸</span><div><div class="vb-title">检测总开关已关闭</div><div>当前平台不对任何域名执行过滤，真实流量将直接转发</div></div></div>';
-  html+='<div class="card"><div class="card-head"><div class="card-title">本地名单检查</div><span class="tag tag-neutral">'+esc(d.domain)+' · '+esc(d.query_type)+'</span></div><div class="card-body" style="padding-top:0">'
-    +'<div class="t-check"><div class="tk">🟢 白名单</div><div>'+(d.whitelist.matched?'<span class="tag tag-success"><span class="dot"></span>命中</span> <span class="rule-chip">'+esc(d.whitelist.rule)+'</span>':'<span class="tag tag-neutral">未命中</span>')+'</div></div>'
-    +'<div class="t-check"><div class="tk">🔴 本地黑名单</div><div>'+(d.local_blacklist.matched?'<span class="tag tag-error"><span class="dot"></span>命中</span> <span class="rule-chip">'+esc(d.local_blacklist.rule)+'</span>':'<span class="tag tag-neutral">未命中</span>')+'</div></div>'
+  html+='<div class="card"><div class="card-head"><div class="card-title">'+(isPtr?'PTR 反向解析 · IP 维度':'本地名单检查')+'</div><span class="tag tag-neutral">'+esc(isPtr?(d.ptr_ip+' → '+d.domain):(d.domain+' · '+d.query_type))+'</span></div><div class="card-body" style="padding-top:0">'
+    +'<div class="t-check"><div class="tk">🟢 白名单'+(isPtr?' IP':'')+'</div><div>'+(d.whitelist.matched?'<span class="tag tag-success"><span class="dot"></span>命中</span> <span class="rule-chip">'+esc(d.whitelist.rule)+'</span>':'<span class="tag tag-neutral">未命中</span>')+'</div></div>'
+    +'<div class="t-check"><div class="tk">🔴 本地'+(isPtr?' IP':'')+'黑名单</div><div>'+(d.local_blacklist.matched?'<span class="tag tag-error"><span class="dot"></span>命中</span> <span class="rule-chip">'+esc(d.local_blacklist.rule)+'</span>':'<span class="tag tag-neutral">未命中</span>')+'</div></div>'
     +'</div></div>';
-  html+='<div class="card"><div class="card-head"><div class="card-title">威胁情报 · 域名维度</div><span class="tag tag-blue">启用源逐源结果</span></div><div class="card-body table-wrap" style="padding-top:0">'+probeTable(d.threatintel_domain)+'</div></div>';
+  html+='<div class="card"><div class="card-head"><div class="card-title">威胁情报 · '+(isPtr?'IP 维度':'域名维度')+'</div><span class="tag tag-blue">启用源逐源结果</span></div><div class="card-body table-wrap" style="padding-top:0">'+probeTable(d.threatintel_domain)+'</div></div>';
   if(d.resolution){
     html+='<div class="card"><div class="card-head"><div class="card-title">公网解析（'+esc(d.query_type)+'）</div></div><div class="card-body" style="padding-top:0">'
       +(d.resolution.ok?'<div class="t-check"><div class="tk">解析结果</div><div class="tv">'+d.resolution.ips.map(esc).join('　')+'</div></div>'
