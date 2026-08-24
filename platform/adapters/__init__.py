@@ -141,6 +141,9 @@ def _build_registry() -> dict[str, type[ThreatIntelAdapter]]:
     from adapters.phishtank import PhishTankAdapter
     from adapters.dshield import DShieldAdapter
     from adapters.blocklistde import BlocklistDeAdapter
+    from adapters.threatfox import ThreatFoxAdapter
+    from adapters.threatbook import ThreatBookAdapter
+    from adapters.xforce import XForceAdapter
     return {
         "example": ExampleAdapter,
         "virustotal": VirusTotalAdapter,
@@ -153,6 +156,9 @@ def _build_registry() -> dict[str, type[ThreatIntelAdapter]]:
         "phishtank": PhishTankAdapter,
         "dshield": DShieldAdapter,
         "blocklist_de": BlocklistDeAdapter,
+        "threatfox": ThreatFoxAdapter,
+        "threatbook": ThreatBookAdapter,
+        "xforce": XForceAdapter,
     }
 
 

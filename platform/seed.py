@@ -62,6 +62,27 @@ BUILTIN_THREATINTEL = [
         "description": "URLhaus（abuse.ch）恶意 URL 分发库，支持域名与 IP",
     },
     {
+        "name": "threatfox",
+        "adapter_type": "http",
+        "base_url": "https://threatfox-api.abuse.ch",
+        "config": {"note": "需免费注册 Auth-Key（auth.abuse.ch），编辑本源的 api_key 或 config 填写"},
+        "description": "ThreatFox（abuse.ch）僵尸网络 C2 指标库，支持域名与 IP",
+    },
+    {
+        "name": "threatbook",
+        "adapter_type": "http",
+        "base_url": "https://api.threatbook.cn",
+        "config": {"note": "需免费注册 apikey（x.threatbook.cn）；个人版约 50 次/天，建议人工核查用"},
+        "description": "微步在线 ThreatBook 威胁情报（C2/恶意软件/钓鱼），支持域名与 IP",
+    },
+    {
+        "name": "xforce",
+        "adapter_type": "http",
+        "base_url": "https://api.xforce.ibmcloud.com",
+        "config": {"note": "免费非商业 API；需 exchange.xforce.ibmcloud.com 生成 Key+Password，config 填 api_password，评分阈值 score_threshold 默认 5"},
+        "description": "IBM X-Force Exchange 威胁情报（评分制 0-10），支持域名与 IP",
+    },
+    {
         "name": "phishtank",
         "adapter_type": "http",
         "base_url": "https://checkurl.phishtank.com",
