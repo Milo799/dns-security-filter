@@ -13,8 +13,10 @@ from app.db import db_cursor
 logger = logging.getLogger("platform.runtime")
 
 # 类型转换规则：system_config 值均为字符串，落内存时需还原类型
-_BOOL_KEYS = {"allow_log_enabled", "detection_enabled"}
-_INT_KEYS = {"alert_ttl", "log_retention_days", "api_timeout_ms"}
+_BOOL_KEYS = {"allow_log_enabled", "detection_enabled",
+              "threatlist_auto_update"}
+_INT_KEYS = {"alert_ttl", "log_retention_days", "api_timeout_ms",
+             "threatlist_auto_interval_hours"}
 
 
 def _apply(key: str, value: str) -> None:

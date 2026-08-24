@@ -345,6 +345,18 @@ table.sap tbody tr:hover{background:#f5faff}
               <div class="f-item" style="flex:1;min-width:240px"><label>查域名 / IP 是否命中</label><input id="tlQuery" placeholder="如 evil.example.com" style="width:100%" onkeydown="if(event.key==='Enter')runThreatListQuery()"></div>
               <button class="btn btn-emphasized btn-compact" onclick="runThreatListQuery()">查询</button>
             </div>
+            <div class="switch-row" style="margin:10px 0 0;background:#f6f7f9;border-radius:8px;padding:10px 12px">
+              <div>
+                <div class="switch-label">自动更新</div>
+                <div class="switch-desc">按设定间隔自动整源更新「已启用」来源；单个来源失败不影响其他来源与服务</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <span class="form-hint" style="margin:0">间隔</span>
+                <input id="tlAutoInterval" type="number" min="1" max="720" style="width:72px" onchange="saveThreatListAuto()">
+                <span class="form-hint" style="margin:0">小时</span>
+                <label class="switch" title="开启后服务将在每个间隔周期自动更新已启用来源"><input id="tlAutoUpdate" type="checkbox" onchange="saveThreatListAuto()"><span class="slider"></span></label>
+              </div>
+            </div>
             <div id="tlQueryResult"></div>
             <div class="table-wrap" style="margin-top:12px">
               <table class="sap"><thead><tr><th>来源</th><th>说明</th><th>条数</th><th>状态</th><th>最近导入</th><th>操作</th></tr></thead>
@@ -820,6 +832,10 @@ async function loadThreatintel(){
 async function loadThreatlist(){
   try{
     var d=(await api('GET','/api/threatlist/sources')).data.items;
+    var cfg=(await api('GET','/api/config')).data.items;
+    var au=cfg.threatlist_auto_update, iv=cfg.threatlist_auto_interval_hours;
+    document.getElementById('tlAutoUpdate').checked = au ? au.value==='1' : false;
+    document.getElementById('tlAutoInterval').value = iv ? iv.value : 24;
     document.getElementById('tlRows').innerHTML=d.map(function(x){
       var has=x.total>0;
       return '<tr><td style="white-space:nowrap"><b>'+esc(x.name)+'</b><div class="form-hint" style="margin-bottom:0">'+esc(x.key)+'</div></td>'
@@ -854,6 +870,16 @@ async function delThreatList(key){
   try{
     await api('DELETE','/api/threatlist/source?source='+encodeURIComponent(key));
     toast('已清空');loadThreatlist();
+  }catch(e){toast(e.message,true)}
+}
+async function saveThreatListAuto(){
+  var on=document.getElementById('tlAutoUpdate').checked;
+  var h=parseInt(document.getElementById('tlAutoInterval').value,10)||24;
+  h=Math.max(1,Math.min(h,720));
+  document.getElementById('tlAutoInterval').value=h;
+  try{
+    await api('PUT','/api/config',{threatlist_auto_update:on,threatlist_auto_interval_hours:h});
+    toast(on?'自动更新已开启（每 '+h+' 小时）':'自动更新已关闭');
   }catch(e){toast(e.message,true)}
 }
 async function runThreatListQuery(){

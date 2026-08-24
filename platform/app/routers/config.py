@@ -24,6 +24,8 @@ class ConfigBody(BaseModel):
     fusion_strategy: str | None = None
     log_retention_days: int | None = None
     allow_log_enabled: bool | None = None
+    threatlist_auto_update: bool | None = None
+    threatlist_auto_interval_hours: int | None = None
 
 
 @router.get("/config")
@@ -52,6 +54,11 @@ def update_config(body: ConfigBody, user: str = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="alert_ttl 须在 1~86400 之间")
     if "log_retention_days" in data and not (1 <= data["log_retention_days"] <= 3650):
         raise HTTPException(status_code=400, detail="log_retention_days 须在 1~3650 之间")
+    if "threatlist_auto_interval_hours" in data and not (
+            1 <= data["threatlist_auto_interval_hours"] <= 720):
+        raise HTTPException(
+            status_code=400,
+            detail="threatlist_auto_interval_hours 须在 1~720 之间（1 小时~30 天）")
 
     changes = {}
     for key, value in data.items():
