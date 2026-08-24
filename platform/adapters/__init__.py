@@ -144,6 +144,8 @@ def _build_registry() -> dict[str, type[ThreatIntelAdapter]]:
     from adapters.threatfox import ThreatFoxAdapter
     from adapters.threatbook import ThreatBookAdapter
     from adapters.xforce import XForceAdapter
+    from adapters.otx import OTXAdapter
+    from adapters.greynoise import GreyNoiseAdapter
     return {
         "example": ExampleAdapter,
         "virustotal": VirusTotalAdapter,
@@ -159,6 +161,8 @@ def _build_registry() -> dict[str, type[ThreatIntelAdapter]]:
         "threatfox": ThreatFoxAdapter,
         "threatbook": ThreatBookAdapter,
         "xforce": XForceAdapter,
+        "otx": OTXAdapter,
+        "greynoise": GreyNoiseAdapter,
     }
 
 

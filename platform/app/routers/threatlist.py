@@ -1,0 +1,141 @@
+"""离线大名单管理（hagezi / StevenBlack 恶意域名列表）。
+
+与在线威胁情报源互补：一次导入本地 SQLite，离线匹配、零 Key、零延迟，
+检测主流程在本地黑名单之后、在线情报源之前命中即拦截。
+
+接口：
+  GET    /api/threatlist/sources   内置来源 + 各来源条数/更新时间/启用状态
+  POST   /api/threatlist/import    {source?, url?, enabled?} 下载并整源替换导入
+  GET    /api/threatlist/query     ?value=域名|IP → 命中详情（大名单 + 手工名单）
+  PUT    /api/threatlist/source    {source, enabled} 整体启停
+  DELETE /api/threatlist/source    ?source=xxx 清空该来源
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+
+from app import threat_list
+from app.audit import write_audit
+from app.auth import get_current_user
+from app.db import db_cursor, get_enabled_list
+from detectors import _match_domain, _match_ip
+
+router = APIRouter(prefix="/api/threatlist", tags=["threatlist"])
+
+CUSTOM_SOURCE = "custom"
+
+
+class ImportBody(BaseModel):
+    source: str = ""       # 内置来源 key（hagezi_ti/hagezi_ult/stevenblack）
+    url: str = ""          # 自定义导入时填；内置来源可省略
+    enabled: bool = True   # 导入后默认启用（整体开关仍可随时切换）
+
+
+class SourceEnableBody(BaseModel):
+    source: str
+    enabled: bool
+
+
+def _resolve_source(body: ImportBody) -> tuple[str, str, str]:
+    """返回 (source_key, url, format)。支持内置 key 或自定义 url。"""
+    if body.url.strip():
+        return CUSTOM_SOURCE, body.url.strip(), "auto"
+    key = body.source.strip().lower()
+    meta = threat_list.source_stats()
+    if key not in meta:
+        raise HTTPException(
+            status_code=400,
+            detail=f"未知来源 {key}，内置可选：{sorted(meta)}；或提供自定义 url")
+    return key, meta[key]["url"], meta[key].get("format", "auto")
+
+
+@router.get("/sources")
+def list_sources(_: str = Depends(get_current_user)):
+    """内置来源元数据 + 各来源当前统计（条数/启用数/更新时间）。"""
+    return {"code": 0, "message": "ok", "data": {
+        "items": list(threat_list.source_stats().values())}}
+
+
+@router.post("/import")
+def import_list(body: ImportBody, user: str = Depends(get_current_user)):
+    """下载并整源替换导入（重复导入即增量更新）。"""
+    source, url, fmt = _resolve_source(body)
+    try:
+        text = threat_list.download(url, timeout_s=90)
+    except Exception as e:
+        raise HTTPException(status_code=502,
+                            detail=f"下载失败：{e}") from e
+    try:
+        n = threat_list.import_source(source, text, enabled=body.enabled)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"导入失败：{e}") from e
+    if n == 0:
+        raise HTTPException(status_code=422,
+                            detail="列表解析后无有效域名（格式不支持或内容为空）")
+    write_audit(user, "threatlist_import",
+                {"source": source, "url": url, "imported": n,
+                 "enabled": body.enabled})
+    return {"code": 0, "message": "ok",
+            "data": {"source": source, "imported": n}}
+
+
+@router.get("/query")
+def query_list(value: str = Query(..., min_length=1),
+               _: str = Depends(get_current_user)):
+    """查域名 / IP 是否命中大名单与手工黑白名单（排查用）。"""
+    v = value.strip().lower().rstrip(".")
+    if not v:
+        raise HTTPException(status_code=400, detail="value 不能为空")
+
+    tl = threat_list.find_domain(v) or threat_list.find_ip(v)
+    manual_bl = None
+    for rule in get_enabled_list("blacklist", "domain"):
+        if _match_domain(v, [rule]):
+            manual_bl = rule
+            break
+    if manual_bl is None:
+        for rule in get_enabled_list("blacklist", "ip"):
+            if _match_ip(v, [rule]):
+                manual_bl = rule
+                break
+    manual_wl = None
+    for rule in get_enabled_list("whitelist", "domain"):
+        if _match_domain(v, [rule]):
+            manual_wl = rule
+            break
+
+    return {"code": 0, "message": "ok", "data": {
+        "value": v,
+        "threat_list": {
+            "matched": tl is not None,
+            "source": tl[0] if tl else None,
+            "entry": tl[1] if tl else None,
+        },
+        "manual_blacklist": manual_bl,
+        "manual_whitelist": manual_wl,
+    }}
+
+
+@router.put("/source")
+def enable_source(body: SourceEnableBody, user: str = Depends(get_current_user)):
+    """整体启停某来源（条目保留，停用即不参与匹配）。"""
+    with db_cursor() as cur:
+        cur.execute("SELECT COUNT(*) AS c FROM threat_list WHERE source=?",
+                    (body.source,))
+        if cur.fetchone()["c"] == 0:
+            raise HTTPException(status_code=404,
+                                detail=f"来源 {body.source} 无数据")
+    n = threat_list.enable_source(body.source, body.enabled)
+    write_audit(user, "threatlist_enable",
+                {"source": body.source, "enabled": body.enabled,
+                 "rows": n})
+    return {"code": 0, "message": "ok", "data": {"affected": n}}
+
+
+@router.delete("/source")
+def delete_source(source: str = Query(...),
+                  user: str = Depends(get_current_user)):
+    """清空某来源数据（内置来源可重新导入恢复）。"""
+    n = threat_list.delete_source(source)
+    write_audit(user, "threatlist_delete", {"source": source, "rows": n})
+    return {"code": 0, "message": "ok", "data": {"deleted": n}}

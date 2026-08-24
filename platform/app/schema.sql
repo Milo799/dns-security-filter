@@ -77,3 +77,19 @@ CREATE TABLE IF NOT EXISTS audit_log (
     detail    TEXT DEFAULT ''                 -- 变更内容 JSON
 );
 CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log (timestamp);
+
+-- 6.7 离线大名单（hagezi / StevenBlack 等恶意域名列表，导入本地离线匹配）
+-- 与手工黑白名单（filter_list）分离：整源导入/替换/启停，不污染手工条目。
+-- source: 来源 key（hagezi_ti / hagezi_ult / stevenblack / 自定义）
+-- target: domain（当前主要形态；ip 预留，供未来 IP 大列表扩展）
+CREATE TABLE IF NOT EXISTS threat_list (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    source     VARCHAR NOT NULL,              -- 来源 key
+    value      VARCHAR NOT NULL,              -- 域名（小写无尾点）或 IP
+    target     VARCHAR NOT NULL DEFAULT 'domain',
+    enabled    BOOLEAN NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT (datetime('now','localtime')),
+    updated_at DATETIME NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_threat_list       ON threat_list (source, enabled);
+CREATE INDEX IF NOT EXISTS idx_threat_list_value ON threat_list (value);

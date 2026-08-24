@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from adapters import get_enabled_adapters, run_fusion, ThreatResult
 from app.auth import get_current_user
 from app.db import get_enabled_list
+from app.threat_list import find_domain, find_ip
 from config import CONFIG
 from detectors import _match_domain, _match_ip, extract_ptr_ip, query_upstream
 
@@ -140,6 +141,7 @@ def test_domain(body: DomainTestBody, _: str = Depends(get_current_user)):
         "detection_enabled": bool(CONFIG.detection_enabled),
         "whitelist": {"matched": False, "rule": None},
         "local_blacklist": {"matched": False, "rule": None},
+        "threat_list": {"matched": False, "source": None, "entry": None},
         "threatintel_domain": [],
         "domain_verdict": None,
         "resolution": None,
@@ -162,6 +164,16 @@ def test_domain(body: DomainTestBody, _: str = Depends(get_current_user)):
         out["local_blacklist"] = {"matched": True, "rule": rule}
         out["domain_verdict"] = {"action": "intercept",
                                  "reason": f"本地黑名单命中：{rule}"}
+        out["final_verdict"] = {"action": "intercept",
+                                "reason": "返回告警应答（alert_ip）"}
+        return {"code": 0, "message": "ok", "data": out}
+
+    # 2.5) 离线大名单（hagezi/StevenBlack 导入源）
+    tl = find_domain(domain)
+    if tl:
+        out["threat_list"] = {"matched": True, "source": tl[0], "entry": tl[1]}
+        out["domain_verdict"] = {"action": "intercept",
+                                 "reason": f"离线大名单命中：{tl[1]}（来源 {tl[0]}）"}
         out["final_verdict"] = {"action": "intercept",
                                 "reason": "返回告警应答（alert_ip）"}
         return {"code": 0, "message": "ok", "data": out}
@@ -211,16 +223,21 @@ def test_ip(body: IpTestBody, _: str = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="ip 不能为空")
 
     ip_rule = _find_ip_rule("blacklist", ip)
+    tl = find_ip(ip)
     probe = _probe("ip", ip)
     bad, reason = _fusion_verdict(probe)
 
     return {"code": 0, "message": "ok", "data": {
         "ip": ip,
         "local_blacklist": {"matched": bool(ip_rule), "rule": ip_rule},
+        "threat_list": {"matched": tl is not None,
+                        "source": tl[0] if tl else None,
+                        "entry": tl[1] if tl else None},
         "threatintel_ip": probe,
-        "verdict": "intercept" if (ip_rule or bad) else "allow",
+        "verdict": "intercept" if (ip_rule or tl or bad) else "allow",
         "reason": (f"本地黑名单命中：{ip_rule}" if ip_rule
-                   else (reason if bad else "全部情报源未命中")),
+                   else (f"离线大名单命中：{tl[1]}（来源 {tl[0]}）" if tl
+                         else (reason if bad else "全部情报源未命中"))),
     }}
 
 
@@ -252,6 +269,7 @@ def _test_ptr(body: DomainTestBody) -> dict:
         "ptr_ip": ip,
         "whitelist": {"matched": False, "rule": None},
         "local_blacklist": {"matched": False, "rule": None},
+        "threat_list": {"matched": False, "source": None, "entry": None},
         "threatintel_domain": [],
         "domain_verdict": None,
         "resolution": None,
@@ -275,6 +293,16 @@ def _test_ptr(body: DomainTestBody) -> dict:
         out["local_blacklist"] = {"matched": True, "rule": bl}
         out["domain_verdict"] = {"action": "intercept",
                                  "reason": f"本地 IP 黑名单命中：{bl}"}
+        out["final_verdict"] = {"action": "intercept",
+                                "reason": "PTR 返回空应答（NOERROR 无记录）"}
+        return {"code": 0, "message": "ok", "data": out}
+
+    # 2.5) 离线大名单 IP
+    tl = find_ip(ip)
+    if tl:
+        out["threat_list"] = {"matched": True, "source": tl[0], "entry": tl[1]}
+        out["domain_verdict"] = {"action": "intercept",
+                                 "reason": f"离线大名单 IP 命中：{tl[1]}（来源 {tl[0]}）"}
         out["final_verdict"] = {"action": "intercept",
                                 "reason": "PTR 返回空应答（NOERROR 无记录）"}
         return {"code": 0, "message": "ok", "data": out}

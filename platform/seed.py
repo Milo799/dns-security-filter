@@ -103,6 +103,20 @@ BUILTIN_THREATINTEL = [
         "config": {"min_attacks": 1},
         "description": "Blocklist.de 攻击源 IP（SSH/邮件/Web 暴力破解与扫描），免 Key",
     },
+    {
+        "name": "otx",
+        "adapter_type": "http",
+        "base_url": "https://otx.alienvault.com",
+        "config": {"note": "需免费注册 Key（otx.alienvault.com 个人版额度宽松），编辑本源的 api_key 或 config 填写"},
+        "description": "AlienVault OTX 开放威胁情报社区（恶意域名/IP 量大、覆盖广），支持域名与 IP",
+    },
+    {
+        "name": "greynoise",
+        "adapter_type": "http",
+        "base_url": "https://api.greynoise.io",
+        "config": {"note": "需免费社区 Key（docs.greynoise.io/reference/community-ip-lookup），仅 IP；只拦 malicious，扫描器误拦专治"},
+        "description": "GreyNoise 互联网扫描器识别（区分恶意扫描与良性噪声），仅 IP",
+    },
 ]
 
 

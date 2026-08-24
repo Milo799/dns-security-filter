@@ -333,6 +333,25 @@ table.sap tbody tr:hover{background:#f5faff}
             <div class="form-hint" style="margin-top:12px">注：全部启用源均超时/异常时，按安全优先原则默认拦截（fail-safe）。</div>
           </div>
         </div>
+
+        <!-- 离线大名单（hagezi / StevenBlack） -->
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">离线大名单（hagezi / StevenBlack）</div>
+            <span class="tag tag-neutral">本地离线匹配 · 零 API · 零 Key · 优先级高于在线情报源</span>
+          </div>
+          <div class="card-body" style="padding-top:0">
+            <div class="filter-bar" style="padding-left:0;padding-right:0">
+              <div class="f-item" style="flex:1;min-width:240px"><label>查域名 / IP 是否命中</label><input id="tlQuery" placeholder="如 evil.example.com" style="width:100%" onkeydown="if(event.key==='Enter')runThreatListQuery()"></div>
+              <button class="btn btn-emphasized btn-compact" onclick="runThreatListQuery()">查询</button>
+            </div>
+            <div id="tlQueryResult"></div>
+            <div class="table-wrap" style="margin-top:12px">
+              <table class="sap"><thead><tr><th>来源</th><th>说明</th><th>条数</th><th>状态</th><th>最近导入</th><th>操作</th></tr></thead>
+              <tbody id="tlRows"><tr><td colspan="6"><div class="loading">加载中…</div></td></tr></tbody></table>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- 系统配置 -->
@@ -373,7 +392,7 @@ table.sap tbody tr:hover{background:#f5faff}
         <div class="card">
           <div class="filter-bar">
             <div class="f-item"><label>操作人</label><input id="auOp" placeholder="admin"></div>
-            <div class="f-item"><label>动作</label><select id="auAction"><option value="">全部</option><option>list_create</option><option>list_update</option><option>list_delete</option><option>list_import</option><option>threatintel_create</option><option>threatintel_update</option><option>threatintel_delete</option><option>fusion_strategy_change</option><option>detection_toggle</option><option>config_update</option></select></div>
+            <div class="f-item"><label>动作</label><select id="auAction"><option value="">全部</option><option>list_create</option><option>list_update</option><option>list_delete</option><option>list_import</option><option>threatintel_create</option><option>threatintel_update</option><option>threatintel_delete</option><option>threatlist_import</option><option>threatlist_enable</option><option>threatlist_delete</option><option>fusion_strategy_change</option><option>detection_toggle</option><option>config_update</option></select></div>
             <button class="btn btn-emphasized btn-compact" onclick="auditPage=1;loadAudit()">查询</button>
             <span class="count-note" id="auCount"></span>
           </div>
@@ -794,6 +813,60 @@ async function loadThreatintel(){
       c.classList.toggle('sel',sel);
       c.querySelector('input').checked=sel;
     });
+    loadThreatlist();
+  }catch(e){toast(e.message,true)}
+}
+/* ================= 离线大名单 ================= */
+async function loadThreatlist(){
+  try{
+    var d=(await api('GET','/api/threatlist/sources')).data.items;
+    document.getElementById('tlRows').innerHTML=d.map(function(x){
+      var has=x.total>0;
+      return '<tr><td style="white-space:nowrap"><b>'+esc(x.name)+'</b><div class="form-hint" style="margin-bottom:0">'+esc(x.key)+'</div></td>'
+        +'<td style="white-space:normal">'+esc(x.description)+'</td>'
+        +'<td>'+(has?x.total+' 条':'<span class="tag tag-neutral">未导入</span>')+'</td>'
+        +'<td>'+(has?(x.enabled_cnt>0?'<span class="tag tag-success"><span class="dot"></span>启用中</span>':'<span class="tag tag-neutral">已停用</span>'):'-')+'</td>'
+        +'<td class="mono">'+esc(x.updated_at||'-')+'</td>'
+        +'<td style="white-space:nowrap">'
+        +'<button class="btn btn-normal btn-compact" onclick="importThreatList(\''+x.key+'\')">'+(has?'↻ 更新':'⬇ 导入')+'</button>'
+        +(has?'<button class="btn btn-subtle btn-compact" onclick="toggleThreatList(\''+x.key+'\','+(x.enabled_cnt>0?0:1)+')">'+(x.enabled_cnt>0?'停用':'启用')+'</button>'
+        +'<button class="btn btn-subtle btn-compact" onclick="delThreatList(\''+x.key+'\')">清空</button>':'')
+        +'</td></tr>';
+    }).join('');
+  }catch(e){toast(e.message,true)}
+}
+async function importThreatList(key){
+  if(!confirm('确认导入/更新「'+key+'」？将整源替换该来源现有数据。列表最大约 20MB，视网络需数分钟'))return;
+  toast('下载并导入中，请稍候…');
+  try{
+    var d=(await api('POST','/api/threatlist/import',{source:key,enabled:true})).data;
+    toast('导入完成：'+d.imported+' 条');loadThreatlist();
+  }catch(e){toast(e.message,true)}
+}
+async function toggleThreatList(key,to){
+  try{
+    await api('PUT','/api/threatlist/source',{source:key,enabled:!!to});
+    toast(to?'已启用':'已停用');loadThreatlist();
+  }catch(e){toast(e.message,true)}
+}
+async function delThreatList(key){
+  if(!confirm('确认清空「'+key+'」全部条目？可随时重新导入恢复'))return;
+  try{
+    await api('DELETE','/api/threatlist/source?source='+encodeURIComponent(key));
+    toast('已清空');loadThreatlist();
+  }catch(e){toast(e.message,true)}
+}
+async function runThreatListQuery(){
+  var v=document.getElementById('tlQuery').value.trim();
+  if(!v){toast('请输入要查询的域名或 IP',true);return}
+  try{
+    var d=(await api('GET','/api/threatlist/query?value='+encodeURIComponent(v))).data;
+    var parts=[];
+    if(d.threat_list.matched) parts.push('<span class="tag tag-error">大名单命中</span> 来源 '+esc(d.threat_list.source)+' · 条目 '+esc(d.threat_list.entry));
+    else parts.push('<span class="tag tag-neutral">大名单未命中</span>');
+    if(d.manual_whitelist) parts.push('<span class="tag tag-success">手工白名单命中</span> '+esc(d.manual_whitelist)+'（放行）');
+    if(d.manual_blacklist) parts.push('<span class="tag tag-error">手工黑名单命中</span> '+esc(d.manual_blacklist));
+    document.getElementById('tlQueryResult').innerHTML='<div class="card" style="margin:10px 0 0;box-shadow:none"><div class="card-body" style="padding:10px 12px;font-size:13px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">'+parts.join('')+'</div></div>';
   }catch(e){toast(e.message,true)}
 }
 function openSrcDialog(){

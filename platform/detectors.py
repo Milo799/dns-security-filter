@@ -24,6 +24,7 @@ from dnslib import DNSRecord, QTYPE, RR, A, AAAA, RCODE
 
 from config import CONFIG
 from app.db import db_cursor, get_enabled_list
+from app.threat_list import check_domain, check_ip
 from adapters import get_enabled_adapters, run_fusion
 
 logger = logging.getLogger("platform.detectors")
@@ -369,6 +370,13 @@ def process_query(request: DNSRecord, client_ip: str | None = None) -> DNSRecord
                          "alert_ip:" + CONFIG.alert_ip)
         return build_intercept_reply(request, qtype)
 
+    # 4.5) 离线大名单命中（hagezi/StevenBlack 等导入源，零 API 依赖）
+    if check_domain(domain):
+        write_filter_log(client_ip or "", domain, qtype,
+                         "threat_list", "intercept", [],
+                         "alert_ip:" + CONFIG.alert_ip)
+        return build_intercept_reply(request, qtype)
+
     malicious, reason = query_threatintel_domain(domain)
     if malicious:
         write_filter_log(client_ip or "", domain, qtype,
@@ -421,6 +429,11 @@ def _process_ptr(request: DNSRecord, ptr_name: str, client_ip: str) -> DNSRecord
 
     if _match_ip(ip, get_enabled_list("blacklist", "ip")):
         write_filter_log(client_ip, ptr_name, QTYPE.PTR, "local_blacklist",
+                         "intercept", [ip], "empty")
+        return build_intercept_reply(request, QTYPE.PTR)
+
+    if check_ip(ip):
+        write_filter_log(client_ip, ptr_name, QTYPE.PTR, "threat_list",
                          "intercept", [ip], "empty")
         return build_intercept_reply(request, QTYPE.PTR)
 

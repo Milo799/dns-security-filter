@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.routers import (
     auth, list, threatintel, logs, config as config_router, audit,
-    test as test_router,
+    test as test_router, threatlist as threatlist_router,
 )
 from app.db import get_conn
 from app.runtime import sync_config_from_db
@@ -42,6 +42,7 @@ app.include_router(logs.router)
 app.include_router(config_router.router)
 app.include_router(audit.router)
 app.include_router(test_router.router)
+app.include_router(threatlist_router.router)
 
 # 前端静态资源（web/index.html）：挂在 "/" 且注册在 API 路由之后，
 # /api/* 优先匹配，其余路径由静态服务接管（访问 / 即控制台）。
