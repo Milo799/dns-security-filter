@@ -61,6 +61,27 @@ BUILTIN_THREATINTEL = [
         "config": {"note": "开放 API 无需 Key；官方限速约 5 秒/次，建议默认停用，手动测试用"},
         "description": "URLhaus（abuse.ch）恶意 URL 分发库，支持域名与 IP",
     },
+    {
+        "name": "phishtank",
+        "adapter_type": "http",
+        "base_url": "https://checkurl.phishtank.com",
+        "config": {"note": "app_key 可选；无 Key 限速严格，适合人工核查/低频场景"},
+        "description": "PhishTank（OpenDNS）钓鱼 URL 库，免 Key",
+    },
+    {
+        "name": "dshield",
+        "adapter_type": "http",
+        "base_url": "https://isc.sans.edu",
+        "config": {"min_count": 500, "max_age_days": 14},
+        "description": "SANS DShield 全球蜜罐攻击源 IP 信誉，免 Key",
+    },
+    {
+        "name": "blocklist_de",
+        "adapter_type": "http",
+        "base_url": "https://api.blocklist.de",
+        "config": {"min_attacks": 1},
+        "description": "Blocklist.de 攻击源 IP（SSH/邮件/Web 暴力破解与扫描），免 Key",
+    },
 ]
 
 
