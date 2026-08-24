@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DNS 安全过滤平台 · 管理控制台（原型）</title>
+<style>
+/* ============ SAP Fiori 风格基础 ============ */
+:root{
+  --sapBrand:#0070f2;          /* Fiori 品牌蓝 */
+  --sapBrandHover:#0064d9;
+  --sapBrandLight:#ebf5ff;
+  --sapShell:#ffffff;
+  --sapShellBorder:#d9d9d9;
+  --sapNavBg:#f7f8f9;
+  --sapPageBg:#f2f3f4;
+  --sapCard:#ffffff;
+  --sapCardBorder:#e5e5e5;
+  --sapText:#1d2d3e;
+  --sapTextSec:#6a6d70;
+  --sapSuccess:#36a41e;
+  --sapSuccessBg:#f1fdf0;
+  --sapError:#ee3939;
+  --sapErrorBg:#ffeceb;
+  --sapWarning:#e9730f;
+  --sapWarningBg:#fff4e8;
+  --sapNeutral:#89919a;
+  --sapNeutralBg:#f2f3f4;
+  --sapBorder:#89919a;
+  --radius:12px;
+  --radiusS:6px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:"72","72full","Segoe UI",Arial,"Microsoft YaHei",sans-serif;background:var(--sapPageBg);color:var(--sapText);font-size:14px;line-height:1.5}
+button{font-family:inherit;cursor:pointer}
+input,select{font-family:inherit;font-size:14px}
+
+/* ============ 登录页 ============ */
+#loginScreen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#0a3d75 0%,#0070f2 100%);z-index:100}
+.login-card{background:#fff;border-radius:var(--radius);box-shadow:0 8px 32px rgba(0,0,0,.25);padding:48px 44px 36px;width:400px}
+.login-logo{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.login-logo .logo-mark{width:34px;height:34px;border-radius:8px;background:var(--sapBrand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px}
+.login-title{font-size:20px;font-weight:600}
+.login-sub{color:var(--sapTextSec);font-size:13px;margin-bottom:28px}
+.field{margin-bottom:18px}
+.field label{display:block;font-size:13px;color:var(--sapTextSec);margin-bottom:6px}
+.field input{width:100%;height:38px;border:1px solid var(--sapBorder);border-radius:var(--radiusS);padding:0 12px;background:#fff;outline:none;transition:border .15s}
+.field input:focus{border-color:var(--sapBrand);box-shadow:0 0 0 1px var(--sapBrand)}
+.btn{height:36px;padding:0 18px;border-radius:var(--radiusS);font-size:14px;border:1px solid transparent;display:inline-flex;align-items:center;gap:6px;transition:all .15s}
+.btn-emphasized{background:var(--sapBrand);color:#fff}
+.btn-emphasized:hover{background:var(--sapBrandHover)}
+.btn-normal{background:#fff;color:var(--sapBrand);border-color:var(--sapBrand)}
+.btn-normal:hover{background:var(--sapBrandLight)}
+.btn-subtle{background:transparent;color:var(--sapText);border-color:transparent}
+.btn-subtle:hover{background:#eaeaea}
+.btn-compact{height:30px;padding:0 12px;font-size:13px}
+.login-btn{width:100%;height:40px;justify-content:center;margin-top:6px}
+.login-foot{margin-top:22px;text-align:center;color:var(--sapTextSec);font-size:12px}
+
+/* ============ Shell 顶栏 ============ */
+#app{display:none;min-height:100vh;flex-direction:column}
+.shell-bar{height:52px;background:var(--sapShell);border-bottom:1px solid var(--sapShellBorder);display:flex;align-items:center;padding:0 20px;gap:16px;position:sticky;top:0;z-index:50}
+.shell-logo{width:30px;height:30px;border-radius:7px;background:var(--sapBrand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px}
+.shell-title{font-size:16px;font-weight:600;white-space:nowrap}
+.shell-search{flex:0 1 420px;margin-left:12px;position:relative}
+.shell-search input{width:100%;height:34px;border-radius:17px;border:1px solid var(--sapShellBorder);background:#f7f8f9;padding:0 16px 0 36px;outline:none}
+.shell-search input:focus{border-color:var(--sapBrand);background:#fff}
+.shell-search::before{content:"🔍";position:absolute;left:12px;top:7px;font-size:13px;opacity:.5}
+.shell-right{margin-left:auto;display:flex;align-items:center;gap:14px}
+.shell-icon{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:transparent;border:none;font-size:16px;position:relative}
+.shell-icon:hover{background:#f0f0f0}
+.shell-icon .badge{position:absolute;top:2px;right:2px;min-width:15px;height:15px;border-radius:8px;background:var(--sapError);color:#fff;font-size:10px;display:flex;align-items:center;justify-content:center;padding:0 3px}
+.avatar{width:32px;height:32px;border-radius:50%;background:#5b738d;color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600}
+
+/* ============ 布局 ============ */
+.layout{display:flex;flex:1;min-height:calc(100vh - 52px)}
+.sidenav{width:216px;background:var(--sapNavBg);border-right:1px solid #e8e9ea;padding:14px 10px;flex-shrink:0}
+.nav-group-title{font-size:11px;color:var(--sapTextSec);text-transform:uppercase;letter-spacing:.06em;padding:10px 12px 6px}
+.nav-item{display:flex;align-items:center;gap:12px;padding:9px 12px;border-radius:6px;color:var(--sapText);font-size:14px;cursor:pointer;margin-bottom:2px;border-left:3px solid transparent}
+.nav-item:hover{background:#eceef0}
+.nav-item.active{color:var(--sapBrand);background:var(--sapBrandLight);border-left-color:var(--sapBrand);font-weight:600}
+.nav-item .ic{width:20px;text-align:center;font-size:15px}
+.content{flex:1;padding:22px 28px 48px;max-width:1400px;overflow-x:auto}
+
+/* ============ 页面通用 ============ */
+.page{display:none}
+.page.active{display:block}
+.page-head{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:20px;gap:16px;flex-wrap:wrap}
+.page-title{font-size:22px;font-weight:600}
+.page-sub{color:var(--sapTextSec);font-size:13px;margin-top:3px}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
+/* 卡片 */
+.card{background:var(--sapCard);border-radius:var(--radius);box-shadow:0 0 0 1px var(--sapCardBorder);margin-bottom:18px}
+.card-head{padding:16px 20px 12px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.card-title{font-size:16px;font-weight:600}
+.card-body{padding:0 20px 20px}
+
+/* KPI */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:18px}
+.kpi{background:var(--sapCard);border-radius:var(--radius);box-shadow:0 0 0 1px var(--sapCardBorder);padding:18px 20px}
+.kpi-label{font-size:13px;color:var(--sapTextSec);display:flex;align-items:center;gap:8px}
+.kpi-value{font-size:32px;font-weight:700;margin-top:6px;font-variant-numeric:tabular-nums}
+.kpi-delta{font-size:12px;margin-top:4px}
+.up{color:var(--sapSuccess)} .down{color:var(--sapError)} .flat{color:var(--sapTextSec)}
+.kpi-blue .kpi-value{color:var(--sapBrand)}
+.kpi-red .kpi-value{color:var(--sapError)}
+.kpi-green .kpi-value{color:var(--sapSuccess)}
+
+/* 状态标签 */
+.tag{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 10px;border-radius:12px;font-size:12px;white-space:nowrap}
+.tag-success{background:var(--sapSuccessBg);color:var(--sapSuccess)}
+.tag-error{background:var(--sapErrorBg);color:var(--sapError)}
+.tag-warning{background:var(--sapWarningBg);color:var(--sapWarning)}
+.tag-neutral{background:var(--sapNeutralBg);color:var(--sapTextSec)}
+.tag-blue{background:var(--sapBrandLight);color:var(--sapBrand)}
+.dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+
+/* 表格 */
+.table-wrap{overflow-x:auto}
+table.sap{width:100%;border-collapse:collapse}
+table.sap th{background:#f7f8f9;color:var(--sapTextSec);font-size:12px;font-weight:600;text-align:left;padding:9px 12px;border-bottom:1px solid #e8e9ea;white-space:nowrap;position:sticky;top:0}
+table.sap td{padding:10px 12px;border-bottom:1px solid #f0f1f2;font-size:13px;vertical-align:middle;white-space:nowrap}
+table.sap tbody tr:hover{background:#f5faff}
+.mono{font-family:Consolas,"Courier New",monospace;font-size:12.5px}
+.link{color:var(--sapBrand);cursor:pointer}
+.link:hover{text-decoration:underline}
+.row-actions{display:flex;gap:2px}
+.icon-btn{width:28px;height:28px;border:none;background:transparent;border-radius:6px;font-size:14px}
+.icon-btn:hover{background:#eaeef2}
+
+/* 筛选栏 */
+.filter-bar{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;padding:14px 20px;background:#fbfbfc;border-bottom:1px solid #efefef0d;border-radius:var(--radius) var(--radius) 0 0}
+.f-item label{display:block;font-size:12px;color:var(--sapTextSec);margin-bottom:4px}
+.f-item input,.f-item select{height:32px;border:1px solid var(--sapBorder);border-radius:var(--radiusS);padding:0 10px;outline:none;background:#fff;min-width:130px}
+.f-item input:focus,.f-item select:focus{border-color:var(--sapBrand);box-shadow:0 0 0 1px var(--sapBrand)}
+
+/* 分页 */
+.pager{display:flex;align-items:center;gap:10px;justify-content:flex-end;padding:12px 20px;color:var(--sapTextSec);font-size:13px}
+
+/* 表单 */
+.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px 28px}
+.form-row{display:flex;flex-direction:column}
+.form-row label{font-size:13px;color:var(--sapTextSec);margin-bottom:6px}
+.form-row .req::after{content:" *";color:var(--sapError)}
+.form-row input,.form-row select{height:36px;border:1px solid var(--sapBorder);border-radius:var(--radiusS);padding:0 12px;outline:none;background:#fff}
+.form-row input:focus,.form-row select:focus{border-color:var(--sapBrand);box-shadow:0 0 0 1px var(--sapBrand)}
+.form-hint{font-size:12px;color:var(--sapTextSec);margin-top:4px}
+.form-section-title{font-size:14px;font-weight:600;margin:8px 0 2px;padding-top:14px;border-top:1px solid #efefef}
+
+/* 开关 */
+.switch{position:relative;width:44px;height:24px;display:inline-block}
+.switch input{opacity:0;width:0;height:0}
+.slider{position:absolute;inset:0;background:#89919a;border-radius:12px;transition:.2s;cursor:pointer}
+.slider::before{content:"";position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;top:3px;left:3px;transition:.2s}
+.switch input:checked + .slider{background:var(--sapBrand)}
+.switch input:checked + .slider::before{transform:translateX(20px)}
+.switch-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid #f0f1f2}
+.switch-row:last-child{border-bottom:none}
+.switch-label{font-size:14px}
+.switch-desc{font-size:12px;color:var(--sapTextSec);margin-top:2px}
+
+/* 图表 */
+.chart-bars{display:flex;align-items:flex-end;gap:14px;height:180px;padding:10px 4px 0}
+.chart-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px}
+.chart-col .bar{width:70%;background:var(--sapBrand);border-radius:4px 4px 0 0;min-height:3px;transition:height .4s;position:relative}
+.chart-col .bar:hover{background:var(--sapBrandHover)}
+.chart-col .bar .v{position:absolute;top:-20px;left:50%;transform:translateX(-50%);font-size:11px;color:var(--sapTextSec);opacity:0;transition:.15s}
+.chart-col .bar:hover .v{opacity:1}
+.chart-col .d{font-size:12px;color:var(--sapTextSec)}
+
+/* 情报源卡片 */
+.src-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:16px}
+.src-card{background:#fff;border-radius:var(--radius);box-shadow:0 0 0 1px var(--sapCardBorder);padding:18px 20px}
+.src-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.src-name{font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px}
+.src-url{font-size:12px;color:var(--sapTextSec);font-family:Consolas,monospace;margin-bottom:10px;word-break:break-all}
+.src-meta{display:flex;gap:16px;font-size:12px;color:var(--sapTextSec);margin-bottom:14px;flex-wrap:wrap}
+.src-meta b{color:var(--sapText);font-weight:600}
+.src-actions{display:flex;gap:8px;border-top:1px solid #f0f1f2;padding-top:12px}
+
+/* 单选组（融合策略） */
+.radio-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.radio-card{border:1px solid var(--sapCardBorder);border-radius:var(--radiusS);padding:14px 16px;cursor:pointer;transition:.15s;display:flex;gap:12px;align-items:flex-start}
+.radio-card:hover{border-color:var(--sapBrand)}
+.radio-card.sel{border-color:var(--sapBrand);background:var(--sapBrandLight);box-shadow:0 0 0 1px var(--sapBrand)}
+.radio-card input{margin-top:3px}
+.radio-card .rc-title{font-weight:600;font-size:14px}
+.radio-card .rc-desc{font-size:12px;color:var(--sapTextSec);margin-top:3px}
+
+/* Toast */
+#toast{position:fixed;bottom:28px;right:28px;background:#323539;color:#fff;border-radius:8px;padding:13px 20px;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.3);display:none;z-index:200;align-items:center;gap:10px;max-width:420px}
+#toast.show{display:flex}
+#toast .tico{color:#8fd48f}
+
+/* 对话框 */
+.modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:150}
+.modal-mask.show{display:flex}
+.modal{background:#fff;border-radius:var(--radius);width:520px;max-width:94vw;max-height:88vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.3)}
+.modal-head{padding:18px 24px 12px;font-size:17px;font-weight:600;border-bottom:1px solid #efefef;display:flex;justify-content:space-between;align-items:center}
+.modal-body{padding:20px 24px}
+.modal-foot{padding:14px 24px 20px;display:flex;justify-content:flex-end;gap:10px;border-top:1px solid #efefef}
+
+.empty-tip{padding:36px;text-align:center;color:var(--sapTextSec);font-size:13px}
+.count-note{font-size:12px;color:var(--sapTextSec);margin-left:auto}
+</style>
+</head>
+<body>
+
+<!-- ==================== 登录页 ==================== -->
+<div id="loginScreen">
+  <div class="login-card">
+    <div class="login-logo"><div class="logo-mark">DNS</div><div class="login-title">DNS 安全过滤平台</div></div>
+    <div class="login-sub">管理控制台 · 仅限授权管理员访问</div>
+    <div class="field">
+      <label>用户名</label>
+      <input id="loginUser" type="text" value="admin" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>密码</label>
+      <input id="loginPass" type="password" placeholder="请输入密码" autocomplete="off">
+    </div>
+    <button class="btn btn-emphasized login-btn" onclick="doLogin()">登 录</button>
+    <div class="login-foot">原型演示 · 任意密码均可登录</div>
+  </div>
+</div>
+
+<!-- ==================== 应用 Shell ==================== -->
+<div id="app">
+  <div class="shell-bar">
+    <div class="shell-logo">DNS</div>
+    <div class="shell-title">DNS 安全过滤平台</div>
+    <div class="shell-search"><input type="text" placeholder="搜索域名 / IP / 日志…"></div>
+    <div class="shell-right">
+      <button class="shell-icon" title="通知">🔔<span class="badge">3</span></button>
+      <button class="shell-icon" title="帮助">?</button>
+      <div class="avatar" title="admin">AD</div>
+    </div>
+  </div>
+
+  <div class="layout">
+    <!-- 左侧导航 -->
+    <div class="sidenav">
+      <div class="nav-group-title">监控</div>
+      <div class="nav-item active" data-page="dashboard"><span class="ic">📊</span>仪表盘</div>
+      <div class="nav-item" data-page="logs"><span class="ic">📋</span>过滤日志</div>
+      <div class="nav-group-title">策略管理</div>
+      <div class="nav-item" data-page="lists"><span class="ic">🛡️</span>黑白名单</div>
+      <div class="nav-item" data-page="threatintel"><span class="ic">🌐</span>威胁情报源</div>
+      <div class="nav-group-title">系统</div>
+      <div class="nav-item" data-page="config"><span class="ic">⚙️</span>系统配置</div>
+      <div class="nav-item" data-page="audit"><span class="ic">📝</span>操作审计</div>
+    </div>
+
+    <!-- 内容区 -->
+    <div class="content">
+
+      <!-- ========== 仪表盘 ========== -->
+      <div class="page active" id="page-dashboard">
+        <div class="page-head">
+          <div>
+            <div class="page-title">仪表盘</div>
+            <div class="page-sub">平台运行状态总览 · 数据更新于 2026-08-24 12:40</div>
+          </div>
+          <div class="toolbar">
+            <button class="btn btn-normal btn-compact" onclick="toast('已刷新仪表盘数据')">↻ 刷新</button>
+          </div>
+        </div>
+
+        <div class="kpi-grid">
+          <div class="kpi kpi-blue">
+            <div class="kpi-label"><span class="tag tag-success"><span class="dot"></span>运行中</span>检测引擎</div>
+            <div class="kpi-value" style="font-size:22px;margin-top:10px">启用</div>
+            <div class="kpi-delta flat">检测总开关：开启</div>
+          </div>
+          <div class="kpi kpi-red">
+            <div class="kpi-label">今日拦截</div>
+            <div class="kpi-value">1,284</div>
+            <div class="kpi-delta down">▲ 较昨日 +18.2%</div>
+          </div>
+          <div class="kpi kpi-green">
+            <div class="kpi-label">今日放行</div>
+            <div class="kpi-value">96,530</div>
+            <div class="kpi-delta flat">拦截率 1.31%</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">情报源状态</div>
+            <div class="kpi-value" style="font-size:22px;margin-top:10px">2 / 3 在线</div>
+            <div class="kpi-delta down">1 个源超时</div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:2fr 1fr;gap:18px" class="resp-2col">
+          <div class="card">
+            <div class="card-head"><div class="card-title">近 7 日拦截趋势</div><span class="tag tag-neutral">按天</span></div>
+            <div class="card-body">
+              <div class="chart-bars">
+                <div class="chart-col"><div class="bar" style="height:38%"><span class="v">826</span></div><div class="d">08-18</div></div>
+                <div class="chart-col"><div class="bar" style="height:55%"><span class="v">1,124</span></div><div class="d">08-19</div></div>
+                <div class="chart-col"><div class="bar" style="height:44%"><span class="v">903</span></div><div class="d">08-20</div></div>
+                <div class="chart-col"><div class="bar" style="height:70%"><span class="v">1,432</span></div><div class="d">08-21</div></div>
+                <div class="chart-col"><div class="bar" style="height:61%"><span class="v">1,246</span></div><div class="d">08-22</div></div>
+                <div class="chart-col"><div class="bar" style="height:83%"><span class="v">1,697</span></div><div class="d">08-23</div></div>
+                <div class="chart-col"><div class="bar" style="height:63%"><span class="v">1,284</span></div><div class="d">今日</div></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><div class="card-title">威胁情报源</div></div>
+            <div class="card-body">
+              <table class="sap">
+                <thead><tr><th>源</th><th>状态</th><th>今日命中</th></tr></thead>
+                <tbody>
+                  <tr><td>VirusTotal</td><td><span class="tag tag-success"><span class="dot"></span>在线</span></td><td class="mono">317</td></tr>
+                  <tr><td>AbuseIPDB</td><td><span class="tag tag-success"><span class="dot"></span>在线</span></td><td class="mono">96</td></tr>
+                  <tr><td>ThreatBook</td><td><span class="tag tag-error"><span class="dot"></span>超时</span></td><td class="mono">—</td></tr>
+                </tbody>
+              </table>
+              <div style="margin-top:12px;font-size:12px;color:var(--sapTextSec)">
+                融合策略：<b>any（任一源命中即拦截）</b>
+                <span class="link" onclick="go('threatintel')"> 修改</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">最近拦截记录</div>
+            <button class="btn btn-subtle btn-compact" onclick="go('logs')">查看全部 →</button>
+          </div>
+          <div class="card-body table-wrap">
+            <table class="sap">
+              <thead><tr><th>时间</th><th>客户端 IP</th><th>域名</th><th>类型</th><th>过滤原因</th><th>动作</th></tr></thead>
+              <tbody id="dashRecent"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== 过滤日志 ========== -->
+      <div class="page" id="page-logs">
+        <div class="page-head">
+          <div>
+            <div class="page-title">过滤日志</div>
+            <div class="page-sub">被拦截 / 剔除请求的完整记录 · 含客户端 IP（EDNS0 Client Subnet）</div>
+          </div>
+          <div class="toolbar">
+            <button class="btn btn-normal btn-compact" onclick="toast('已按当前筛选条件导出 CSV（原型演示）')">⬇ 导出 CSV</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="filter-bar">
+            <div class="f-item"><label>时间范围</label><select><option>今日</option><option>近 7 天</option><option>近 30 天</option><option>自定义</option></select></div>
+            <div class="f-item"><label>客户端 IP</label><input type="text" placeholder="如 192.168.1.0/24"></div>
+            <div class="f-item"><label>域名</label><input type="text" placeholder="支持通配符 *.example.com"></div>
+            <div class="f-item"><label>过滤原因</label><select><option>全部</option><option>local_blacklist</option><option>threatintel:any</option><option>threatintel:all</option></select></div>
+            <div class="f-item"><label>动作</label><select><option>全部</option><option>intercept 拦截</option><option>remove_ip 剔除IP</option></select></div>
+            <div class="f-item"><label>查询类型</label><select><option>全部</option><option>A</option><option>AAAA</option></select></div>
+            <button class="btn btn-emphasized btn-compact" style="margin-bottom:1px" onclick="toast('已按条件查询（原型演示）')">查询</button>
+            <button class="btn btn-subtle btn-compact" style="margin-bottom:1px" onclick="toast('筛选条件已重置')">重置</button>
+            <span class="count-note">共 1,284 条（今日）</span>
+          </div>
+          <div class="table-wrap">
+            <table class="sap">
+              <thead><tr>
+                <th>时间</th><th>客户端 IP</th><th>域名</th><th>类型</th><th>过滤原因</th><th>动作</th><th>命中恶意 IP</th><th>最终返回</th><th>情报源</th>
+              </tr></thead>
+              <tbody id="logRows"></tbody>
+            </table>
+          </div>
+          <div class="pager">
+            <span>第 1 / 26 页 · 每页 50 条</span>
+            <button class="btn btn-normal btn-compact">‹</button>
+            <button class="btn btn-normal btn-compact">›</button>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--sapTextSec)">放行记录默认不记录；可在 <span class="link" onclick="go('config')">系统配置</span> 中开启"放行日志"。</div>
+      </div>
+
+      <!-- ========== 黑白名单 ========== -->
+      <div class="page" id="page-lists">
+        <div class="page-head">
+          <div>
+            <div class="page-title">黑白名单</div>
+            <div class="page-sub">域名（含通配符）与 IP / CIDR 名单 · 白名单优先级高于黑名单</div>
+          </div>
+          <div class="toolbar">
+            <button class="btn btn-normal btn-compact" onclick="toast('导入 CSV（原型演示）')">⬆ 导入</button>
+            <button class="btn btn-normal btn-compact" onclick="toast('已导出当前名单（原型演示）')">⬇ 导出</button>
+            <button class="btn btn-emphasized btn-compact" onclick="openListDialog()">＋ 新建条目</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="filter-bar">
+            <div class="f-item"><label>名单类型</label>
+              <select id="listTypeSel" onchange="renderLists()">
+                <option value="blacklist">黑名单</option>
+                <option value="whitelist">白名单</option>
+              </select>
+            </div>
+            <div class="f-item"><label>目标类型</label>
+              <select id="listTargetSel" onchange="renderLists()">
+                <option value="">全部</option><option value="domain">域名</option><option value="ip">IP / CIDR</option>
+              </select>
+            </div>
+            <div class="f-item"><label>关键字</label><input type="text" id="listKw" placeholder="域名或 IP 片段" oninput="renderLists()"></div>
+            <span class="count-note" id="listCount"></span>
+          </div>
+          <div class="table-wrap">
+            <table class="sap">
+              <thead><tr><th>值</th><th>目标类型</th><th>状态</th><th>备注</th><th>创建人</th><th>更新时间</th><th style="width:110px">操作</th></tr></thead>
+              <tbody id="listRows"></tbody>
+            </table>
+          </div>
+          <div class="pager"><span id="listPager"></span></div>
+        </div>
+      </div>
+
+      <!-- ========== 威胁情报源 ========== -->
+      <div class="page" id="page-threatintel">
+        <div class="page-head">
+          <div>
+            <div class="page-title">威胁情报源</div>
+            <div class="page-sub">多源适配器管理 · 统一接口适配不同厂商 API</div>
+          </div>
+          <div class="toolbar">
+            <button class="btn btn-emphasized btn-compact" onclick="toast('新增情报源（原型演示）')">＋ 接入新源</button>
+          </div>
+        </div>
+
+        <div class="src-grid" style="margin-bottom:18px">
+          <div class="src-card">
+            <div class="src-head">
+              <div class="src-name">🌐 VirusTotal</div>
+              <span class="tag tag-success"><span class="dot"></span>已启用</span>
+            </div>
+            <div class="src-url">https://www.virustotal.com/api/v3/domains/{domain}</div>
+            <div class="src-meta"><span>超时 <b>3000 ms</b></span><span>今日命中 <b>317</b></span><span>API Key <b>●●●●●●4f2a</b></span></div>
+            <div class="src-actions">
+              <button class="btn btn-normal btn-compact" onclick="toast('连通性测试通过：86ms')">测试连通性</button>
+              <button class="btn btn-subtle btn-compact" onclick="toast('已编辑（原型演示）')">编辑</button>
+              <button class="btn btn-subtle btn-compact" onclick="toast('已停用 VirusTotal（原型演示）')">停用</button>
+            </div>
+          </div>
+          <div class="src-card">
+            <div class="src-head">
+              <div class="src-name">🌐 AbuseIPDB</div>
+              <span class="tag tag-success"><span class="dot"></span>已启用</span>
+            </div>
+            <div class="src-url">https://api.abuseipdb.com/api/v2/check</div>
+            <div class="src-meta"><span>超时 <b>2000 ms</b></span><span>今日命中 <b>96</b></span><span>API Key <b>●●●●●●9c1e</b></span></div>
+            <div class="src-actions">
+              <button class="btn btn-normal btn-compact" onclick="toast('连通性测试通过：142ms')">测试连通性</button>
+              <button class="btn btn-subtle btn-compact" onclick="toast('已编辑（原型演示）')">编辑</button>
+              <button class="btn btn-subtle btn-compact" onclick="toast('已停用 AbuseIPDB（原型演示）')">停用</button>
+            </div>
+          </div>
+          <div class="src-card">
+            <div class="src-head">
+              <div class="src-name">🌐 ThreatBook</div>
+              <span class="tag tag-error"><span class="dot"></span>已停用</span>
+            </div>
+            <div class="src-url">https://api.threatbook.cn/v3/scene/query</div>
+            <div class="src-meta"><span>超时 <b>5000 ms</b></span><span>今日命中 <b>—</b></span><span>API Key <b>●●●●●●7b30</b></span></div>
+            <div class="src-actions">
+              <button class="btn btn-normal btn-compact" onclick="toast('连通性测试失败：连接超时')">测试连通性</button>
+              <button class="btn btn-subtle btn-compact" onclick="toast('已编辑（原型演示）')">编辑</button>
+              <button class="btn btn-subtle btn-compact" onclick="toast('已启用 ThreatBook（原型演示）')">启用</button>
+            </div>
+          </div>
+          <div class="src-card" style="display:flex;align-items:center;justify-content:center;min-height:190px;border:1.5px dashed var(--sapBorder);box-shadow:none;cursor:pointer;color:var(--sapBrand)" onclick="toast('接入新情报源（原型演示）')">
+            <div style="text-align:center"><div style="font-size:26px">＋</div><div style="font-size:13px;margin-top:4px">接入新情报源</div></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">融合策略</div>
+            <span class="tag tag-warning">变更将记入操作审计</span>
+          </div>
+          <div class="card-body">
+            <div class="radio-cards" id="fusionCards">
+              <label class="radio-card sel" data-v="any">
+                <input type="radio" name="fusion" checked>
+                <div><div class="rc-title">any（推荐）</div><div class="rc-desc">任一启用源判定恶意即拦截。误杀率低，防护面广。</div></div>
+              </label>
+              <label class="radio-card" data-v="majority">
+                <input type="radio" name="fusion">
+                <div><div class="rc-title">majority</div><div class="rc-desc">多数源判定恶意才拦截。适合情报源误报率均较高时。</div></div>
+              </label>
+              <label class="radio-card" data-v="all">
+                <input type="radio" name="fusion">
+                <div><div class="rc-title">all</div><div class="rc-desc">全部源一致判定恶意才拦截。最保守，漏杀风险高。</div></div>
+              </label>
+            </div>
+            <div class="form-hint" style="margin-top:12px">注：所有启用源均超时 / 异常时，按安全优先原则默认拦截（fail-safe）。</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== 系统配置 ========== -->
+      <div class="page" id="page-config">
+        <div class="page-head">
+          <div>
+            <div class="page-title">系统配置</div>
+            <div class="page-sub">运行时可修改的系统级参数（system_config）</div>
+          </div>
+          <div class="toolbar">
+            <button class="btn btn-normal btn-compact" onclick="toast('已放弃未保存的修改')">重置</button>
+            <button class="btn btn-emphasized btn-compact" onclick="toast('配置已保存，DNS 引擎热加载生效（原型演示）')">💾 保存配置</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><div class="card-title">拦截应答</div></div>
+          <div class="card-body">
+            <div class="form-grid">
+              <div class="form-row">
+                <label class="req">告警 IP（A 记录拦截应答）</label>
+                <input type="text" value="10.10.10.10">
+                <div class="form-hint">被拦截的 A 查询将返回此 IP（指向内网告警页）。IPv6 网络不可达时 AAAA 拦截返回空应答。</div>
+              </div>
+              <div class="form-row">
+                <label class="req">告警应答 TTL（秒）</label>
+                <input type="number" value="60">
+                <div class="form-hint">建议 30–300，过短会放大查询压力。</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><div class="card-title">上游与情报</div></div>
+          <div class="card-body">
+            <div class="form-grid">
+              <div class="form-row">
+                <label class="req">公网上游 DNS</label>
+                <input type="text" value="8.8.8.8">
+                <div class="form-hint">平台用于解析外网域名的递归上游（支持 ip:port）。</div>
+              </div>
+              <div class="form-row">
+                <label>威胁情报融合策略</label>
+                <select><option value="any">any — 任一源命中即拦截</option><option value="majority">majority — 多数源命中</option><option value="all">all — 全部源命中</option></select>
+                <div class="form-hint">也可在"威胁情报源"页面图形化设置。</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><div class="card-title">日志与检测开关</div></div>
+          <div class="card-body">
+            <div class="switch-row">
+              <div><div class="switch-label">检测总开关</div><div class="switch-desc">关闭后所有查询直接放行转发（应急降级用）</div></div>
+              <label class="switch"><input type="checkbox" checked onchange="toast(this.checked?'检测已开启（已记入审计）':'⚠ 检测已关闭，所有域名将直接放行（已记入审计）')"><span class="slider"></span></label>
+            </div>
+            <div class="switch-row">
+              <div><div class="switch-label">放行日志</div><div class="switch-desc">记录所有放行请求（时间、客户端 IP、域名）。开启后日志量显著增大</div></div>
+              <label class="switch"><input type="checkbox" onchange="toast(this.checked?'放行日志已开启':'放行日志已关闭')"><span class="slider"></span></label>
+            </div>
+            <div class="switch-row">
+              <div><div class="switch-label">日志自动清理</div><div class="switch-desc">按保留天数自动删除过期过滤日志</div></div>
+              <div style="display:flex;align-items:center;gap:8px"><input style="width:80px;height:32px;border:1px solid var(--sapBorder);border-radius:6px;padding:0 10px;text-align:right" type="number" value="90"> <span style="color:var(--sapTextSec);font-size:13px">天</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== 操作审计 ========== -->
+      <div class="page" id="page-audit">
+        <div class="page-head">
+          <div>
+            <div class="page-title">操作审计</div>
+            <div class="page-sub">名单变更、检测开关、情报源启停等敏感操作留痕</div>
+          </div>
+          <div class="toolbar">
+            <button class="btn btn-normal btn-compact" onclick="toast('已导出审计日志（原型演示）')">⬇ 导出</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="filter-bar">
+            <div class="f-item"><label>时间范围</label><select><option>近 7 天</option><option>近 30 天</option><option>全部</option></select></div>
+            <div class="f-item"><label>操作人</label><select><option>全部</option><option>admin</option></select></div>
+            <div class="f-item"><label>动作类型</label><select><option>全部</option><option>list_create</option><option>list_update</option><option>detection_toggle</option><option>threatintel_toggle</option><option>fusion_strategy_change</option></select></div>
+            <button class="btn btn-emphasized btn-compact" onclick="toast('已查询（原型演示）')">查询</button>
+            <span class="count-note">共 23 条</span>
+          </div>
+          <div class="table-wrap">
+            <table class="sap">
+              <thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>详情</th></tr></thead>
+              <tbody>
+                <tr><td class="mono">2026-08-24 11:52:18</td><td>admin</td><td><span class="tag tag-blue">detection_toggle</span></td><td class="mono" style="white-space:normal">{"detection_enabled": true}</td></tr>
+                <tr><td class="mono">2026-08-24 11:50:02</td><td>admin</td><td><span class="tag tag-blue">fusion_strategy_change</span></td><td class="mono" style="white-space:normal">{"from": "majority", "to": "any"}</td></tr>
+                <tr><td class="mono">2026-08-24 10:31:44</td><td>admin</td><td><span class="tag tag-neutral">list_create</span></td><td class="mono" style="white-space:normal">{"list_type":"blacklist","target":"domain","value":"*.gambling-example.com"}</td></tr>
+                <tr><td class="mono">2026-08-23 17:08:10</td><td>admin</td><td><span class="tag tag-warning">threatintel_toggle</span></td><td class="mono" style="white-space:normal">{"name":"ThreatBook","enabled":false,"reason":"连续超时"}</td></tr>
+                <tr><td class="mono">2026-08-23 16:44:57</td><td>admin</td><td><span class="tag tag-neutral">list_update</span></td><td class="mono" style="white-space:normal">{"id":12,"field":"enabled","from":false,"to":true}</td></tr>
+                <tr><td class="mono">2026-08-22 09:12:33</td><td>admin</td><td><span class="tag tag-neutral">list_create</span></td><td class="mono" style="white-space:normal">{"list_type":"whitelist","target":"domain","value":"*.partner-corp.cn"}</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="pager"><span>共 23 条 · 第 1 / 1 页</span></div>
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </div><!-- /layout -->
+</div><!-- /app -->
+
+<!-- ========== 新建名单对话框 ========== -->
+<div class="modal-mask" id="listModal">
+  <div class="modal">
+    <div class="modal-head"><span>新建名单条目</span><button class="icon-btn" onclick="closeListDialog()">✕</button></div>
+    <div class="modal-body">
+      <div class="form-grid" style="grid-template-columns:1fr 1fr">
+        <div class="form-row">
+          <label class="req">名单类型</label>
+          <select id="mListType"><option value="blacklist">黑名单</option><option value="whitelist">白名单</option></select>
+        </div>
+        <div class="form-row">
+          <label class="req">目标类型</label>
+          <select id="mTarget"><option value="domain">域名（支持通配符）</option><option value="ip">IP / CIDR</option></select>
+        </div>
+      </div>
+      <div class="form-row" style="margin-top:16px">
+        <label class="req">值</label>
+        <input id="mValue" type="text" placeholder="如 *.example.com 或 93.184.216.0/24">
+        <div class="form-hint">域名支持 <b>*.</b> 前缀通配符；IP 支持 IPv4/IPv6 单址与 CIDR 网段。</div>
+      </div>
+      <div class="form-row" style="margin-top:16px">
+        <label>备注</label>
+        <input id="mRemark" type="text" placeholder="选填，如来源、工单号">
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-normal" onclick="closeListDialog()">取消</button>
+      <button class="btn btn-emphasized" onclick="saveListEntry()">保 存</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"><span class="tico">✔</span><span id="toastMsg"></span></div>
+
+<script>
+/* ---------- 登录 ---------- */
+function doLogin(){
+  document.getElementById('loginScreen').style.display='none';
+  document.getElementById('app').style.display='flex';
+  toast('欢迎回来，admin');
+}
+
+/* ---------- 导航 ---------- */
+document.querySelectorAll('.nav-item').forEach(function(el){
+  el.addEventListener('click',function(){ go(el.dataset.page); });
+});
+function go(page){
+  document.querySelectorAll('.nav-item').forEach(function(n){n.classList.toggle('active',n.dataset.page===page)});
+  document.querySelectorAll('.page').forEach(function(p){p.classList.toggle('active',p.id==='page-'+page)});
+  window.scrollTo(0,0);
+}
+
+/* ---------- Toast ---------- */
+var toastTimer=null;
+function toast(msg){
+  var t=document.getElementById('toast');
+  document.getElementById('toastMsg').textContent=msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(function(){t.classList.remove('show')},2600);
+}
+
+/* ---------- 演示数据 ---------- */
+var LOGS=[
+ {t:'12:38:41',cip:'192.168.10.23',d:'phishing-login.example.net',q:'A',r:'threatintel:any:VirusTotal,AbuseIPDB',a:'intercept',ips:'—',fin:'alert_ip:10.10.10.10',src:'VirusTotal'},
+ {t:'12:36:07',cip:'192.168.10.85',d:'cdn.malware-cdn.ru',q:'AAAA',r:'threatintel:any:VirusTotal',a:'intercept',ips:'—',fin:'empty',src:'VirusTotal'},
+ {t:'12:31:55',cip:'10.20.3.7',d:'tracker.ad-network.io',q:'A',r:'local_blacklist',a:'intercept',ips:'—',fin:'alert_ip:10.10.10.10',src:'—'},
+ {t:'12:28:12',cip:'192.168.10.23',d:'mixed-content.example.com',q:'A',r:'threatintel:any:AbuseIPDB',a:'remove_ip',ips:'45.33.32.156',fin:'remaining_ips:93.184.216.34',src:'AbuseIPDB'},
+ {t:'12:24:03',cip:'',d:'botnet-c2.xyz',q:'A',r:'threatintel:any:VirusTotal,AbuseIPDB',a:'intercept',ips:'—',fin:'alert_ip:10.10.10.10',src:'VirusTotal'},
+ {t:'12:19:47',cip:'10.20.8.101',d:'*.gambling-example.com',q:'A',r:'local_blacklist',a:'intercept',ips:'—',fin:'alert_ip:10.10.10.10',src:'—'},
+ {t:'12:15:29',cip:'192.168.30.12',d:'evil-mirror.example.org',q:'AAAA',r:'threatintel:any:VirusTotal',a:'intercept',ips:'—',fin:'empty',src:'VirusTotal'},
+ {t:'12:11:08',cip:'10.20.3.7',d:'api.suspect-domain.top',q:'A',r:'threatintel:any:AbuseIPDB',a:'remove_ip',ips:'103.45.67.89',fin:'remaining_ips:104.18.32.7',src:'AbuseIPDB'}
+];
+function actionTag(a){return a==='intercept'?'<span class="tag tag-error">intercept 拦截</span>':'<span class="tag tag-warning">remove_ip 剔除IP</span>'}
+function reasonTag(r){
+  if(r==='local_blacklist')return '<span class="tag tag-neutral">本地黑名单</span>';
+  return '<span class="tag tag-error">'+r+'</span>';
+}
+function renderLogs(){
+  document.getElementById('logRows').innerHTML=LOGS.map(function(l){
+    return '<tr><td class="mono">'+l.t+'</td><td class="mono">'+(l.cip||'<span style="color:#c0c3c6">未透传</span>')+'</td><td class="mono">'+l.d+'</td><td>'+l.q+'</td><td>'+reasonTag(l.r)+'</td><td>'+actionTag(l.a)+'</td><td class="mono">'+l.ips+'</td><td class="mono">'+l.fin+'</td><td>'+l.src+'</td></tr>';
+  }).join('');
+}
+function renderDash(){
+  document.getElementById('dashRecent').innerHTML=LOGS.slice(0,5).map(function(l){
+    return '<tr><td class="mono">'+l.t+'</td><td class="mono">'+(l.cip||'—')+'</td><td class="mono">'+l.d+'</td><td>'+l.q+'</td><td>'+reasonTag(l.r)+'</td><td>'+actionTag(l.a)+'</td></tr>';
+  }).join('');
+}
+
+/* ---------- 黑白名单 ---------- */
+var LISTS=[
+ {id:1,list_type:'blacklist',target:'domain',value:'*.gambling-example.com',enabled:true,remark:'涉赌域名组',by:'admin',at:'2026-08-24 10:31'},
+ {id:2,list_type:'blacklist',target:'domain',value:'tracker.ad-network.io',enabled:true,remark:'广告追踪',by:'admin',at:'2026-08-23 14:02'},
+ {id:3,list_type:'blacklist',target:'ip',value:'45.33.32.156',enabled:true,remark:'C2 服务器 IP',by:'admin',at:'2026-08-22 16:47'},
+ {id:4,list_type:'blacklist',target:'ip',value:'103.45.67.0/24',enabled:false,remark:'整段封禁（待复核）',by:'admin',at:'2026-08-21 09:15'},
+ {id:5,list_type:'whitelist',target:'domain',value:'*.partner-corp.cn',enabled:true,remark:'合作方域名，豁免检测',by:'admin',at:'2026-08-22 09:12'},
+ {id:6,list_type:'whitelist',target:'domain',value:'update.microsoft.com',enabled:true,remark:'系统更新',by:'admin',at:'2026-08-20 11:40'},
+ {id:7,list_type:'whitelist',target:'ip',value:'13.107.4.50',enabled:true,remark:'微软更新 CDN',by:'admin',at:'2026-08-20 11:41'}
+];
+function renderLists(){
+  var lt=document.getElementById('listTypeSel').value;
+  var tg=document.getElementById('listTargetSel').value;
+  var kw=document.getElementById('listKw').value.trim().toLowerCase();
+  var rows=LISTS.filter(function(x){
+    return x.list_type===lt&&(!tg||x.target===tg)&&(!kw||x.value.toLowerCase().indexOf(kw)>=0);
+  });
+  document.getElementById('listCount').textContent='共 '+rows.length+' 条';
+  document.getElementById('listPager').textContent='共 '+rows.length+' 条 · 第 1 / 1 页';
+  document.getElementById('listRows').innerHTML=rows.length?rows.map(function(x){
+    return '<tr><td class="mono">'+x.value+'</td>'+
+    '<td>'+(x.target==='domain'?'<span class="tag tag-blue">域名</span>':'<span class="tag tag-neutral">IP/CIDR</span>')+'</td>'+
+    '<td>'+(x.enabled?'<span class="tag tag-success"><span class="dot"></span>启用</span>':'<span class="tag tag-neutral">停用</span>')+'</td>'+
+    '<td style="white-space:normal">'+x.remark+'</td><td>'+x.by+'</td><td class="mono">'+x.at+'</td>'+
+    '<td><div class="row-actions">'+
+    '<button class="icon-btn" title="'+(x.enabled?'停用':'启用')+'" onclick="toggleList('+x.id+')">'+(x.enabled?'⏸':'▶')+'</button>'+
+    '<button class="icon-btn" title="编辑" onclick="toast(\'编辑条目（原型演示）\')">✎</button>'+
+    '<button class="icon-btn" title="删除" onclick="delList('+x.id+')">🗑</button>'+
+    '</div></td></tr>';
+  }).join(''):'<tr><td colspan="7"><div class="empty-tip">暂无符合条件的条目</div></td></tr>';
+}
+function toggleList(id){
+  var x=LISTS.find(function(e){return e.id===id});
+  x.enabled=!x.enabled;
+  renderLists();
+  toast('已'+(x.enabled?'启用':'停用')+' '+x.value+'（已记入审计）');
+}
+function delList(id){
+  var x=LISTS.find(function(e){return e.id===id});
+  if(!confirm('确认删除条目 '+x.value+' ？'))return;
+  LISTS=LISTS.filter(function(e){return e.id!==id});
+  renderLists();
+  toast('已删除 '+x.value+'（已记入审计）');
+}
+function openListDialog(){document.getElementById('listModal').classList.add('show')}
+function closeListDialog(){document.getElementById('listModal').classList.remove('show')}
+function saveListEntry(){
+  var v=document.getElementById('mValue').value.trim();
+  if(!v){alert('请填写"值"');return}
+  LISTS.push({
+    id:Date.now(),
+    list_type:document.getElementById('mListType').value,
+    target:document.getElementById('mTarget').value,
+    value:v,enabled:true,
+    remark:document.getElementById('mRemark').value.trim()||'—',
+    by:'admin',at:new Date().toISOString().slice(0,16).replace('T',' ')
+  });
+  document.getElementById('listTypeSel').value=document.getElementById('mListType').value;
+  document.getElementById('mValue').value='';document.getElementById('mRemark').value='';
+  closeListDialog();renderLists();
+  toast('已创建条目 '+v+'（已记入审计）');
+}
+
+/* ---------- 融合策略选择 ---------- */
+document.querySelectorAll('#fusionCards .radio-card').forEach(function(c){
+  c.addEventListener('click',function(){
+    document.querySelectorAll('#fusionCards .radio-card').forEach(function(x){x.classList.remove('sel')});
+    c.classList.add('sel');c.querySelector('input').checked=true;
+    toast('融合策略已切换为 '+c.dataset.v+'（已记入审计）');
+  });
+});
+
+/* ---------- 响应式 ---------- */
+function fixResp(){
+  var el=document.querySelector('.resp-2col');
+  if(el)el.style.gridTemplateColumns=window.innerWidth<960?'1fr':'2fr 1fr';
+}
+window.addEventListener('resize',fixResp);fixResp();
+
+/* ---------- 初始化 ---------- */
+renderLogs();renderDash();renderLists();
+document.getElementById('loginPass').addEventListener('keydown',function(e){if(e.key==='Enter')doLogin()});
+</script>
+</body>
+</html>
