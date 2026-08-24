@@ -44,12 +44,26 @@ class ThreatIntelAdapter(ABC):
     name: str = ""
     supports_domain: bool = True
     supports_ip: bool = True
+    adapter_type: str = "http"   # http / dnsbl
+    is_builtin: bool = False
 
     def __init__(self, base_url: str = "", api_key: str = "",
-                 timeout_ms: int = 2000):
+                 timeout_ms: int = 2000, config: str = ""):
         self.base_url = base_url.rstrip("/") if base_url else ""
         self.api_key = api_key or ""
         self.timeout_ms = timeout_ms
+        self.config = self._parse_config(config)
+
+    @staticmethod
+    def _parse_config(config: str) -> dict:
+        if not config:
+            return {}
+        try:
+            import json
+            data = json.loads(config)
+            return data if isinstance(data, dict) else {}
+        except ValueError:
+            return {}
 
     @abstractmethod
     def query_domain(self, domain: str) -> ThreatResult | None:
@@ -67,13 +81,14 @@ def get_adapter_cls(name: str) -> type[ThreatIntelAdapter] | None:
     return ADAPTER_REGISTRY.get(name)
 
 
-def build_adapter(name: str, base_url: str, api_key: str = "",
-                  timeout_ms: int = 2000) -> ThreatIntelAdapter | None:
+def build_adapter(name: str, base_url: str = "", api_key: str = "",
+                  timeout_ms: int = 2000, config: str = "") -> ThreatIntelAdapter | None:
     """按配置实例化适配器；未注册的名称返回 None。"""
     cls = ADAPTER_REGISTRY.get(name)
     if cls is None:
         return None
-    return cls(base_url=base_url, api_key=api_key, timeout_ms=timeout_ms)
+    return cls(base_url=base_url, api_key=api_key, timeout_ms=timeout_ms,
+               config=config)
 
 
 def get_enabled_adapters() -> list[ThreatIntelAdapter]:
@@ -86,7 +101,8 @@ def get_enabled_adapters() -> list[ThreatIntelAdapter]:
         cur.execute("SELECT * FROM threatintel_api WHERE enabled=1")
         for row in cur.fetchall():
             adapter = build_adapter(row["name"], row["base_url"],
-                                    row["api_key"], row["timeout_ms"])
+                                    row["api_key"], row["timeout_ms"],
+                                    row["config"] or "")
             if adapter is None:
                 logger.warning("情报源 %s 未注册适配器，跳过", row["name"])
                 continue
@@ -118,10 +134,19 @@ def _build_registry() -> dict[str, type[ThreatIntelAdapter]]:
     from adapters.example import ExampleAdapter
     from adapters.virustotal import VirusTotalAdapter
     from adapters.abuseipdb import AbuseIPDBAdapter
+    from adapters.dnsbl import (
+        SpamhausZenAdapter, SpamhausDBLAdapter, DroneBLAdapter, SPFBLAdapter,
+    )
+    from adapters.urlhaus import UrlhausAdapter
     return {
         "example": ExampleAdapter,
         "virustotal": VirusTotalAdapter,
         "abuseipdb": AbuseIPDBAdapter,
+        "spamhaus_zen": SpamhausZenAdapter,
+        "spamhaus_dbl": SpamhausDBLAdapter,
+        "dronebl": DroneBLAdapter,
+        "spfbl": SPFBLAdapter,
+        "urlhaus": UrlhausAdapter,
     }
 
 

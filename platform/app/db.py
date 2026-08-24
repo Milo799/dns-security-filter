@@ -28,7 +28,27 @@ def get_conn() -> sqlite3.Connection:
 def init_schema(conn: sqlite3.Connection) -> None:
     with open(_SCHEMA_PATH, "r", encoding="utf-8") as f:
         conn.executescript(f.read())
+    _migrate(conn)
     conn.commit()
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """轻量迁移：为旧库补齐新增列（SQLite 无 ADD COLUMN IF NOT EXISTS）。
+
+    新增列必须与 schema.sql 保持一致（列名/类型/默认值），仅限追加列。
+    """
+    columns = {
+        "adapter_type": "VARCHAR NOT NULL DEFAULT 'http'",
+        "is_builtin": "BOOLEAN NOT NULL DEFAULT 0",
+        "config": "TEXT DEFAULT ''",
+        "description": "VARCHAR DEFAULT ''",
+    }
+    existing = {r["name"] for r in conn.execute(
+        "PRAGMA table_info(threatintel_api)").fetchall()}
+    for name, ddl in columns.items():
+        if name not in existing:
+            conn.execute(
+                f"ALTER TABLE threatintel_api ADD COLUMN {name} {ddl}")
 
 
 @contextmanager

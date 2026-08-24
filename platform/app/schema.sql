@@ -17,15 +17,22 @@ CREATE TABLE IF NOT EXISTS filter_list (
 CREATE INDEX IF NOT EXISTS idx_filter_list ON filter_list (list_type, target, enabled);
 
 -- 6.2 威胁情报源配置
+-- adapter_type: http（HTTP API） / dnsbl（DNS 黑名单，无 Key 开源源）
+-- is_builtin: 1=平台内置开源源（seed 写入，开箱即用，禁止删除）
+-- config: JSON 扩展字段（如 dnsbl 的 zone 自定义）
 CREATE TABLE IF NOT EXISTS threatintel_api (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    name       VARCHAR NOT NULL UNIQUE,       -- 适配器名称，如 virustotal
-    base_url   VARCHAR NOT NULL,
-    api_key    VARCHAR DEFAULT '',            -- 加密存储（TODO: 落库前 AES 加密）
-    enabled    BOOLEAN NOT NULL DEFAULT 0,
-    timeout_ms INTEGER NOT NULL DEFAULT 2000,
-    created_at DATETIME NOT NULL DEFAULT (datetime('now','localtime')),
-    updated_at DATETIME NOT NULL DEFAULT (datetime('now','localtime'))
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    name         VARCHAR NOT NULL UNIQUE,     -- 适配器名称，如 virustotal / spamhaus_zen
+    adapter_type VARCHAR NOT NULL DEFAULT 'http',
+    base_url     VARCHAR NOT NULL DEFAULT '',
+    api_key      VARCHAR DEFAULT '',          -- 加密存储（TODO: 落库前 AES 加密）
+    enabled      BOOLEAN NOT NULL DEFAULT 0,
+    timeout_ms   INTEGER NOT NULL DEFAULT 2000,
+    is_builtin   BOOLEAN NOT NULL DEFAULT 0,
+    config       TEXT DEFAULT '',             -- JSON 扩展配置
+    description  VARCHAR DEFAULT '',
+    created_at   DATETIME NOT NULL DEFAULT (datetime('now','localtime')),
+    updated_at   DATETIME NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
 -- 6.3 过滤日志（被过滤内容记录，核心；字段见 PRD 5.5）

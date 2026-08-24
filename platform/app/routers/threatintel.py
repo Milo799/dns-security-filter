@@ -1,4 +1,8 @@
-"""威胁情报源配置 + 融合策略（PRD 7.2 威胁情报源）。"""
+"""威胁情报源配置 + 融合策略（PRD 7.2 威胁情报源）。
+
+内置开源情报源（spamhaus_zen/dbl、dronebl、spfbl、urlhaus）由 seed
+预置（is_builtin=1，免 Key 开箱即用），管理员在界面启停；内置源禁止删除。
+"""
 
 import time
 
@@ -14,6 +18,13 @@ from app.runtime import set_config
 router = APIRouter(prefix="/api/threatintel", tags=["threatintel"])
 
 VALID_STRATEGIES = {"any", "majority", "all"}
+BUILTIN_DESCRIPTIONS = {
+    "spamhaus_zen": "Spamhaus ZEN IP 信誉黑名单（免 Key）",
+    "spamhaus_dbl": "Spamhaus DBL 域名黑名单（免 Key）",
+    "dronebl": "DroneBL 僵尸网络/滥用 IP 黑名单（免 Key）",
+    "spfbl": "SPFBL 综合黑名单（免 Key）",
+    "urlhaus": "URLhaus 恶意 URL 分发库（开放 API，限速）",
+}
 
 
 class FusionBody(BaseModel):
@@ -39,10 +50,13 @@ def set_fusion_strategy(body: FusionBody, user: str = Depends(get_current_user))
 
 class ThreatIntelBody(BaseModel):
     name: str
+    adapter_type: str = "http"   # http / dnsbl
     base_url: str = ""
     api_key: str = ""
     enabled: bool = False
     timeout_ms: int = 2000
+    config: str = ""             # JSON 扩展配置
+    description: str = ""
 
 
 def _mask_key(api_key: str) -> str:
@@ -52,19 +66,26 @@ def _mask_key(api_key: str) -> str:
     return "●●●●●●" + api_key[-4:]
 
 
+def _decorate(row: dict) -> dict:
+    """补充适配器元信息（脱敏、注册、能力、内置标签）。"""
+    name = row["name"]
+    row["api_key_masked"] = _mask_key(row.pop("api_key", ""))
+    row["adapter_registered"] = name in ADAPTER_REGISTRY
+    cls = ADAPTER_REGISTRY.get(name)
+    row["supports_domain"] = cls.supports_domain if cls else False
+    row["supports_ip"] = cls.supports_ip if cls else False
+    row["is_builtin"] = bool(row.get("is_builtin", 0))
+    row["adapter_type"] = row.get("adapter_type") or \
+        (cls.adapter_type if cls else "http")
+    return row
+
+
 @router.get("")
 def list_threatintel(_: str = Depends(get_current_user)):
     """全部情报源配置（api_key 脱敏）+ 适配器注册情况。"""
     with db_cursor() as cur:
         cur.execute("SELECT * FROM threatintel_api ORDER BY id")
-        rows = [dict(r) for r in cur.fetchall()]
-    for r in rows:
-        r["api_key_masked"] = _mask_key(r.pop("api_key", ""))
-        r["adapter_registered"] = r["name"] in ADAPTER_REGISTRY
-        r["supports_domain"] = ADAPTER_REGISTRY[r["name"]].supports_domain \
-            if r["name"] in ADAPTER_REGISTRY else False
-        r["supports_ip"] = ADAPTER_REGISTRY[r["name"]].supports_ip \
-            if r["name"] in ADAPTER_REGISTRY else False
+        rows = [_decorate(dict(r)) for r in cur.fetchall()]
     return {"code": 0, "message": "ok", "data": {
         "items": rows,
         "registered_adapters": sorted(ADAPTER_REGISTRY.keys()),
@@ -77,6 +98,8 @@ def create_threatintel(body: ThreatIntelBody, user: str = Depends(get_current_us
     if name not in ADAPTER_REGISTRY:
         raise HTTPException(status_code=400,
                             detail=f"适配器未注册，可选：{sorted(ADAPTER_REGISTRY)}")
+    if body.adapter_type not in ("http", "dnsbl"):
+        raise HTTPException(status_code=400, detail="adapter_type 须为 http/dnsbl")
     if body.timeout_ms < 100 or body.timeout_ms > 30000:
         raise HTTPException(status_code=400, detail="timeout_ms 须在 100~30000 之间")
     with db_cursor() as cur:
@@ -85,15 +108,18 @@ def create_threatintel(body: ThreatIntelBody, user: str = Depends(get_current_us
             raise HTTPException(status_code=409, detail=f"情报源 {name} 已存在")
         cur.execute(
             """INSERT INTO threatintel_api
-               (name, base_url, api_key, enabled, timeout_ms)
-               VALUES (?, ?, ?, ?, ?)""",
-            (name, body.base_url, body.api_key, int(body.enabled),
-             body.timeout_ms),
+               (name, adapter_type, base_url, api_key, enabled, timeout_ms,
+                config, description)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (name, body.adapter_type, body.base_url, body.api_key,
+             int(body.enabled), body.timeout_ms, body.config,
+             body.description or BUILTIN_DESCRIPTIONS.get(name, "")),
         )
         item_id = cur.lastrowid
     write_audit(user, "threatintel_create", {
-        "id": item_id, "name": name, "base_url": body.base_url,
-        "enabled": body.enabled, "timeout_ms": body.timeout_ms,
+        "id": item_id, "name": name, "adapter_type": body.adapter_type,
+        "base_url": body.base_url, "enabled": body.enabled,
+        "timeout_ms": body.timeout_ms,
     })
     return {"code": 0, "message": "ok", "data": {"id": item_id}}
 
@@ -125,6 +151,8 @@ def update_threatintel(item_id: int, body: ThreatIntelBody,
         ("base_url", row["base_url"], body.base_url),
         ("timeout_ms", row["timeout_ms"], body.timeout_ms),
         ("enabled", bool(row["enabled"]), body.enabled),
+        ("config", row["config"] or "", body.config),
+        ("description", row["description"] or "", body.description),
     ):
         if old != new:
             changes[k] = {"from": old, "to": new}
@@ -133,10 +161,11 @@ def update_threatintel(item_id: int, body: ThreatIntelBody,
         cur.execute(
             """UPDATE threatintel_api
                SET name=?, base_url=?, api_key=?, enabled=?, timeout_ms=?,
+                   config=?, description=?,
                    updated_at=datetime('now','localtime')
                WHERE id=?""",
             (name, body.base_url, api_key, int(body.enabled),
-             body.timeout_ms, item_id),
+             body.timeout_ms, body.config, body.description, item_id),
         )
     if changes:
         write_audit(user, "threatintel_update", {"id": item_id, **changes})
@@ -146,10 +175,14 @@ def update_threatintel(item_id: int, body: ThreatIntelBody,
 @router.delete("/{item_id}")
 def delete_threatintel(item_id: int, user: str = Depends(get_current_user)):
     with db_cursor() as cur:
-        cur.execute("SELECT name FROM threatintel_api WHERE id=?", (item_id,))
+        cur.execute("SELECT name, is_builtin FROM threatintel_api WHERE id=?",
+                    (item_id,))
         row = cur.fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="情报源不存在")
+        if row["is_builtin"]:
+            raise HTTPException(status_code=403,
+                                detail="内置开源情报源不可删除，停用即可")
         cur.execute("DELETE FROM threatintel_api WHERE id=?", (item_id,))
     write_audit(user, "threatintel_delete", {"id": item_id, "name": row["name"]})
     return {"code": 0, "message": "ok", "data": {}}
@@ -167,7 +200,8 @@ def test_threatintel(item_id: int, user: str = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="情报源不存在")
 
     adapter = build_adapter(row["name"], row["base_url"],
-                            row["api_key"], row["timeout_ms"])
+                            row["api_key"], row["timeout_ms"],
+                            row["config"] or "")
     if adapter is None:
         return {"code": 0, "message": "ok",
                 "data": {"ok": False, "detail": "适配器未注册", "latency_ms": 0}}
