@@ -1,0 +1,16 @@
+[Unit]
+Description=DNS 安全过滤平台（DNS 服务 + Web 管理）
+After=network.target
+
+[Service]
+Type=simple
+User=dnsfilter
+WorkingDirectory=/opt/dns-security-filter/platform
+
+# DNS 服务（UDP/TCP 53；如与代理同机需注意端口占用与授权）
+ExecStart=/usr/bin/python3 dns_server.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,16 @@
+[Unit]
+Description=DNS 安全过滤代理中间件
+After=network.target
+
+[Service]
+Type=simple
+# 建议用普通用户运行并授权绑定 53 端口：
+#   sudo setcap 'cap_net_bind_service=+ep' /opt/dns-security-filter/bin/dns-proxy
+User=dnsfilter
+WorkingDirectory=/opt/dns-security-filter
+ExecStart=/opt/dns-security-filter/bin/dns-proxy -config /opt/dns-security-filter/proxy/config.yaml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

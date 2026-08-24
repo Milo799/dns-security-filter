@@ -1,0 +1,20 @@
+# Go
+bin/
+proxy/config.yaml
+proxy/dns-proxy
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+platform/platform.yaml
+platform/data/
+
+# 测试缓存
+.pytest_cache/
+.pytest_cache*/
+pytest-cache-files-*
+
+# 其他
+.DS_Store
+*.log

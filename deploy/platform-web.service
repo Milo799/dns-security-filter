@@ -1,0 +1,14 @@
+[Unit]
+Description=DNS 安全过滤平台 Web 管理
+After=network.target platform-dns.service
+
+[Service]
+Type=simple
+User=dnsfilter
+WorkingDirectory=/opt/dns-security-filter/platform
+ExecStart=/usr/bin/python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8080
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

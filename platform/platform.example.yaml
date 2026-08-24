@@ -1,0 +1,22 @@
+# 安全过滤平台配置示例
+# 复制为 platform.yaml 并修改后使用
+
+dns:
+  listen_addr: 0.0.0.0
+  listen_port: 53
+
+web:
+  listen_addr: 0.0.0.0
+  listen_port: 8080
+  jwt_secret: change-me          # 生产环境必须修改
+
+database: ./data/platform.db     # SQLite 数据库路径
+upstream_dns: 8.8.8.8            # 公网 DNS
+alert_ip: 127.0.0.1              # 告警 IP（A 记录拦截应答，需配置真实告警页 IP）
+alert_ttl: 60
+fusion_strategy: any             # any / majority / all
+log_retention_days: 90
+allow_log_enabled: false         # 放行日志开关
+detection_enabled: true          # 检测总开关
+api_timeout_ms: 2000             # 威胁情报源单次调用超时（毫秒）
+admin_initial_password: admin123 # 首次初始化管理员密码（生产必须改）
