@@ -60,8 +60,8 @@ BUILTIN_THREATINTEL = [
         "name": "urlhaus",
         "adapter_type": "http",
         "base_url": "https://urlhaus-api.abuse.ch",
-        "config": {"note": "开放 API 无需 Key；官方限速约 5 秒/次，建议默认停用，手动测试用"},
-        "description": "URLhaus（abuse.ch）恶意 URL 分发库，支持域名与 IP",
+        "config": {"note": "需 Auth-Key（https://auth.abuse.ch/ 免费申请）填入 API Key；官方限速约 5 秒/次，建议默认停用，手动测试用"},
+        "description": "URLhaus（abuse.ch）恶意 URL 分发库，支持域名与 IP，需 Auth-Key",
     },
     {
         "name": "threatfox",
@@ -123,18 +123,32 @@ BUILTIN_THREATINTEL = [
 
 
 def init_builtin_threatintel(conn) -> None:
-    """写入内置开源情报源（已存在不覆盖，保持管理员启停状态）。"""
+    """写入内置开源情报源。
+
+    - 不存在则插入（默认停用）；
+    - 已存在则仅同步 description（项目维护的说明文字，跟随版本更新），
+      不触碰管理员自定义的 config / api_key / enabled 启停状态。
+    """
     for item in BUILTIN_THREATINTEL:
-        conn.execute(
-            """INSERT OR IGNORE INTO threatintel_api
-               (name, adapter_type, base_url, enabled, timeout_ms,
-                is_builtin, config, description)
-               VALUES (?, ?, ?, 0, ?, 1, ?, ?)""",
-            (item["name"], item["adapter_type"], item["base_url"],
-             CONFIG.api_timeout_ms,
-             json.dumps(item["config"], ensure_ascii=False),
-             item["description"]),
-        )
+        cur = conn.execute("SELECT id FROM threatintel_api WHERE name=?",
+                           (item["name"],))
+        row = cur.fetchone()
+        if row is None:
+            conn.execute(
+                """INSERT INTO threatintel_api
+                   (name, adapter_type, base_url, enabled, timeout_ms,
+                    is_builtin, config, description)
+                   VALUES (?, ?, ?, 0, ?, 1, ?, ?)""",
+                (item["name"], item["adapter_type"], item["base_url"],
+                 CONFIG.api_timeout_ms,
+                 json.dumps(item["config"], ensure_ascii=False),
+                 item["description"]),
+            )
+        else:
+            conn.execute(
+                "UPDATE threatintel_api SET description=? WHERE id=?",
+                (item["description"], row["id"]),
+            )
     conn.commit()
 
 

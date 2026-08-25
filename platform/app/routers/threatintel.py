@@ -23,7 +23,7 @@ BUILTIN_DESCRIPTIONS = {
     "spamhaus_dbl": "Spamhaus DBL 域名黑名单（免 Key）",
     "dronebl": "DroneBL 僵尸网络/滥用 IP 黑名单（免 Key）",
     "spfbl": "SPFBL 综合黑名单（免 Key）",
-    "urlhaus": "URLhaus 恶意 URL 分发库（开放 API，限速）",
+    "urlhaus": "URLhaus 恶意 URL 分发库（需 Auth-Key，auth.abuse.ch 免费申请）",
 }
 
 
@@ -215,9 +215,11 @@ def test_threatintel(item_id: int, user: str = Depends(get_current_user)):
     latency_ms = int((time.monotonic() - start) * 1000)
 
     if result is None:
+        # 优先展示适配器记录的失败原因（如 URLhaus 缺 Auth-Key），便于诊断
+        detail = getattr(adapter, "last_error", "") or \
+            "请求失败（超时/网络/鉴权错误），详见平台日志"
         return {"code": 0, "message": "ok",
-                "data": {"ok": False,
-                         "detail": "请求失败（超时/网络/鉴权错误），详见平台日志",
+                "data": {"ok": False, "detail": detail,
                          "latency_ms": latency_ms}}
     return {"code": 0, "message": "ok",
             "data": {"ok": True, "detail": result.detail, "latency_ms": latency_ms}}

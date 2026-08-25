@@ -1,7 +1,9 @@
-"""新增内置免 Key 情报源（PhishTank / DShield / Blocklist.de）适配器测试。
+"""新增内置情报源适配器测试（PhishTank / DShield / Blocklist.de / URLhaus）。
 
 覆盖三态语义：命中 / 明确未命中 / 网络失败或结构异常 → None（无结论，
 参与 fail-safe 默认拦截）；以及能力声明（域名 vs IP 支持范围）。
+URLhaus 额外覆盖：官方现已强制要求 Auth-Key（HTTP 头），未配置 Key 时
+应短路返回并给出可诊断的 last_error。
 """
 
 from datetime import date, timedelta
@@ -12,6 +14,7 @@ import pytest
 from adapters.phishtank import PhishTankAdapter
 from adapters.dshield import DShieldAdapter
 from adapters.blocklistde import BlocklistDeAdapter
+from adapters.urlhaus import UrlhausAdapter
 
 
 class FakeResp:
@@ -177,3 +180,97 @@ def test_blocklistde_network_error_is_none(monkeypatch):
 def test_blocklistde_supports_domain_false():
     assert BlocklistDeAdapter().supports_domain is False
     assert BlocklistDeAdapter().supports_ip is True
+
+
+# ================= URLhaus（需 Auth-Key） =================
+
+def test_urlhaus_without_key_short_circuits():
+    """未配置 Auth-Key 时短路返回 None，并给出可诊断的 last_error。"""
+    a = UrlhausAdapter()
+    assert a.query_domain("example.com") is None
+    assert "Auth-Key" in a.last_error and "auth.abuse.ch" in a.last_error
+
+
+def test_urlhaus_sends_auth_key_header(monkeypatch):
+    a = UrlhausAdapter(api_key="my-key-1234")
+    seen = {}
+
+    def fake_post(url, data=None, headers=None, **k):
+        seen["url"] = url
+        seen["headers"] = headers or {}
+        return FakeResp(payload={"query_status": "no_results", "urls": []})
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    r = a.query_domain("example.com")
+    assert r is not None and not r.is_malicious
+    assert seen["headers"].get("Auth-Key") == "my-key-1234"
+    assert seen["url"].endswith("/v1/host/")
+    assert a.last_error == ""
+
+
+def test_urlhaus_hit(monkeypatch):
+    a = UrlhausAdapter(api_key="k")
+    monkeypatch.setattr(httpx, "post", lambda *a_, **k:
+        FakeResp(payload={"query_status": "ok",
+                          "urls": [{"url_id": 1}, {"url_id": 2}]}))
+    r = a.query_domain("evil.example.com")
+    assert r is not None and r.is_malicious
+    assert "2" in r.detail
+
+
+def test_urlhaus_miss(monkeypatch):
+    a = UrlhausAdapter(api_key="k")
+    monkeypatch.setattr(httpx, "post", lambda *a_, **k:
+        FakeResp(payload={"query_status": "no_results", "urls": []}))
+    r = a.query_domain("example.com")
+    assert r is not None and not r.is_malicious
+
+
+def test_urlhaus_unauthorized_is_none(monkeypatch):
+    """Key 无效 → 401 → 无结论，并明确提示检查 Key。"""
+    a = UrlhausAdapter(api_key="bad-key")
+    monkeypatch.setattr(httpx, "post", lambda *a_, **k: FakeResp(401))
+    assert a.query_domain("example.com") is None
+    assert "Auth-Key" in a.last_error
+
+
+def test_urlhaus_rate_limit_is_none(monkeypatch):
+    a = UrlhausAdapter(api_key="k")
+    monkeypatch.setattr(httpx, "post", lambda *a_, **k: FakeResp(429))
+    assert a.query_domain("example.com") is None
+    assert "rate limit" in a.last_error or "频繁" in a.last_error
+
+
+def test_urlhaus_network_error_is_none(monkeypatch):
+    a = UrlhausAdapter(api_key="k")
+    def boom(*a_, **k):
+        raise httpx.ConnectError("no network")
+    monkeypatch.setattr(httpx, "post", boom)
+    assert a.query_domain("example.com") is None
+    assert "网络" in a.last_error
+
+
+def test_urlhaus_bad_status_is_none(monkeypatch):
+    """query_status 为 invalid_host 等 → 请求未成功，无结论。"""
+    a = UrlhausAdapter(api_key="k")
+    monkeypatch.setattr(httpx, "post", lambda *a_, **k:
+        FakeResp(payload={"query_status": "invalid_host"}))
+    assert a.query_domain("example.com") is None
+    assert "invalid_host" in a.last_error
+
+
+def test_urlhaus_ip_uses_host_endpoint(monkeypatch):
+    """IP 查询也走 /v1/host/（官方无 /v1/ip/ 端点）。"""
+    a = UrlhausAdapter(api_key="k")
+    seen = {}
+
+    def fake_post(url, data=None, headers=None, **k):
+        seen["url"] = url
+        seen["data"] = data
+        return FakeResp(payload={"query_status": "no_results", "urls": []})
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    r = a.query_ip("8.8.8.8")
+    assert r is not None and not r.is_malicious
+    assert seen["url"].endswith("/v1/host/")
+    assert seen["data"] == {"host": "8.8.8.8"}
