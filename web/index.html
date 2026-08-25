@@ -773,6 +773,7 @@ function renderDomainResult(d){
   html+='<div class="card"><div class="card-head"><div class="card-title">'+(isPtr?'PTR 反向解析 · IP 维度':'本地名单检查')+'</div><span class="tag tag-neutral">'+esc(isPtr?(d.ptr_ip+' → '+d.domain):(d.domain+' · '+d.query_type))+'</span></div><div class="card-body" style="padding-top:0">'
     +'<div class="t-check"><div class="tk">🟢 白名单'+(isPtr?' IP':'')+'</div><div>'+(d.whitelist.matched?'<span class="tag tag-success"><span class="dot"></span>命中</span> <span class="rule-chip">'+esc(d.whitelist.rule)+'</span>':'<span class="tag tag-neutral">未命中</span>')+'</div></div>'
     +'<div class="t-check"><div class="tk">🔴 本地'+(isPtr?' IP':'')+'黑名单</div><div>'+(d.local_blacklist.matched?'<span class="tag tag-error"><span class="dot"></span>命中</span> <span class="rule-chip">'+esc(d.local_blacklist.rule)+'</span>':'<span class="tag tag-neutral">未命中</span>')+'</div></div>'
+    +'<div class="t-check"><div class="tk">📋 离线大名单'+(isPtr?' IP':'')+'</div><div>'+(d.threat_list.matched?'<span class="tag tag-error"><span class="dot"></span>命中</span> <span class="rule-chip">'+esc(d.threat_list.entry)+'</span> <span class="form-hint" style="margin:0">来源 '+esc(d.threat_list.source)+'</span>':'<span class="tag tag-neutral">未命中</span>')+'</div></div>'
     +'</div></div>';
   html+='<div class="card"><div class="card-head"><div class="card-title">威胁情报 · '+(isPtr?'IP 维度':'域名维度')+'</div><span class="tag tag-blue">启用源逐源结果</span></div><div class="card-body table-wrap" style="padding-top:0">'+probeTable(d.threatintel_domain)+'</div></div>';
   if(d.resolution){
@@ -808,6 +809,7 @@ function renderIpResult(d){
   var html=verdictBanner(d.verdict,inter?'判定：拦截':'判定：放行',d.reason);
   html+='<div class="card"><div class="card-head"><div class="card-title">本地名单检查</div><span class="tag tag-neutral">'+esc(d.ip)+'</span></div><div class="card-body" style="padding-top:0">'
     +'<div class="t-check"><div class="tk">🔴 本地 IP 黑名单（含 CIDR）</div><div>'+(d.local_blacklist.matched?'<span class="tag tag-error"><span class="dot"></span>命中</span> <span class="rule-chip">'+esc(d.local_blacklist.rule)+'</span>':'<span class="tag tag-neutral">未命中</span>')+'</div></div>'
+    +'<div class="t-check"><div class="tk">📋 离线大名单</div><div>'+(d.threat_list.matched?'<span class="tag tag-error"><span class="dot"></span>命中</span> <span class="rule-chip">'+esc(d.threat_list.entry)+'</span> <span class="form-hint" style="margin:0">来源 '+esc(d.threat_list.source)+'</span>':'<span class="tag tag-neutral">未命中</span>')+'</div></div>'
     +'</div></div>';
   html+='<div class="card"><div class="card-head"><div class="card-title">威胁情报 · IP 维度</div><span class="tag tag-blue">启用源逐源结果</span></div><div class="card-body table-wrap" style="padding-top:0">'+probeTable(d.threatintel_ip)+'</div></div>';
   return html;
