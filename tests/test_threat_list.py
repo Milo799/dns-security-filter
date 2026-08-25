@@ -164,8 +164,9 @@ def test_source_stats():
         assert stats["hagezi_ti"]["total"] == 2
         assert stats["hagezi_ti"]["enabled_cnt"] == 2
         assert stats["hagezi_ti"]["updated_at"]
-        # 内置 3 个来源元数据始终存在
-        assert set(stats) >= {"hagezi_ti", "hagezi_ult", "stevenblack"}
+        # 内置 5 个来源元数据始终存在
+        assert set(stats) >= {"hagezi_ti", "hagezi_ult", "stevenblack",
+                              "urlhaus", "oisd"}
     finally:
         threat_list.delete_source("hagezi_ti")
 
@@ -176,9 +177,15 @@ def test_mirror_of_rules():
     assert threat_list._mirror_of(
         "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/tif-onlydomains.txt"
     ) == "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/tif-onlydomains.txt"
-    # 非 hagezi 地址无镜像
+    # oisd 仓库同样有 jsDelivr 镜像
+    assert threat_list._mirror_of(
+        "https://raw.githubusercontent.com/sjhgvr/oisd/main/domainswild_big.txt"
+    ) == "https://cdn.jsdelivr.net/gh/sjhgvr/oisd@main/domainswild_big.txt"
+    # 非已知仓库地址无镜像
     assert threat_list._mirror_of(
         "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts") is None
+    assert threat_list._mirror_of(
+        "https://urlhaus.abuse.ch/downloads/hostfile/") is None
 
 
 def test_download_uses_main_then_mirror(monkeypatch):
@@ -259,7 +266,12 @@ def test_sources_api(client, token):
     r = client.get("/api/threatlist/sources", headers=_h(token))
     assert r.status_code == 200
     keys = {i["key"] for i in r.json()["data"]["items"]}
-    assert keys == {"hagezi_ti", "hagezi_ult", "stevenblack"}
+    assert keys == {"hagezi_ti", "hagezi_ult", "stevenblack",
+                    "urlhaus", "oisd"}
+    # 新源带更新周期元数据
+    by_key = {i["key"]: i for i in r.json()["data"]["items"]}
+    assert by_key["urlhaus"]["update_interval_s"] == 30 * 60
+    assert by_key["oisd"]["update_interval_s"] == 24 * 3600
 
 
 def test_domains_api(client, token):
@@ -506,3 +518,77 @@ def test_import_conflict_409(client, token):
     finally:
         t.update(status="idle", stage="", message="", error=None,
                  finished_at=None)
+
+
+# ---------------- 按源周期自动更新（urlhaus 短周期 / 大名单每日） ----------------
+
+def test_source_due_logic():
+    """source_due：未导入→到期；刚导入→未到期；时间过期→到期。"""
+    # 从未导入（先确保干净）
+    threat_list.delete_source("hagezi_ult")
+    assert threat_list.source_due("hagezi_ult", 24 * 3600) is True
+
+    threat_list.import_source("hagezi_ult", "due.com\n")
+    try:
+        # 刚导入：24h 周期未到期，30 分钟周期也未到期
+        assert threat_list.source_due("hagezi_ult", 24 * 3600) is False
+        assert threat_list.source_due("hagezi_ult", 30 * 60) is False
+
+        # 人为把最近更新时间改旧 → 到期
+        with db_cursor() as cur:
+            cur.execute(
+                "UPDATE threat_list SET updated_at=? WHERE source=?",
+                ("2020-01-01 00:00:00", "hagezi_ult"))
+        assert threat_list.source_due("hagezi_ult", 24 * 3600) is True
+        assert threat_list.source_due("hagezi_ult", 1) is True
+    finally:
+        threat_list.delete_source("hagezi_ult")
+
+
+def test_auto_update_once_respects_interval(monkeypatch):
+    """自动更新轮：到期源被下载替换，未到期源标记 skipped 不下载。"""
+    import app.threat_list as tl_mod
+    # 两个启用源：hagezi_ti 刚导入（未到期），urlhaus 时间被改旧（到期）
+    threat_list.delete_source("hagezi_ti")
+    threat_list.delete_source("urlhaus")
+    threat_list.import_source("hagezi_ti", "keep.com\n")
+    threat_list.import_source("urlhaus", "old.com\n")
+    with db_cursor() as cur:
+        cur.execute("UPDATE threat_list SET updated_at=? WHERE source=?",
+                    ("2020-01-01 00:00:00", "urlhaus"))
+
+    calls = []
+    monkeypatch.setattr(tl_mod, "download",
+                        lambda *a, **k: calls.append(a[0]) or "new.com\n")
+    try:
+        results = threat_list.auto_update_once()
+        # 未到期源：skipped，未触发下载
+        assert results["hagezi_ti"]["ok"] is True
+        assert results["hagezi_ti"]["skipped"] is True
+        # 到期源：下载并整源替换
+        assert results["urlhaus"]["ok"] is True
+        assert results["urlhaus"]["skipped"] is False
+        assert results["urlhaus"]["imported"] == 1
+        assert len(calls) == 1
+        assert "urlhaus.abuse.ch" in calls[0]
+        # 数据已替换
+        assert not threat_list.check_domain("old.com")
+        assert threat_list.check_domain("new.com")
+    finally:
+        threat_list.delete_source("hagezi_ti")
+        threat_list.delete_source("urlhaus")
+
+
+def test_auto_update_tick_min_src(monkeypatch):
+    """调度 tick = min(配置间隔, 内置源最小更新周期)，能覆盖 30 分钟短周期。"""
+    from app import auto_update
+    monkeypatch.setattr(auto_update.CONFIG, "threatlist_auto_interval_hours", 24)
+    t = auto_update.tick_seconds()
+    assert t <= 30 * 60            # 至少能覆盖 urlhaus 30 分钟周期
+    assert t >= auto_update._TICK_MIN_S
+    # 用户配置更短时也受源周期限制（不短于下限）
+    monkeypatch.setattr(auto_update.CONFIG, "threatlist_auto_interval_hours", 1)
+    assert auto_update.tick_seconds() <= 30 * 60
+    # 用户配置非法 → 仍能得出合理 tick
+    monkeypatch.setattr(auto_update.CONFIG, "threatlist_auto_interval_hours", "xx")
+    assert auto_update.tick_seconds() <= 30 * 60

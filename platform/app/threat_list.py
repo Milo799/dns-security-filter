@@ -4,16 +4,20 @@
 检测时内存 O(1) 匹配，零外部 API 依赖、零延迟、无 Key。
 
 特性：
-  - 内置来源元数据（hagezi 威胁情报 / hagezi 综合大名单 / StevenBlack hosts），
+  - 内置来源元数据（hagezi 威胁情报 / hagezi 综合大名单 / StevenBlack hosts /
+    URLhaus 恶意域名 / OISD 综合大名单），
     支持自定义 URL 导入任意纯域名 / hosts / adblock 格式列表；
   - 导入为"事务内整源替换"：重复导入即增量更新，不留陈旧条目；
   - 来源可整体启停（enabled），停用后不再参与匹配（条目保留，重新启用即恢复）；
+  - 自动更新按来源各自周期调度（update_interval_s）：URLhaus 高及时小名单
+    30 分钟同步，大名单每日同步，见 auto_update.py / auto_update_once()；
   - 匹配语义：域名精确匹配 + 逐级父域后缀匹配（列表含 bad.com，则 a.bad.com 命中）；
     IP 精确匹配；
   - 内存缓存：导入后 invalidate()，下次检测自动重载，进程内保持一致。
 
 注意：hagezi 的 "ULTIMATE"（domains.txt）含广告/追踪，量最大、误伤面也大，
-默认建议用 "threat-intelligence.txt"（纯安全情报）。
+默认建议用 "threat-intelligence.txt"（纯安全情报）；URLhaus 为"当前活跃"哨兵名单，
+误伤极小但规模小，适合与全量大名单叠加使用。
 """
 
 import ipaddress
@@ -28,8 +32,10 @@ from app.db import db_cursor
 logger = logging.getLogger("platform.app.threat_list")
 
 # 内置来源元数据（URL 可随上游仓库调整；格式 plain / hosts / auto）
-# 注意：hagezi 仓库 2024 年改版，纯域名列表位于 wildcard/*-onlydomains.txt；
-# raw 主地址不可达时 download() 自动降级到 jsDelivr CDN（同路径 @latest）。
+# - update_interval_s：自动更新周期（秒）。高及时小名单（如 URLhaus）配短周期，
+#   大名单配每日；auto_update 调度按各源最近导入时间判断是否到期。
+# - 注意：hagezi / oisd 仓库的 raw 主地址不可达时，download() 自动降级到
+#   jsDelivr CDN（见 _MIRROR_RULES）。
 SOURCES = [
     {
         "key": "hagezi_ti",
@@ -38,6 +44,7 @@ SOURCES = [
         "format": "auto",
         "description": "hagezi DNS Blocklists · TIF 威胁情报（恶意软件/钓鱼/C2/欺诈），完整版约 210 万条、36MB，量最大、误伤最小的安全专项名单",
         "max_bytes": 100 * 1024 * 1024,
+        "update_interval_s": 24 * 3600,
     },
     {
         "key": "hagezi_ult",
@@ -46,6 +53,7 @@ SOURCES = [
         "format": "auto",
         "description": "hagezi DNS Blocklists · ULTIMATE 全量（恶意+广告+追踪），约 27 万条，量最大，误伤面也大",
         "max_bytes": 200 * 1024 * 1024,
+        "update_interval_s": 24 * 3600,
     },
     {
         "key": "stevenblack",
@@ -54,6 +62,25 @@ SOURCES = [
         "format": "hosts",
         "description": "StevenBlack/hosts 统一 hosts（广告/恶意/追踪合并版），约 15 万条",
         "max_bytes": 100 * 1024 * 1024,
+        "update_interval_s": 24 * 3600,
+    },
+    {
+        "key": "urlhaus",
+        "name": "URLhaus 恶意域名",
+        "url": "https://urlhaus.abuse.ch/downloads/hostfile/",
+        "format": "hosts",
+        "description": "abuse.ch URLhaus 当前活跃恶意软件分发域名，约 300-2000 条、10-100KB，2-4 分钟更新；本项目 30 分钟同步一次，作为高及时哨兵名单",
+        "max_bytes": 10 * 1024 * 1024,
+        "update_interval_s": 30 * 60,
+    },
+    {
+        "key": "oisd",
+        "name": "OISD 综合大名单",
+        "url": "https://raw.githubusercontent.com/sjhgvr/oisd/main/domainswild_big.txt",
+        "format": "plain",
+        "description": "OISD Big（Block. Don't break.）恶意/广告/追踪综合名单，约 20 万条、2MB，每日更新、低误报，与 hagezi 互为独立交叉验证",
+        "max_bytes": 20 * 1024 * 1024,
+        "update_interval_s": 24 * 3600,
     },
 ]
 
@@ -171,10 +198,12 @@ def parse_content(text: str, fmt: str = "auto",
 # 下载（主地址失败自动降级镜像，提升国内可达性）
 # ---------------------------------------------------------------------------
 
-# 已知镜像映射：hagezi 仓库 raw → jsDelivr CDN（官方推荐，国内访问更稳）
+# 已知镜像映射：GitHub 仓库 raw → jsDelivr CDN（官方推荐，国内访问更稳）
 _MIRROR_RULES = [
     ("https://raw.githubusercontent.com/hagezi/dns-blocklists/main/",
      "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/"),
+    ("https://raw.githubusercontent.com/sjhgvr/oisd/main/",
+     "https://cdn.jsdelivr.net/gh/sjhgvr/oisd@main/"),
 ]
 
 
@@ -342,13 +371,36 @@ def enabled_source_keys() -> list[str]:
         return [r["source"] for r in cur.fetchall()]
 
 
+def source_due(key: str, interval_s: int) -> bool:
+    """判断来源是否到了自动更新周期（按数据库最近导入时间）。
+
+    - 从未导入 / 时间无法解析 → 视为到期（允许尝试）；
+    - 距最近导入 >= interval_s → 到期；
+    - 测试可直接调用。
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT MAX(updated_at) AS t FROM threat_list WHERE source=?",
+            (key,))
+        row = cur.fetchone()
+    if row is None or row["t"] is None:
+        return True
+    try:
+        last = datetime.strptime(str(row["t"]), "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return True
+    return (datetime.now() - last).total_seconds() >= interval_s
+
+
 def auto_update_once() -> dict:
     """同步执行一轮自动更新：对每个"已启用"的内置来源下载并整源替换。
 
-    - 仅更新内置来源（hagezi_ti / hagezi_ult / stevenblack）；
-      自定义来源未存 URL 元数据，无法自动更新，保持手工导入；
+    - 仅更新内置来源；自定义来源未存 URL 元数据，无法自动更新，保持手工导入；
+    - 每个来源按 update_interval_s 判断是否到期（未到期跳过，标记 skipped）；
+      高及时小名单（如 urlhaus 30 分钟）与大名单（每日）在同一轮调度中并存；
     - 单来源失败不影响其他来源（隔离）；
-    - 返回 {source_key: {"ok": bool, "imported": int, "error": str|None}}。
+    - 返回 {source_key: {"ok": bool, "imported": int, "error": str|None,
+      "skipped": bool}}。
     """
     meta = _source_meta()
     results: dict = {}
@@ -360,14 +412,22 @@ def auto_update_once() -> dict:
                             "error": "该来源正在手工导入中，跳过本次自动更新"}
             continue
         info = meta[key]
+        interval = info.get("update_interval_s", 24 * 3600)
+        if not source_due(key, interval):
+            results[key] = {"ok": True, "imported": 0, "error": None,
+                            "skipped": True}
+            logger.debug("离线大名单自动更新 %s 未到周期（%ds），跳过", key, interval)
+            continue
         try:
             text = download(info["url"], info.get("max_bytes", 100 * 1024 * 1024),
                             timeout_s=90)
             n = import_source(key, text, enabled=True)
-            results[key] = {"ok": True, "imported": n, "error": None}
+            results[key] = {"ok": True, "imported": n, "error": None,
+                            "skipped": False}
             logger.info("离线大名单自动更新 %s 完成：%d 条", key, n)
         except Exception as e:   # 隔离失败，绝不中断整轮
-            results[key] = {"ok": False, "imported": 0, "error": str(e)}
+            results[key] = {"ok": False, "imported": 0, "error": str(e),
+                            "skipped": False}
             logger.warning("离线大名单自动更新 %s 失败：%s", key, e)
     return results
 

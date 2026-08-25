@@ -65,6 +65,10 @@ def test_enabled_source_keys_empty():
 
 def test_auto_update_once_success(monkeypatch):
     threat_list.import_source("hagezi_ti", "old.com\n")
+    # 把最近导入时间改旧，使来源"到期"，验证整源替换更新
+    with db_cursor() as cur:
+        cur.execute("UPDATE threat_list SET updated_at=? WHERE source=?",
+                    ("2020-01-01 00:00:00", "hagezi_ti"))
     called = {}
     def fake_download(url, max_bytes=0, timeout_s=0):
         called[url] = True
@@ -85,6 +89,10 @@ def test_auto_update_once_success(monkeypatch):
 def test_auto_update_once_failure_isolated(monkeypatch):
     threat_list.import_source("hagezi_ti", "a.com\n")
     threat_list.import_source("stevenblack", "b.com\n")
+    # 两个源均标记到期，确保本轮都会尝试更新
+    with db_cursor() as cur:
+        cur.execute("UPDATE threat_list SET updated_at=?",
+                    ("2020-01-01 00:00:00",))
 
     def fake_download(url, max_bytes=0, timeout_s=0):
         if "stevenblack" in url.lower():
