@@ -1,0 +1,53 @@
+# DNS 安全过滤中间件 - Docker 编排
+# 用法（在仓库根目录执行）：
+#   docker compose -f deploy/docker/docker-compose.yml up -d --build
+#
+# 端口规划：
+#   - platform：DNS 53/UDP+TCP（平台即增强型 DNS 服务器）、Web 8080/TCP
+#   - proxy   ：DNS 5353/UDP+TCP（与 platform 同机部署时错开 53；独立机器可改回 53:53）
+#               代理配置 config.yaml 中 upstream_addr 填服务名 platform（compose 内网互通）
+#
+# 生产建议：
+#   - 修改 platform/platform.yaml（jwt_secret、admin_initial_password、upstream_dns、alert_ip 等）
+#     与 proxy/config.yaml（upstream_addr 指向平台）后再启动；
+#   - platform.yaml / config.yaml / data 均以 volume 挂载，改配置无需重建镜像。
+
+services:
+  platform:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.platform
+    container_name: dnsfilter-platform
+    restart: unless-stopped
+    ports:
+      - "53:53/udp"      # DNS UDP（Windows DNS 转发器指向本机 IP 的 53）
+      - "53:53/tcp"      # DNS TCP
+      - "8080:8080"      # Web 管理（建议仅内网可达，或前面加反向代理）
+    volumes:
+      - ../../platform/platform.yaml:/app/platform/platform.yaml:ro   # 平台配置（按环境修改）
+      - ../../platform/data:/app/data                                  # SQLite 数据持久化
+    environment:
+      - TZ=Asia/Shanghai
+      - WEB_PORT=8080
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8080/api/health',timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  proxy:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.proxy
+    container_name: dnsfilter-proxy
+    restart: unless-stopped
+    depends_on:
+      - platform
+    ports:
+      - "5353:53/udp"    # 与平台同机时用 5353；proxy 独立机器部署可改 "53:53/udp"
+      - "5353:53/tcp"
+    volumes:
+      - ../../proxy/config.yaml:/app/config.yaml:ro   # 代理配置（upstream_addr 填 platform）
+    environment:
+      - TZ=Asia/Shanghai

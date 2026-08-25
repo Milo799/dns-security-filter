@@ -164,9 +164,9 @@ def test_source_stats():
         assert stats["hagezi_ti"]["total"] == 2
         assert stats["hagezi_ti"]["enabled_cnt"] == 2
         assert stats["hagezi_ti"]["updated_at"]
-        # 内置 5 个来源元数据始终存在
-        assert set(stats) >= {"hagezi_ti", "hagezi_ult", "stevenblack",
-                              "urlhaus", "oisd"}
+        # 内置 6 个来源元数据始终存在
+        assert set(stats) >= {"hagezi_ti", "hagezi_mini", "hagezi_ult",
+                              "stevenblack", "urlhaus", "oisd"}
     finally:
         threat_list.delete_source("hagezi_ti")
 
@@ -177,6 +177,10 @@ def test_mirror_of_rules():
     assert threat_list._mirror_of(
         "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/tif-onlydomains.txt"
     ) == "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/tif-onlydomains.txt"
+    # mini 精简版走同一前缀镜像规则
+    assert threat_list._mirror_of(
+        "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/tif.mini-onlydomains.txt"
+    ) == "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/tif.mini-onlydomains.txt"
     # oisd 仓库同样有 jsDelivr 镜像
     assert threat_list._mirror_of(
         "https://raw.githubusercontent.com/sjhgvr/oisd/main/domainswild_big.txt"
@@ -266,12 +270,14 @@ def test_sources_api(client, token):
     r = client.get("/api/threatlist/sources", headers=_h(token))
     assert r.status_code == 200
     keys = {i["key"] for i in r.json()["data"]["items"]}
-    assert keys == {"hagezi_ti", "hagezi_ult", "stevenblack",
-                    "urlhaus", "oisd"}
+    assert keys == {"hagezi_ti", "hagezi_mini", "hagezi_ult",
+                    "stevenblack", "urlhaus", "oisd"}
     # 新源带更新周期元数据
     by_key = {i["key"]: i for i in r.json()["data"]["items"]}
     assert by_key["urlhaus"]["update_interval_s"] == 30 * 60
     assert by_key["oisd"]["update_interval_s"] == 24 * 3600
+    assert by_key["hagezi_mini"]["update_interval_s"] == 24 * 3600
+    assert "tif.mini-onlydomains.txt" in by_key["hagezi_mini"]["url"]
 
 
 def test_domains_api(client, token):

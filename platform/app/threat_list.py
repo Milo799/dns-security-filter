@@ -4,8 +4,8 @@
 检测时内存 O(1) 匹配，零外部 API 依赖、零延迟、无 Key。
 
 特性：
-  - 内置来源元数据（hagezi 威胁情报 / hagezi 综合大名单 / StevenBlack hosts /
-    URLhaus 恶意域名 / OISD 综合大名单），
+  - 内置来源元数据（hagezi 威胁情报完整版 / hagezi 威胁情报精简 mini / hagezi 综合大名单 /
+    StevenBlack hosts / URLhaus 恶意域名 / OISD 综合大名单），
     支持自定义 URL 导入任意纯域名 / hosts / adblock 格式列表；
   - 导入为"事务内整源替换"：重复导入即增量更新，不留陈旧条目；
   - 来源可整体启停（enabled），停用后不再参与匹配（条目保留，重新启用即恢复）；
@@ -16,8 +16,8 @@
   - 内存缓存：导入后 invalidate()，下次检测自动重载，进程内保持一致。
 
 注意：hagezi 的 "ULTIMATE"（domains.txt）含广告/追踪，量最大、误伤面也大，
-默认建议用 "threat-intelligence.txt"（纯安全情报）；URLhaus 为"当前活跃"哨兵名单，
-误伤极小但规模小，适合与全量大名单叠加使用。
+默认建议用 "threat-intelligence.txt"（纯安全情报）或 "mini"（精简版，内存占用约完整版 1/20）；
+URLhaus 为"当前活跃"哨兵名单，误伤极小但规模小，适合与全量大名单叠加使用。
 """
 
 import ipaddress
@@ -44,6 +44,15 @@ SOURCES = [
         "format": "auto",
         "description": "hagezi DNS Blocklists · TIF 威胁情报（恶意软件/钓鱼/C2/欺诈），完整版约 210 万条、36MB，量最大、误伤最小的安全专项名单",
         "max_bytes": 100 * 1024 * 1024,
+        "update_interval_s": 24 * 3600,
+    },
+    {
+        "key": "hagezi_mini",
+        "name": "hagezi 威胁情报（精简 mini）",
+        "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/tif.mini-onlydomains.txt",
+        "format": "auto",
+        "description": "hagezi DNS Blocklists · TIF Mini 精简版（恶意软件/钓鱼/C2/欺诈），约 8.6 万条、3MB，仅收录已确认威胁主域、误杀最少，内存缓存占用约为完整版的 1/20，适合资源受限部署",
+        "max_bytes": 20 * 1024 * 1024,
         "update_interval_s": 24 * 3600,
     },
     {

@@ -1,0 +1,31 @@
+# DNS 安全过滤平台镜像（Python + FastAPI + dnslib）
+# 构建上下文：仓库根目录（docker build -f deploy/docker/Dockerfile.platform .）
+# 容器内同时运行两个进程：
+#   - python dns_server.py   → DNS 服务（UDP/TCP 53）
+#   - uvicorn app.main:app   → Web 管理（TCP 8080）
+
+FROM python:3.12-slim
+
+ENV TZ=Asia/Shanghai \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+# 依赖（利用缓存层：requirements.txt 不变则此层不重建）
+COPY platform/requirements.txt /app/platform/requirements.txt
+RUN pip install --no-cache-dir -r /app/platform/requirements.txt \
+    && rm -rf /root/.cache/pip
+
+# 应用代码与前端静态资源（web/ 由 main.py 挂载到 /）
+COPY platform /app/platform
+COPY web /app/web
+
+# 平台配置与数据目录（生产用 volume 覆盖 /app/platform/platform.yaml 与 /app/data）
+COPY platform/platform.example.yaml /app/platform/platform.example.yaml
+RUN mkdir -p /app/data
+
+COPY deploy/docker/platform-entrypoint.sh /usr/local/bin/platform-entrypoint.sh
+RUN chmod +x /usr/local/bin/platform-entrypoint.sh
+
+EXPOSE 53/udp 53/tcp 8080/tcp
+
+ENTRYPOINT ["platform-entrypoint.sh"]
