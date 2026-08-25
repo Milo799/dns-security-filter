@@ -147,6 +147,13 @@ table.sap tbody tr:hover{background:#f5faff}
 .empty-tip{padding:36px;text-align:center;color:var(--sapTextSec);font-size:13px}
 .count-note{font-size:12px;color:var(--sapTextSec);margin-left:auto}
 .loading{padding:30px;text-align:center;color:var(--sapTextSec)}
+.tl-progress{position:relative;height:22px;background:var(--sapBg2, #f2f3f5);border-radius:6px;overflow:hidden;border:1px solid var(--sapBorder, #e0e0e0)}
+.tl-progress .tl-progress-bar{position:absolute;left:0;top:0;bottom:0;width:0;background:linear-gradient(90deg,#2f7de1,#4aa3ff);transition:width .5s ease}
+.tl-progress .tl-progress-text{position:relative;padding:2px 8px;font-size:12px;line-height:16px;color:var(--sapTextMain, #333);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tl-progress.done{border-color:#5c9e5c}
+.tl-progress.done .tl-progress-bar{background:linear-gradient(90deg,#3d8b3d,#5cbf5c)}
+.tl-progress.error{border-color:#c0392b}
+.tl-progress.error .tl-progress-bar{background:linear-gradient(90deg,#c0392b,#e74c3c);width:100%}
 .audit-readable{font-size:13px;line-height:1.5;color:var(--sapText);word-break:break-all}
 .audit-raw{margin-top:4px;font-size:11.5px}
 .audit-raw summary{cursor:pointer;color:var(--sapTextSec);user-select:none}
@@ -874,17 +881,66 @@ async function loadThreatlist(){
         +(has?'<button class="btn btn-subtle btn-compact" onclick="openThreatListModal(\''+x.key+'\',\''+esc(x.name)+'\')">查看条目</button>'
         +'<button class="btn btn-subtle btn-compact" onclick="toggleThreatList(\''+x.key+'\','+(x.enabled_cnt>0?0:1)+')">'+(x.enabled_cnt>0?'停用':'启用')+'</button>'
         +'<button class="btn btn-subtle btn-compact" onclick="delThreatList(\''+x.key+'\')">清空</button>':'')
+        +'<div id="tlp_'+x.key+'" style="margin-top:6px;max-width:320px"></div>'
         +'</td></tr>';
     }).join('');
   }catch(e){toast(e.message,true)}
 }
+var tlTimer=null, tlKey='';
 async function importThreatList(key){
-  if(!confirm('确认导入/更新「'+key+'」？将整源替换该来源现有数据。列表最大约 20MB，视网络需数分钟'))return;
-  toast('下载并导入中，请稍候…');
+  if(!confirm('确认导入/更新「'+key+'」？将整源替换该来源现有数据。视网络与体量需数分钟，期间可离开页面，进度会实时展示'))return;
   try{
-    var d=(await api('POST','/api/threatlist/import',{source:key,enabled:true})).data;
-    toast('导入完成：'+d.imported+' 条');loadThreatlist();
+    await api('POST','/api/threatlist/import',{source:key,enabled:true});
+    startTlProgress(key);
   }catch(e){toast(e.message,true)}
+}
+function startTlProgress(key){
+  tlKey=key; clearInterval(tlTimer);
+  showTlProgress(key,{status:'running',stage:'download',downloaded:0,total_bytes:0,parsed:0,inserted:0,total:0,message:'提交任务…'});
+  tlTimer=setInterval(pollTlProgress,1000);
+  pollTlProgress();
+}
+function fmtBytes(n){
+  if(!n&&n!==0)return '';
+  if(n<1024)return n+' B';
+  if(n<1048576)return (n/1024).toFixed(0)+' KB';
+  return (n/1048576).toFixed(1)+' MB';
+}
+function tlPercent(d){
+  if(d.stage==='download'&&d.total_bytes>0)return Math.min(100,Math.round(d.downloaded/d.total_bytes*100));
+  if(d.stage==='insert'&&d.total>0)return Math.min(100,Math.round(d.inserted/d.total*100));
+  return d.status==='done'?100:0;
+}
+function tlStageText(d){
+  if(d.stage==='download')return d.total_bytes>0?('下载 '+fmtBytes(d.downloaded)+' / '+fmtBytes(d.total_bytes)):('下载中 '+fmtBytes(d.downloaded));
+  if(d.stage==='parse')return '解析中（已处理 '+d.parsed.toLocaleString()+' 行）';
+  if(d.stage==='insert')return '入库中 '+d.inserted.toLocaleString()+' / '+d.total.toLocaleString();
+  if(d.status==='done')return d.message;
+  return d.message||'处理中…';
+}
+function showTlProgress(key,d){
+  var el=document.getElementById('tlp_'+key);
+  if(!el)return;
+  if(d.status==='done'){
+    el.innerHTML='<div class="tl-progress done"><div class="tl-progress-bar" style="width:100%"></div><div class="tl-progress-text">✅ '+esc(d.message)+'</div></div>';
+    clearInterval(tlTimer);tlTimer=null;
+    setTimeout(function(){el.innerHTML='';loadThreatlist();},2000);
+    return;
+  }
+  if(d.status==='error'){
+    el.innerHTML='<div class="tl-progress error"><div class="tl-progress-text">❌ '+esc(d.error||'导入失败')+'</div></div>';
+    clearInterval(tlTimer);tlTimer=null;
+    setTimeout(function(){el.innerHTML='';loadThreatlist();},4000);
+    return;
+  }
+  var p=tlPercent(d);
+  el.innerHTML='<div class="tl-progress"><div class="tl-progress-bar" style="width:'+p+'%"></div><div class="tl-progress-text">'+esc(tlStageText(d))+'</div></div>';
+}
+async function pollTlProgress(){
+  try{
+    var d=(await api('GET','/api/threatlist/import/status?source='+encodeURIComponent(tlKey))).data;
+    showTlProgress(tlKey,d);
+  }catch(e){clearInterval(tlTimer);tlTimer=null;}
 }
 async function toggleThreatList(key,to){
   try{

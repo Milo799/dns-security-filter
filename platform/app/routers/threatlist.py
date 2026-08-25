@@ -3,14 +3,21 @@
 与在线威胁情报源互补：一次导入本地 SQLite，离线匹配、零 Key、零延迟，
 检测主流程在本地黑名单之后、在线情报源之前命中即拦截。
 
+导入为后台任务：POST /import 立即返回，前端轮询 /import/status 展示进度
+（下载 → 解析 → 入库三阶段，进度存进程内存）。
+
 接口：
   GET    /api/threatlist/sources   内置来源 + 各来源条数/更新时间/启用状态
   GET    /api/threatlist/domains   ?source=&keyword=&enabled=&page=&size= 分页查看某来源具体条目
-  POST   /api/threatlist/import    {source?, url?, enabled?} 下载并整源替换导入
+  POST   /api/threatlist/import    {source?, url?, enabled?} 后台下载并整源替换导入
+  GET    /api/threatlist/import/status ?source=xxx 查询导入任务进度
   GET    /api/threatlist/query     ?value=域名|IP → 命中详情（大名单 + 手工名单）
   PUT    /api/threatlist/source    {source, enabled} 整体启停
   DELETE /api/threatlist/source    ?source=xxx 清空该来源
 """
+
+import threading
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -50,6 +57,36 @@ def _resolve_source(body: ImportBody) -> tuple[str, str, str]:
     return key, meta[key]["url"], meta[key].get("format", "auto")
 
 
+def _run_import_task(source: str, url: str, enabled: bool,
+                     user: str) -> None:
+    """后台执行完整导入流程，逐步更新任务进度。
+
+    任务对象由 POST /import 在请求线程中 begin_import 创建并置 running，
+    这里直接取回引用（不再 begin，避免并发保护返回 None）。
+    """
+    t = threat_list.import_progress(source)
+    try:
+        t.update(stage="download", message="下载中…")
+        text = threat_list.download(url, timeout_s=90, progress=t)
+        t.update(stage="parse", message="解析中…")
+        n = threat_list.import_source(source, text, enabled=enabled,
+                                      progress=t)
+        if n == 0:
+            raise ValueError(
+                "列表解析后无有效域名（格式不支持或内容为空）")
+        t.update(status="done", stage="finish", total=n,
+                 message=f"导入完成 {n} 条",
+                 finished_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        write_audit(user, "threatlist_import",
+                    {"source": source, "url": url, "imported": n,
+                     "enabled": enabled})
+        threat_list.logger.info("后台导入 %s 完成：%d 条", source, n)
+    except Exception as e:      # 下载失败 / 解析为空 / 入库异常统一收敛
+        t.update(status="error", error=str(e), message="导入失败",
+                 finished_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        threat_list.logger.error("后台导入 %s 失败：%s", source, e)
+
+
 @router.get("/sources")
 def list_sources(_: str = Depends(get_current_user)):
     """内置来源元数据 + 各来源当前统计（条数/启用数/更新时间）。"""
@@ -59,25 +96,29 @@ def list_sources(_: str = Depends(get_current_user)):
 
 @router.post("/import")
 def import_list(body: ImportBody, user: str = Depends(get_current_user)):
-    """下载并整源替换导入（重复导入即增量更新）。"""
-    source, url, fmt = _resolve_source(body)
-    try:
-        text = threat_list.download(url, timeout_s=90)
-    except Exception as e:
-        raise HTTPException(status_code=502,
-                            detail=f"下载失败：{e}") from e
-    try:
-        n = threat_list.import_source(source, text, enabled=body.enabled)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"导入失败：{e}") from e
-    if n == 0:
-        raise HTTPException(status_code=422,
-                            detail="列表解析后无有效域名（格式不支持或内容为空）")
-    write_audit(user, "threatlist_import",
-                {"source": source, "url": url, "imported": n,
-                 "enabled": body.enabled})
+    """后台下载并整源替换导入（重复导入即增量更新）。
+
+    立即返回 task=started；真实结果通过 /import/status 轮询获取，
+    同来源已有进行中任务时返回 409。
+    """
+    source, url, _fmt = _resolve_source(body)
+    t = threat_list.begin_import(source)
+    if t is None:
+        raise HTTPException(status_code=409,
+                            detail=f"来源 {source} 正在导入中，请等待完成后再试")
+    threading.Thread(target=_run_import_task,
+                     args=(source, url, body.enabled, user),
+                     daemon=True, name=f"tl-import-{source}").start()
     return {"code": 0, "message": "ok",
-            "data": {"source": source, "imported": n}}
+            "data": {"task": "started", "source": source}}
+
+
+@router.get("/import/status")
+def import_status(source: str = Query(..., min_length=1),
+                  _: str = Depends(get_current_user)):
+    """查询某来源导入任务进度（download/parse/insert 三阶段）。"""
+    return {"code": 0, "message": "ok",
+            "data": threat_list.import_progress(source)}
 
 
 @router.get("/domains")

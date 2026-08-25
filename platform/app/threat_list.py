@@ -19,6 +19,7 @@
 import ipaddress
 import logging
 import re
+from datetime import datetime
 
 import httpx
 
@@ -120,12 +121,14 @@ def _normalize_domain(raw: str) -> str | None:
     return s
 
 
-def parse_content(text: str, fmt: str = "auto") -> list[str]:
+def parse_content(text: str, fmt: str = "auto",
+                  progress: dict | None = None) -> list[str]:
     """解析列表文本 → 规范化域名列表（去重保序）。
 
     - plain: 每行一个域名（hagezi txt）；同时兼容 adblock ||x^ 与 URL 行
     - hosts: StevenBlack 格式 "0.0.0.0 domain"，跳过注释与本地保留项
     - auto: 按首个有效行内容判断（有 IP 前缀列 → hosts，否则 plain）
+    - progress: 可选进度字典，解析过程中更新 parsed（已处理行数）
     """
     out: list[str] = []
     seen: set[str] = set()
@@ -140,7 +143,9 @@ def parse_content(text: str, fmt: str = "auto") -> list[str]:
             effective = "hosts" if _is_ip(first) else "plain"
             break
 
-    for ln in lines:
+    for i, ln in enumerate(lines):
+        if progress is not None and i % 50000 == 0:
+            progress["parsed"] = i
         raw = ln.strip()
         if not raw or raw.startswith("#"):
             continue
@@ -157,6 +162,8 @@ def parse_content(text: str, fmt: str = "auto") -> list[str]:
         if d and d not in seen:
             seen.add(d)
             out.append(d)
+    if progress is not None:
+        progress["parsed"] = len(lines)
     return out
 
 
@@ -179,17 +186,30 @@ def _mirror_of(url: str) -> str | None:
     return None
 
 
-def _download_once(url: str, max_bytes: int, timeout_s: int) -> str:
-    """单次流式下载列表文本；超限/失败抛异常由调用方处理。"""
+def _download_once(url: str, max_bytes: int, timeout_s: int,
+                   progress: dict | None = None) -> str:
+    """单次流式下载列表文本；超限/失败抛异常由调用方处理。
+
+    progress（可选）：更新 downloaded（已收字节）与 total_bytes
+    （Content-Length，服务端未返回时为 0 表示未知）。
+    """
     with httpx.stream(
         "GET", url,
         headers={"User-Agent": "dns-security-filter/1.0"},
         timeout=timeout_s, follow_redirects=True,
     ) as resp:
         resp.raise_for_status()
+        if progress is not None:
+            try:
+                progress["total_bytes"] = int(resp.headers.get(
+                    "content-length") or 0)
+            except ValueError:
+                progress["total_bytes"] = 0
         chunks, total = [], 0
         for chunk in resp.iter_bytes(65536):
             total += len(chunk)
+            if progress is not None:
+                progress["downloaded"] = total
             if total > max_bytes:
                 raise ValueError(f"列表超过大小上限 {max_bytes} 字节")
             chunks.append(chunk)
@@ -197,41 +217,51 @@ def _download_once(url: str, max_bytes: int, timeout_s: int) -> str:
 
 
 def download(url: str, max_bytes: int = 100 * 1024 * 1024,
-             timeout_s: int = 60) -> str:
+             timeout_s: int = 60, progress: dict | None = None) -> str:
     """下载列表文本；主地址失败（网络/超时/HTTP 错误）自动尝试镜像 URL。
 
     - 仅已知镜像规则的地址（目前 hagezi 仓库）会降级；
-    - 镜像也失败时抛出最后一次异常，由调用方决定是否报错。
+    - 镜像也失败时抛出最后一次异常，由调用方决定是否报错；
+    - progress 透传各阶段字节进度。
     """
     try:
-        return _download_once(url, max_bytes, timeout_s)
+        return _download_once(url, max_bytes, timeout_s, progress)
     except Exception:
         mirror = _mirror_of(url)
         if mirror is None:
             raise
         logger.warning("主地址下载失败，降级镜像：%s", mirror)
-        return _download_once(mirror, max_bytes, timeout_s)
+        return _download_once(mirror, max_bytes, timeout_s, progress)
 
 
 # ---------------------------------------------------------------------------
 # 导入 / 状态（SQLite）
 # ---------------------------------------------------------------------------
 
-def import_source(source: str, text: str, enabled: bool = True) -> int:
+def import_source(source: str, text: str, enabled: bool = True,
+                  progress: dict | None = None) -> int:
     """整源替换导入：DELETE 后批量 INSERT（事务内），返回实际导入条数。
 
     重复导入即增量更新；enabled 仅影响本批次默认启用状态（后续可整体切换）。
+    progress（可选）：解析后置 total 为总条数，分批入库时更新 inserted。
     """
-    values = parse_content(text)
+    values = parse_content(text, progress=progress)
     rows = [(source, v, "domain", int(enabled)) for v in values]
+    if progress is not None:
+        progress.update(stage="insert", total=len(rows),
+                        message=f"入库中 0/{len(rows)}")
     with db_cursor() as cur:
         cur.execute("DELETE FROM threat_list WHERE source=?", (source,))
-        if rows:
+        BATCH = 50000
+        for i in range(0, len(rows), BATCH):
             cur.executemany(
                 """INSERT INTO threat_list (source, value, target, enabled)
                    VALUES (?, ?, ?, ?)""",
-                rows,
+                rows[i:i + BATCH],
             )
+            if progress is not None:
+                done = min(i + BATCH, len(rows))
+                progress.update(inserted=done, message=f"入库中 {done}/{len(rows)}")
     invalidate()
     logger.info("离线大名单 %s 导入 %d 条", source, len(rows))
     return len(rows)
@@ -254,6 +284,50 @@ def delete_source(source: str) -> int:
         n = cur.rowcount
     invalidate()
     return n
+
+
+# ---------------------------------------------------------------------------
+# 导入任务进度（进程内存态，供前端轮询展示）
+# ---------------------------------------------------------------------------
+
+_IMPORT_TASKS: dict[str, dict] = {}
+
+
+def _now_str() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _task(source: str) -> dict:
+    t = _IMPORT_TASKS.get(source)
+    if t is None:
+        t = {
+            "source": source, "status": "idle", "stage": "",
+            "downloaded": 0, "total_bytes": 0,
+            "parsed": 0, "inserted": 0, "total": 0,
+            "message": "", "error": None,
+            "started_at": None, "finished_at": None,
+        }
+        _IMPORT_TASKS[source] = t
+    return t
+
+
+def begin_import(source: str) -> dict | None:
+    """标记某来源导入开始；已有 running 任务时返回 None（拒绝并发）。"""
+    t = _task(source)
+    if t["status"] == "running":
+        return None
+    t.update(status="running", stage="download",
+             downloaded=0, total_bytes=0, parsed=0, inserted=0, total=0,
+             message="准备下载…", error=None,
+             started_at=_now_str(), finished_at=None)
+    return t
+
+
+def import_progress(source: str | None = None) -> dict | list[dict]:
+    """查询导入进度；source 省略时返回全部来源（诊断/测试用）。"""
+    if source is not None:
+        return _task(source)
+    return list(_IMPORT_TASKS.values())
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +354,10 @@ def auto_update_once() -> dict:
     results: dict = {}
     for key in enabled_source_keys():
         if key not in meta:      # 非内置来源跳过
+            continue
+        if _task(key)["status"] == "running":   # 手工导入进行中，避免并发写
+            results[key] = {"ok": False, "imported": 0,
+                            "error": "该来源正在手工导入中，跳过本次自动更新"}
             continue
         info = meta[key]
         try:

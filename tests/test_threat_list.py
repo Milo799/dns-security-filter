@@ -41,6 +41,20 @@ def _h(token):
     return {"Authorization": f"Bearer {token}"}
 
 
+def _wait_import(client, token, source, timeout=5.0):
+    """轮询导入任务到终态（done/error），返回最终状态数据。"""
+    import time
+    deadline = time.time() + timeout
+    d = None
+    while time.time() < deadline:
+        d = client.get(f"/api/threatlist/import/status?source={source}",
+                       headers=_h(token)).json()["data"]
+        if d["status"] in ("done", "error"):
+            return d
+        time.sleep(0.02)
+    raise AssertionError(f"导入任务 {source} 未在 {timeout}s 内收敛: {d}")
+
+
 # ---------------- 解析 ----------------
 
 def test_parse_plain():
@@ -169,7 +183,7 @@ def test_mirror_of_rules():
 
 def test_download_uses_main_then_mirror(monkeypatch):
     calls = []
-    def fake_once(url, max_bytes, timeout_s):
+    def fake_once(url, max_bytes, timeout_s, progress=None):
         calls.append(url)
         if calls.count(url) == 1 and "raw.githubusercontent" in url:
             raise ConnectionError("timeout")
@@ -185,7 +199,7 @@ def test_download_uses_main_then_mirror(monkeypatch):
 
 def test_download_success_no_mirror(monkeypatch):
     calls = []
-    def fake_once(url, max_bytes, timeout_s):
+    def fake_once(url, max_bytes, timeout_s, progress=None):
         calls.append(url)
         return "x.com\n"
     monkeypatch.setattr(threat_list, "_download_once", fake_once)
@@ -194,7 +208,7 @@ def test_download_success_no_mirror(monkeypatch):
 
 
 def test_download_mirror_also_fails_raises(monkeypatch):
-    def fake_once(url, max_bytes, timeout_s):
+    def fake_once(url, max_bytes, timeout_s, progress=None):
         raise ConnectionError("both down")
     monkeypatch.setattr(threat_list, "_download_once", fake_once)
     with pytest.raises(ConnectionError):
@@ -287,14 +301,16 @@ def test_domains_api(client, token):
 def test_import_query_enable_delete_api(client, token, monkeypatch):
     import app.threat_list as tl_mod
     monkeypatch.setattr(tl_mod, "download",
-                        lambda url, timeout_s=90:
+                        lambda url, timeout_s=90, progress=None:
                         "ads.bad.example\nphish.bad.example\n")
-    # 导入（用内置 key，url 省略）
+    # 导入（用内置 key，url 省略）→ 后台任务，轮询至完成
     r = client.post("/api/threatlist/import",
                     json={"source": "hagezi_ti", "enabled": True},
                     headers=_h(token))
     assert r.status_code == 200
-    assert r.json()["data"]["imported"] == 2
+    assert r.json()["data"]["task"] == "started"
+    st = _wait_import(client, token, "hagezi_ti")
+    assert st["status"] == "done" and st["total"] == 2
 
     # 查询命中（父域后缀）
     r = client.get("/api/threatlist/query?value=x.ads.bad.example",
@@ -329,12 +345,15 @@ def test_import_query_enable_delete_api(client, token, monkeypatch):
 def test_import_custom_url(client, token, monkeypatch):
     import app.threat_list as tl_mod
     monkeypatch.setattr(tl_mod, "download",
-                        lambda url, timeout_s=90: "custom.com\n")
+                        lambda url, timeout_s=90, progress=None:
+                        "custom.com\n")
     r = client.post("/api/threatlist/import",
                     json={"url": "https://example.com/my-list.txt"},
                     headers=_h(token))
     assert r.status_code == 200
     assert r.json()["data"]["source"] == "custom"
+    st = _wait_import(client, token, "custom")
+    assert st["status"] == "done" and st["total"] == 1
     r = client.get("/api/threatlist/query?value=custom.com",
                    headers=_h(token))
     assert r.json()["data"]["threat_list"]["source"] == "custom"
@@ -344,10 +363,14 @@ def test_import_custom_url(client, token, monkeypatch):
 def test_import_empty_list_rejected(client, token, monkeypatch):
     import app.threat_list as tl_mod
     monkeypatch.setattr(tl_mod, "download",
-                        lambda url, timeout_s=90: "# only comments\n\n")
+                        lambda url, timeout_s=90, progress=None:
+                        "# only comments\n\n")
     r = client.post("/api/threatlist/import",
                     json={"source": "hagezi_ti"}, headers=_h(token))
-    assert r.status_code == 422
+    assert r.status_code == 200
+    st = _wait_import(client, token, "hagezi_ti")
+    assert st["status"] == "error"       # 空列表 → 后台任务报错
+    assert "无有效域名" in (st["error"] or "")
 
 
 def test_import_unknown_source(client, token):
@@ -405,3 +428,81 @@ def test_process_query_whitelist_beats_threat_list(monkeypatch):
         threat_list.delete_source("hagezi_ti")
         with db_cursor() as cur:
             cur.execute("DELETE FROM filter_list WHERE value='wl.bad.example'")
+
+
+# ---------------- 导入进度（后台任务 + 状态轮询） ----------------
+
+def test_begin_import_running_guard():
+    """同一来源并发导入被拒绝；结束后可再次发起。"""
+    t = threat_list.begin_import("hagezi_ti")
+    assert t is not None and t["status"] == "running"
+    assert t["started_at"]
+    try:
+        assert threat_list.begin_import("hagezi_ti") is None  # 并发拒绝
+    finally:
+        t.update(status="idle", stage="", message="", error=None,
+                 finished_at=None)
+    assert threat_list.begin_import("hagezi_ti") is not None
+    threat_list.import_progress("hagezi_ti").update(status="idle")
+
+
+def test_parse_import_progress_fields():
+    """函数级：解析与导入过程更新进度字段。"""
+    prog = {"parsed": 0}
+    vals = threat_list.parse_content("a.com\nb.com\nc.com\n", progress=prog)
+    assert prog["parsed"] == 3
+    assert vals == ["a.com", "b.com", "c.com"]
+
+    prog2 = {"stage": "insert", "total": 0, "inserted": 0, "message": ""}
+    try:
+        threat_list.import_source("hagezi_ti", "x.com\ny.com\n",
+                                  progress=prog2)
+        assert prog2["stage"] == "insert"
+        assert prog2["total"] == 2
+        assert prog2["inserted"] == 2
+    finally:
+        threat_list.delete_source("hagezi_ti")
+
+
+def test_import_api_async_progress(client, token, monkeypatch):
+    """POST /import 立即返回 started；轮询 status 至 done 且数据入库。"""
+    import time
+    monkeypatch.setattr(threat_list, "download",
+                        lambda *a, **k: "p1.com\np2.com\np3.com\n")
+    r = client.post("/api/threatlist/import",
+                    json={"source": "hagezi_ti", "enabled": True},
+                    headers=_h(token))
+    assert r.status_code == 200
+    assert r.json()["data"] == {"task": "started", "source": "hagezi_ti"}
+
+    data = None
+    for _ in range(200):
+        data = client.get("/api/threatlist/import/status?source=hagezi_ti",
+                          headers=_h(token)).json()["data"]
+        if data["status"] in ("done", "error"):
+            break
+        time.sleep(0.02)
+    assert data["status"] == "done", data
+    assert data["total"] == 3
+    assert data["inserted"] == 3
+    assert data["finished_at"]
+
+    # 数据已真实入库
+    items = client.get("/api/threatlist/sources",
+                       headers=_h(token)).json()["data"]["items"]
+    s = next(i for i in items if i["key"] == "hagezi_ti")
+    assert s["total"] == 3
+    threat_list.delete_source("hagezi_ti")
+
+
+def test_import_conflict_409(client, token):
+    """来源导入进行中时再次提交 → 409。"""
+    t = threat_list.begin_import("hagezi_ti")
+    try:
+        r = client.post("/api/threatlist/import",
+                        json={"source": "hagezi_ti", "enabled": True},
+                        headers=_h(token))
+        assert r.status_code == 409
+    finally:
+        t.update(status="idle", stage="", message="", error=None,
+                 finished_at=None)
