@@ -33,6 +33,8 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .btn-normal{background:#fff;color:var(--sapBrand);border-color:var(--sapBrand)}.btn-normal:hover{background:var(--sapBrandLight)}
 .btn-subtle{background:transparent;color:var(--sapText);border-color:transparent}.btn-subtle:hover{background:#eaeaea}
 .btn-compact{height:30px;padding:0 12px;font-size:13px}
+.td-ops{display:flex;flex-wrap:wrap;gap:6px;align-items:center;max-width:200px}
+.btn-danger-subtle{background:transparent;color:#d04343;border-color:transparent}.btn-danger-subtle:hover{background:#fbeaea}
 .login-btn{width:100%;height:40px;justify-content:center;margin-top:6px}
 .login-err{color:var(--sapError);font-size:12px;margin:-8px 0 12px;min-height:16px}
 #app{display:none;min-height:100vh;flex-direction:column}
@@ -846,12 +848,12 @@ async function loadThreatintel(){
         +'<td class="mono">'+x.timeout_ms+' ms</td>'
         +'<td class="mono">'+(x.api_key_masked?esc(x.api_key_masked):'—')+'</td>'
         +'<td>'+(x.enabled?'<span class="tag tag-success"><span class="dot"></span>已启用</span>':'<span class="tag tag-neutral">已停用</span>')+'</td>'
-        +'<td style="white-space:nowrap">'
+        +'<td><div class="td-ops">'
         +'<button class="btn btn-normal btn-compact" onclick="editSrc('+x.id+')">编辑</button>'
         +'<button class="btn btn-normal btn-compact" onclick="testSrc('+x.id+')">测试连通性</button>'
         +'<button class="btn btn-subtle btn-compact" onclick="toggleSrc('+x.id+','+(!x.enabled?1:0)+')">'+(x.enabled?'停用':'启用')+'</button>'
-        +(x.is_builtin?'':'<button class="btn btn-subtle btn-compact" onclick="delSrc('+x.id+',\''+esc(x.name)+'\')">删除</button>')
-        +'</td></tr>';
+        +(x.is_builtin?'':'<button class="btn btn-subtle btn-danger-subtle btn-compact" onclick="delSrc('+x.id+',\''+esc(x.name)+'\')">删除</button>')
+        +'</div></td></tr>';
     }).join(''):'<tr><td colspan="8"><div class="empty-tip">尚未接入情报源</div></td></tr>';
 
     var cfg=(await api('GET','/api/config')).data.items;
@@ -879,11 +881,12 @@ async function loadThreatlist(){
         +'<td>'+(has?x.total+' 条':'<span class="tag tag-neutral">未导入</span>')+'</td>'
         +'<td>'+(has?(x.enabled_cnt>0?'<span class="tag tag-success"><span class="dot"></span>启用中</span>':'<span class="tag tag-neutral">已停用</span>'):'-')+'</td>'
         +'<td class="mono">'+esc(x.updated_at||'-')+'</td>'
-        +'<td style="white-space:nowrap">'
+        +'<td><div class="td-ops">'
         +'<button class="btn btn-normal btn-compact" onclick="importThreatList(\''+x.key+'\')">'+(has?'↻ 更新':'⬇ 导入')+'</button>'
         +(has?'<button class="btn btn-subtle btn-compact" onclick="openThreatListModal(\''+x.key+'\',\''+esc(x.name)+'\')">查看条目</button>'
         +'<button class="btn btn-subtle btn-compact" onclick="toggleThreatList(\''+x.key+'\','+(x.enabled_cnt>0?0:1)+')">'+(x.enabled_cnt>0?'停用':'启用')+'</button>'
-        +'<button class="btn btn-subtle btn-compact" onclick="delThreatList(\''+x.key+'\')">清空</button>':'')
+        +'<button class="btn btn-subtle btn-danger-subtle btn-compact" onclick="delThreatList(\''+x.key+'\')">清空</button>':'')
+        +'</div>'
         +'<div id="tlp_'+x.key+'" style="margin-top:6px;max-width:320px"></div>'
         +'</td></tr>';
     }).join('');
