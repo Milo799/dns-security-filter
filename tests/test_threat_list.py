@@ -156,6 +156,43 @@ def test_source_stats():
         threat_list.delete_source("hagezi_ti")
 
 
+# ---------------- 条目分页查看 ----------------
+
+def test_list_entries_paging_and_filter():
+    threat_list.import_source("hagezi_ti", "aaa.com\nbbb.com\nccc.com\n")
+    threat_list.enable_source("hagezi_ti", False)
+    try:
+        # 全量分页（page=1, size=2）
+        d = threat_list.list_entries("hagezi_ti", page=1, size=2)
+        assert d["total"] == 3
+        assert [i["value"] for i in d["items"]] == ["aaa.com", "bbb.com"]
+        # 第二页
+        d2 = threat_list.list_entries("hagezi_ti", page=2, size=2)
+        assert [i["value"] for i in d2["items"]] == ["ccc.com"]
+        # 关键字子串过滤
+        d3 = threat_list.list_entries("hagezi_ti", keyword="BB")
+        assert d3["total"] == 1 and d3["items"][0]["value"] == "bbb.com"
+        # 状态过滤（全部已停用）
+        d4 = threat_list.list_entries("hagezi_ti", enabled=False)
+        assert d4["total"] == 3
+        d5 = threat_list.list_entries("hagezi_ti", enabled=True)
+        assert d5["total"] == 0
+        # 不存在的来源
+        assert threat_list.list_entries("no_such")["total"] == 0
+    finally:
+        threat_list.delete_source("hagezi_ti")
+
+
+def test_list_entries_size_cap():
+    threat_list.import_source("hagezi_ti", "a.com\nb.com\nc.com\n")
+    try:
+        d = threat_list.list_entries("hagezi_ti", page=1, size=9999)
+        assert len(d["items"]) == 3   # 上限 500 不会爆内存
+        assert threat_list.list_entries("hagezi_ti", page=0, size=0)["total"] == 3
+    finally:
+        threat_list.delete_source("hagezi_ti")
+
+
 # ---------------- Web API ----------------
 
 def test_sources_api(client, token):
@@ -163,6 +200,42 @@ def test_sources_api(client, token):
     assert r.status_code == 200
     keys = {i["key"] for i in r.json()["data"]["items"]}
     assert keys == {"hagezi_ti", "hagezi_ult", "stevenblack"}
+
+
+def test_domains_api(client, token):
+    threat_list.import_source("hagezi_ti",
+                              "evil-a.example\nphish-b.example\nok-c.example\n")
+    try:
+        # 分页 + 关键字 + 状态组合
+        r = client.get("/api/threatlist/domains?source=hagezi_ti&page=1&size=2",
+                       headers=_h(token))
+        assert r.status_code == 200
+        d = r.json()["data"]
+        assert d["total"] == 3 and len(d["items"]) == 2
+        assert d["items"][0]["value"] == "evil-a.example"
+
+        r = client.get("/api/threatlist/domains?source=hagezi_ti&keyword=phish",
+                       headers=_h(token))
+        d = r.json()["data"]
+        assert d["total"] == 1 and d["items"][0]["value"] == "phish-b.example"
+
+        # 停用后按状态过滤
+        threat_list.enable_source("hagezi_ti", False)
+        r = client.get("/api/threatlist/domains?source=hagezi_ti&enabled=1",
+                       headers=_h(token))
+        assert r.json()["data"]["total"] == 0
+        r = client.get("/api/threatlist/domains?source=hagezi_ti&enabled=0",
+                       headers=_h(token))
+        assert r.json()["data"]["total"] == 3
+
+        # 参数校验
+        assert client.get("/api/threatlist/domains", headers=_h(token)).status_code == 422
+        assert client.get("/api/threatlist/domains?source=hagezi_ti&size=9999",
+                          headers=_h(token)).status_code == 422
+        # 未认证
+        assert client.get("/api/threatlist/domains?source=hagezi_ti").status_code == 401
+    finally:
+        threat_list.delete_source("hagezi_ti")
 
 
 def test_import_query_enable_delete_api(client, token, monkeypatch):

@@ -147,6 +147,11 @@ table.sap tbody tr:hover{background:#f5faff}
 .empty-tip{padding:36px;text-align:center;color:var(--sapTextSec);font-size:13px}
 .count-note{font-size:12px;color:var(--sapTextSec);margin-left:auto}
 .loading{padding:30px;text-align:center;color:var(--sapTextSec)}
+.audit-readable{font-size:13px;line-height:1.5;color:var(--sapText);word-break:break-all}
+.audit-raw{margin-top:4px;font-size:11.5px}
+.audit-raw summary{cursor:pointer;color:var(--sapTextSec);user-select:none}
+.audit-raw summary:hover{color:var(--sapText)}
+.audit-raw code{font-family:Consolas,monospace;font-size:11px;color:var(--sapTextSec);word-break:break-all;display:block;margin-top:4px;padding:6px 8px;background:var(--sapBg2);border-radius:4px}
 </style>
 </head>
 <body>
@@ -404,7 +409,7 @@ table.sap tbody tr:hover{background:#f5faff}
         <div class="card">
           <div class="filter-bar">
             <div class="f-item"><label>操作人</label><input id="auOp" placeholder="admin"></div>
-            <div class="f-item"><label>动作</label><select id="auAction"><option value="">全部</option><option>list_create</option><option>list_update</option><option>list_delete</option><option>list_import</option><option>threatintel_create</option><option>threatintel_update</option><option>threatintel_delete</option><option>threatlist_import</option><option>threatlist_enable</option><option>threatlist_delete</option><option>fusion_strategy_change</option><option>detection_toggle</option><option>config_update</option></select></div>
+            <div class="f-item"><label>动作</label><select id="auAction"><option value="">全部</option><option value="list_create">新增名单条目</option><option value="list_update">修改名单条目</option><option value="list_delete">删除名单条目</option><option value="list_import">批量导入名单</option><option value="threatintel_create">新增情报源</option><option value="threatintel_update">修改情报源</option><option value="threatintel_delete">删除情报源</option><option value="threatlist_import">导入离线大名单</option><option value="threatlist_enable">启停离线大名单</option><option value="threatlist_delete">清空离线大名单</option><option value="fusion_strategy_change">切换融合策略</option><option value="detection_toggle">切换检测开关</option><option value="config_update">修改系统配置</option></select></div>
             <button class="btn btn-emphasized btn-compact" onclick="auditPage=1;loadAudit()">查询</button>
             <span class="count-note" id="auCount"></span>
           </div>
@@ -460,6 +465,25 @@ table.sap tbody tr:hover{background:#f5faff}
       <div id="importResult" class="form-hint" style="margin-top:8px"></div>
     </div>
     <div class="modal-foot"><button class="btn btn-normal" onclick="closeModal('importModal')">关闭</button><button class="btn btn-emphasized" onclick="doImportList()">导 入</button></div>
+  </div>
+</div>
+
+<!-- 离线大名单条目查看 -->
+<div class="modal-mask" id="tlModal">
+  <div class="modal" style="width:780px">
+    <div class="modal-head"><span id="tlModalTitle">大名单条目</span><button class="icon-btn" onclick="closeModal('tlModal')">✕</button></div>
+    <div class="modal-body">
+      <div class="filter-bar" style="padding:0;margin-bottom:10px">
+        <div class="f-item" style="flex:1;min-width:200px"><label>关键字</label><input id="tlKw" placeholder="按域名 / IP 子串过滤，如 .cn 或 evil" onkeydown="if(event.key==='Enter')loadThreatEntries(1)"></div>
+        <div class="f-item"><label>状态</label><select id="tlEnabled"><option value="">全部</option><option value="1">启用</option><option value="0">停用</option></select></div>
+        <button class="btn btn-emphasized btn-compact" onclick="loadThreatEntries(1)" style="align-self:flex-end">查询</button>
+      </div>
+      <div class="table-wrap">
+        <table class="sap"><thead><tr><th style="width:60px">#</th><th>条目（域名 / IP）</th><th style="width:80px">目标</th><th style="width:90px">状态</th><th style="width:170px">导入时间</th></tr></thead>
+        <tbody id="tlEntryRows"><tr><td colspan="5"><div class="loading">加载中…</div></td></tr></tbody></table>
+      </div>
+      <div class="pager" id="tlEntryPager"></div>
+    </div>
   </div>
 </div>
 
@@ -845,7 +869,8 @@ async function loadThreatlist(){
         +'<td class="mono">'+esc(x.updated_at||'-')+'</td>'
         +'<td style="white-space:nowrap">'
         +'<button class="btn btn-normal btn-compact" onclick="importThreatList(\''+x.key+'\')">'+(has?'↻ 更新':'⬇ 导入')+'</button>'
-        +(has?'<button class="btn btn-subtle btn-compact" onclick="toggleThreatList(\''+x.key+'\','+(x.enabled_cnt>0?0:1)+')">'+(x.enabled_cnt>0?'停用':'启用')+'</button>'
+        +(has?'<button class="btn btn-subtle btn-compact" onclick="openThreatListModal(\''+x.key+'\',\''+esc(x.name)+'\')">查看条目</button>'
+        +'<button class="btn btn-subtle btn-compact" onclick="toggleThreatList(\''+x.key+'\','+(x.enabled_cnt>0?0:1)+')">'+(x.enabled_cnt>0?'停用':'启用')+'</button>'
         +'<button class="btn btn-subtle btn-compact" onclick="delThreatList(\''+x.key+'\')">清空</button>':'')
         +'</td></tr>';
     }).join('');
@@ -893,6 +918,35 @@ async function runThreatListQuery(){
     if(d.manual_whitelist) parts.push('<span class="tag tag-success">手工白名单命中</span> '+esc(d.manual_whitelist)+'（放行）');
     if(d.manual_blacklist) parts.push('<span class="tag tag-error">手工黑名单命中</span> '+esc(d.manual_blacklist));
     document.getElementById('tlQueryResult').innerHTML='<div class="card" style="margin:10px 0 0;box-shadow:none"><div class="card-body" style="padding:10px 12px;font-size:13px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">'+parts.join('')+'</div></div>';
+  }catch(e){toast(e.message,true)}
+}
+var tlModalSource='', tlModalPage=1, TL_SIZE=50;
+function openThreatListModal(key,name){
+  tlModalSource=key; tlModalPage=1;
+  document.getElementById('tlModalTitle').textContent='大名单条目 · '+name+'（'+key+'）';
+  document.getElementById('tlKw').value='';
+  document.getElementById('tlEnabled').value='';
+  document.getElementById('tlModal').classList.add('show');
+  loadThreatEntries(1);
+}
+async function loadThreatEntries(page){
+  if(page)tlModalPage=page;
+  var q=new URLSearchParams({source:tlModalSource,page:tlModalPage,size:TL_SIZE});
+  var kw=document.getElementById('tlKw').value.trim();
+  if(kw)q.set('keyword',kw);
+  var en=document.getElementById('tlEnabled').value;
+  if(en)q.set('enabled',en);
+  try{
+    var d=(await api('GET','/api/threatlist/domains?'+q)).data;
+    document.getElementById('tlEntryRows').innerHTML=d.items.length?d.items.map(function(x,i){
+      var n=(tlModalPage-1)*TL_SIZE+i+1;
+      return '<tr><td class="mono" style="color:var(--sapTextSec)">'+n+'</td>'
+        +'<td class="mono">'+esc(x.value)+'</td>'
+        +'<td>'+(x.target==='domain'?'<span class="tag tag-blue">域名</span>':'<span class="tag tag-neutral">IP</span>')+'</td>'
+        +'<td>'+(x.enabled?'<span class="tag tag-success"><span class="dot"></span>启用</span>':'<span class="tag tag-neutral">停用</span>')+'</td>'
+        +'<td class="mono">'+esc(x.updated_at||'—')+'</td></tr>';
+    }).join(''):'<tr><td colspan="5"><div class="empty-tip">无匹配条目</div></td></tr>';
+    pager(document.getElementById('tlEntryPager'),d.total,tlModalPage,TL_SIZE,'loadThreatEntries');
   }catch(e){toast(e.message,true)}
 }
 function openSrcDialog(){
@@ -984,6 +1038,13 @@ async function saveConfig(){
 
 /* ================= 操作审计 ================= */
 var auditPage=1;
+var AUDIT_LABELS={
+  list_create:'新增名单条目',list_update:'修改名单条目',list_delete:'删除名单条目',
+  list_import:'批量导入名单',threatintel_create:'新增情报源',threatintel_update:'修改情报源',
+  threatintel_delete:'删除情报源',threatlist_import:'导入离线大名单',
+  threatlist_enable:'启停离线大名单',threatlist_delete:'清空离线大名单',
+  fusion_strategy_change:'切换融合策略',detection_toggle:'切换检测开关',config_update:'修改系统配置'
+};
 async function loadAudit(page){
   if(page)auditPage=page;
   var q=new URLSearchParams({page:auditPage,size:20});
@@ -994,9 +1055,12 @@ async function loadAudit(page){
     var d=(await api('GET','/api/audit?'+q)).data;
     document.getElementById('auCount').textContent='共 '+d.total+' 条';
     document.getElementById('auditRows').innerHTML=d.items.length?d.items.map(function(a){
+      var label=AUDIT_LABELS[a.action]||a.action;
+      var main=esc(a.readable||a.detail||'');
+      var raw=a.detail?( '<details class="audit-raw"><summary>原始数据</summary><code>'+esc(a.detail)+'</code></details>'):'';
       return '<tr><td class="mono">'+esc(a.timestamp)+'</td><td>'+esc(a.operator)+'</td>'
-        +'<td><span class="tag tag-blue">'+esc(a.action)+'</span></td>'
-        +'<td class="mono" style="white-space:normal">'+esc(a.detail)+'</td></tr>';
+        +'<td><span class="tag tag-blue">'+esc(label)+'</span></td>'
+        +'<td><div class="audit-readable">'+main+'</div>'+raw+'</td></tr>';
     }).join(''):'<tr><td colspan="4"><div class="empty-tip">暂无审计记录</div></td></tr>';
     pager(document.getElementById('auPager'),d.total,auditPage,20,'loadAudit');
   }catch(e){toast(e.message,true)}

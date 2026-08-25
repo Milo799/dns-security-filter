@@ -5,6 +5,7 @@
 
 接口：
   GET    /api/threatlist/sources   内置来源 + 各来源条数/更新时间/启用状态
+  GET    /api/threatlist/domains   ?source=&keyword=&enabled=&page=&size= 分页查看某来源具体条目
   POST   /api/threatlist/import    {source?, url?, enabled?} 下载并整源替换导入
   GET    /api/threatlist/query     ?value=域名|IP → 命中详情（大名单 + 手工名单）
   PUT    /api/threatlist/source    {source, enabled} 整体启停
@@ -77,6 +78,19 @@ def import_list(body: ImportBody, user: str = Depends(get_current_user)):
                  "enabled": body.enabled})
     return {"code": 0, "message": "ok",
             "data": {"source": source, "imported": n}}
+
+
+@router.get("/domains")
+def list_domains(source: str = Query(..., min_length=1),
+                 keyword: str = Query("", description="按条目子串模糊过滤"),
+                 enabled: bool | None = Query(
+                     None, description="留空全部；true/false 按状态过滤"),
+                 page: int = Query(1, ge=1),
+                 size: int = Query(50, ge=1, le=500),
+                 _: str = Depends(get_current_user)):
+    """分页查看某来源的具体条目（域名 / IP），供前端"查看条目"使用。"""
+    return {"code": 0, "message": "ok", "data": threat_list.list_entries(
+        source, keyword=keyword, enabled=enabled, page=page, size=size)}
 
 
 @router.get("/query")

@@ -285,6 +285,40 @@ def source_stats() -> dict:
     return meta
 
 
+def list_entries(source: str, keyword: str = "",
+                 enabled: bool | None = None,
+                 page: int = 1, size: int = 50) -> dict:
+    """分页列出某来源的具体条目（查看 / 排查用）。
+
+    - keyword 对 value 做子串模糊匹配（不区分大小写，值本身已小写）；
+    - enabled=None 返回全部状态，True/False 仅返回对应状态；
+    - page 从 1 起，size 上限 500；
+    - 返回 {"total": 总数, "items": [{id, value, target, enabled,
+      created_at, updated_at}]}。
+    """
+    page = max(1, int(page))
+    size = min(max(1, int(size)), 500)
+    where, args = ["source = ?"], [source]
+    if keyword:
+        where.append("value LIKE ?")
+        args.append(f"%{keyword.strip().lower()}%")
+    if enabled is not None:
+        where.append("enabled = ?")
+        args.append(1 if enabled else 0)
+    cond = " AND ".join(where)
+    with db_cursor() as cur:
+        cur.execute(f"SELECT COUNT(*) AS c FROM threat_list WHERE {cond}",
+                    args)
+        total = cur.fetchone()["c"]
+        cur.execute(
+            f"""SELECT id, value, target, enabled, created_at, updated_at
+                FROM threat_list WHERE {cond}
+                ORDER BY value LIMIT ? OFFSET ?""",
+            args + [size, (page - 1) * size])
+        items = [dict(r) for r in cur.fetchall()]
+    return {"total": total, "items": items}
+
+
 # ---------------------------------------------------------------------------
 # 内存缓存匹配（检测主流程调用）
 # ---------------------------------------------------------------------------
