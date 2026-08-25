@@ -447,15 +447,17 @@ table.sap tbody tr:hover{background:#f5faff}
   </div>
 </div>
 
-<!-- 新增情报源 -->
+<!-- 新增/编辑情报源 -->
 <div class="modal-mask" id="srcModal">
   <div class="modal">
-    <div class="modal-head"><span>接入威胁情报源</span><button class="icon-btn" onclick="closeModal('srcModal')">✕</button></div>
+    <div class="modal-head"><span id="srcModalTitle">接入威胁情报源</span><button class="icon-btn" onclick="closeModal('srcModal')">✕</button></div>
     <div class="modal-body">
-      <div class="form-row"><label class="req">适配器（已注册）</label><select id="mSrcName"></select><div class="form-hint">可选适配器由后端 adapters/ 注册表决定。</div></div>
+      <div class="form-row"><label class="req">适配器（已注册）</label><select id="mSrcName"></select><div class="form-hint">可选适配器由后端 adapters/ 注册表决定；编辑模式下不可更换。</div></div>
       <div class="form-row"><label>接口地址 base_url</label><input id="mSrcUrl" placeholder="留空使用适配器默认地址"></div>
       <div class="form-row"><label>API Key</label><input id="mSrcKey" type="password" placeholder="存储于服务端"></div>
       <div class="form-row"><label>超时（毫秒）</label><input id="mSrcTimeout" type="number" value="2000"></div>
+      <div class="form-row"><label>描述</label><input id="mSrcDesc" placeholder="选填，展示在列表中"></div>
+      <div class="form-row"><label>扩展配置 JSON</label><textarea id="mSrcConfig" rows="3" style="width:100%;font-family:Consolas,monospace;font-size:12px;padding:8px 10px;border:1px solid var(--sapBorder);border-radius:6px" placeholder='DNSBL 源填查询域，如 {"zone":"zen.spamhaus.org"}；其余源按适配器说明填写，可留空'></textarea></div>
     </div>
     <div class="modal-foot"><button class="btn btn-normal" onclick="closeModal('srcModal')">取消</button><button class="btn btn-emphasized" onclick="saveSrcEntry()">保 存</button></div>
   </div>
@@ -845,6 +847,7 @@ async function loadThreatintel(){
         +'<td class="mono">'+(x.api_key_masked?esc(x.api_key_masked):'—')+'</td>'
         +'<td>'+(x.enabled?'<span class="tag tag-success"><span class="dot"></span>已启用</span>':'<span class="tag tag-neutral">已停用</span>')+'</td>'
         +'<td style="white-space:nowrap">'
+        +'<button class="btn btn-normal btn-compact" onclick="editSrc('+x.id+')">编辑</button>'
         +'<button class="btn btn-normal btn-compact" onclick="testSrc('+x.id+')">测试连通性</button>'
         +'<button class="btn btn-subtle btn-compact" onclick="toggleSrc('+x.id+','+(!x.enabled?1:0)+')">'+(x.enabled?'停用':'启用')+'</button>'
         +(x.is_builtin?'':'<button class="btn btn-subtle btn-compact" onclick="delSrc('+x.id+',\''+esc(x.name)+'\')">删除</button>')
@@ -1007,7 +1010,17 @@ async function loadThreatEntries(page){
     pager(document.getElementById('tlEntryPager'),d.total,tlModalPage,TL_SIZE,'loadThreatEntries');
   }catch(e){toast(e.message,true)}
 }
+var srcEditId=null;
 function openSrcDialog(){
+  srcEditId=null;
+  document.getElementById('srcModalTitle').textContent='接入威胁情报源';
+  document.getElementById('mSrcName').disabled=false;
+  document.getElementById('mSrcUrl').value='';
+  document.getElementById('mSrcKey').value='';
+  document.getElementById('mSrcKey').placeholder='存储于服务端';
+  document.getElementById('mSrcTimeout').value=2000;
+  document.getElementById('mSrcDesc').value='';
+  document.getElementById('mSrcConfig').value='';
   var sel=document.getElementById('mSrcName');
   // 已注册且未使用的适配器
   api('GET','/api/threatintel').then(function(d){
@@ -1017,17 +1030,43 @@ function openSrcDialog(){
     document.getElementById('srcModal').classList.add('show');
   });
 }
+function editSrc(id){
+  var x=srcItems.find(function(i){return i.id===id});
+  if(!x)return;
+  srcEditId=id;
+  document.getElementById('srcModalTitle').textContent='编辑威胁情报源';
+  document.getElementById('mSrcName').innerHTML='<option>'+esc(x.name)+'</option>';
+  document.getElementById('mSrcName').disabled=true;
+  document.getElementById('mSrcUrl').value=x.base_url||'';
+  document.getElementById('mSrcKey').value='';
+  document.getElementById('mSrcKey').placeholder=x.api_key_masked?('留空保持不变（当前：'+x.api_key_masked+'）'):'留空保持不变';
+  document.getElementById('mSrcTimeout').value=x.timeout_ms;
+  document.getElementById('mSrcDesc').value=x.description||'';
+  var cfg='';try{cfg=JSON.stringify(JSON.parse(x.config||'{}'),null,2)}catch(e){cfg=x.config||''}
+  document.getElementById('mSrcConfig').value=(cfg==='{}')?'':cfg;
+  document.getElementById('srcModal').classList.add('show');
+}
 async function saveSrcEntry(){
-  var body={name:document.getElementById('mSrcName').value,
-            base_url:document.getElementById('mSrcUrl').value.trim(),
-            api_key:document.getElementById('mSrcKey').value,
-            enabled:false,
-            timeout_ms:parseInt(document.getElementById('mSrcTimeout').value)||2000};
+  var name=document.getElementById('mSrcName').value;
+  var base_url=document.getElementById('mSrcUrl').value.trim();
+  var api_key=document.getElementById('mSrcKey').value;
+  var timeout_ms=parseInt(document.getElementById('mSrcTimeout').value)||2000;
+  var description=document.getElementById('mSrcDesc').value.trim();
+  var config=document.getElementById('mSrcConfig').value.trim()||'';
+  if(config){try{JSON.parse(config)}catch(e){toast('扩展配置 JSON 格式错误：'+e.message,true);return}}
   try{
-    await api('POST','/api/threatintel',body);
-    closeModal('srcModal');
-    document.getElementById('mSrcKey').value='';
-    toast('已接入，可测试连通性后启用');loadThreatintel();
+    if(srcEditId===null){
+      await api('POST','/api/threatintel',{name:name,base_url:base_url,api_key:api_key,
+        enabled:false,timeout_ms:timeout_ms,config:config,description:description});
+      toast('已接入，可测试连通性后启用');
+    }else{
+      var x=srcItems.find(function(i){return i.id===srcEditId});
+      await api('PUT','/api/threatintel/'+srcEditId,{name:x.name,adapter_type:x.adapter_type,
+        base_url:base_url,api_key:api_key,enabled:!!x.enabled,timeout_ms:timeout_ms,
+        config:config,description:description});
+      toast('已保存修改');
+    }
+    closeModal('srcModal');srcEditId=null;loadThreatintel();
   }catch(e){toast(e.message,true)}
 }
 async function testSrc(id){
