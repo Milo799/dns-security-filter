@@ -156,6 +156,52 @@ def test_source_stats():
         threat_list.delete_source("hagezi_ti")
 
 
+# ---------------- 下载与镜像降级 ----------------
+
+def test_mirror_of_rules():
+    assert threat_list._mirror_of(
+        "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/tif-onlydomains.txt"
+    ) == "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/tif-onlydomains.txt"
+    # 非 hagezi 地址无镜像
+    assert threat_list._mirror_of(
+        "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts") is None
+
+
+def test_download_uses_main_then_mirror(monkeypatch):
+    calls = []
+    def fake_once(url, max_bytes, timeout_s):
+        calls.append(url)
+        if calls.count(url) == 1 and "raw.githubusercontent" in url:
+            raise ConnectionError("timeout")
+        return "a.com\nb.com\n"
+    monkeypatch.setattr(threat_list, "_download_once", fake_once)
+    text = threat_list.download(
+        "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/ultimate-onlydomains.txt",
+        timeout_s=30)
+    assert text == "a.com\nb.com\n"
+    assert len(calls) == 2
+    assert "cdn.jsdelivr.net" in calls[1]   # 已降级镜像
+
+
+def test_download_success_no_mirror(monkeypatch):
+    calls = []
+    def fake_once(url, max_bytes, timeout_s):
+        calls.append(url)
+        return "x.com\n"
+    monkeypatch.setattr(threat_list, "_download_once", fake_once)
+    threat_list.download("https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts")
+    assert len(calls) == 1   # 主地址成功不触发镜像
+
+
+def test_download_mirror_also_fails_raises(monkeypatch):
+    def fake_once(url, max_bytes, timeout_s):
+        raise ConnectionError("both down")
+    monkeypatch.setattr(threat_list, "_download_once", fake_once)
+    with pytest.raises(ConnectionError):
+        threat_list.download(
+            "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/tif-onlydomains.txt")
+
+
 # ---------------- 条目分页查看 ----------------
 
 def test_list_entries_paging_and_filter():

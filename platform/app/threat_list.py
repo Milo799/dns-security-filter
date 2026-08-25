@@ -27,21 +27,23 @@ from app.db import db_cursor
 logger = logging.getLogger("platform.app.threat_list")
 
 # 内置来源元数据（URL 可随上游仓库调整；格式 plain / hosts / auto）
+# 注意：hagezi 仓库 2024 年改版，纯域名列表位于 wildcard/*-onlydomains.txt；
+# raw 主地址不可达时 download() 自动降级到 jsDelivr CDN（同路径 @latest）。
 SOURCES = [
     {
         "key": "hagezi_ti",
         "name": "hagezi 威胁情报",
-        "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/domains/threat-intelligence.txt",
+        "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/tif-onlydomains.txt",
         "format": "auto",
-        "description": "hagezi DNS Blocklists · 纯安全威胁情报（恶意软件/钓鱼/C2/欺诈），量最大、误伤最小的安全专项名单",
+        "description": "hagezi DNS Blocklists · TIF 威胁情报（恶意软件/钓鱼/C2/欺诈），完整版约 210 万条、36MB，量最大、误伤最小的安全专项名单",
         "max_bytes": 100 * 1024 * 1024,
     },
     {
         "key": "hagezi_ult",
         "name": "hagezi 综合大名单",
-        "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/domains/domains.txt",
+        "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/ultimate-onlydomains.txt",
         "format": "auto",
-        "description": "hagezi DNS Blocklists · ULTIMATE 全量（恶意+广告+追踪），量最大，误伤面也大",
+        "description": "hagezi DNS Blocklists · ULTIMATE 全量（恶意+广告+追踪），约 27 万条，量最大，误伤面也大",
         "max_bytes": 200 * 1024 * 1024,
     },
     {
@@ -159,12 +161,26 @@ def parse_content(text: str, fmt: str = "auto") -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# 下载
+# 下载（主地址失败自动降级镜像，提升国内可达性）
 # ---------------------------------------------------------------------------
 
-def download(url: str, max_bytes: int = 100 * 1024 * 1024,
-             timeout_s: int = 60) -> str:
-    """流式下载列表文本；超限/失败抛异常由调用方处理。"""
+# 已知镜像映射：hagezi 仓库 raw → jsDelivr CDN（官方推荐，国内访问更稳）
+_MIRROR_RULES = [
+    ("https://raw.githubusercontent.com/hagezi/dns-blocklists/main/",
+     "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/"),
+]
+
+
+def _mirror_of(url: str) -> str | None:
+    """按规则推导镜像地址；无匹配返回 None。"""
+    for src, dst in _MIRROR_RULES:
+        if url.startswith(src):
+            return dst + url[len(src):]
+    return None
+
+
+def _download_once(url: str, max_bytes: int, timeout_s: int) -> str:
+    """单次流式下载列表文本；超限/失败抛异常由调用方处理。"""
     with httpx.stream(
         "GET", url,
         headers={"User-Agent": "dns-security-filter/1.0"},
@@ -178,6 +194,23 @@ def download(url: str, max_bytes: int = 100 * 1024 * 1024,
                 raise ValueError(f"列表超过大小上限 {max_bytes} 字节")
             chunks.append(chunk)
     return b"".join(chunks).decode("utf-8", errors="replace")
+
+
+def download(url: str, max_bytes: int = 100 * 1024 * 1024,
+             timeout_s: int = 60) -> str:
+    """下载列表文本；主地址失败（网络/超时/HTTP 错误）自动尝试镜像 URL。
+
+    - 仅已知镜像规则的地址（目前 hagezi 仓库）会降级；
+    - 镜像也失败时抛出最后一次异常，由调用方决定是否报错。
+    """
+    try:
+        return _download_once(url, max_bytes, timeout_s)
+    except Exception:
+        mirror = _mirror_of(url)
+        if mirror is None:
+            raise
+        logger.warning("主地址下载失败，降级镜像：%s", mirror)
+        return _download_once(mirror, max_bytes, timeout_s)
 
 
 # ---------------------------------------------------------------------------
