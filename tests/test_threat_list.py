@@ -185,9 +185,13 @@ def test_mirror_of_rules():
     assert threat_list._mirror_of(
         "https://raw.githubusercontent.com/sjhgvr/oisd/main/domainswild_big.txt"
     ) == "https://cdn.jsdelivr.net/gh/sjhgvr/oisd@main/domainswild_big.txt"
+    # stevenblack hosts 也有 jsDelivr 镜像（GitHub raw 偶发连接重置时降级）
+    assert threat_list._mirror_of(
+        "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
+    ) == "https://cdn.jsdelivr.net/gh/StevenBlack/hosts@master/hosts"
     # 非已知仓库地址无镜像
     assert threat_list._mirror_of(
-        "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts") is None
+        "https://example.com/some-list.txt") is None
     assert threat_list._mirror_of(
         "https://urlhaus.abuse.ch/downloads/hostfile/") is None
 
@@ -225,6 +229,28 @@ def test_download_mirror_also_fails_raises(monkeypatch):
     with pytest.raises(ConnectionError):
         threat_list.download(
             "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/tif-onlydomains.txt")
+
+
+def test_download_fallback_resets_progress(monkeypatch):
+    """主地址部分下载后失败 → 降级镜像前进度应清零（避免进度条回跳混乱）。"""
+    calls = []
+    def fake_once(url, max_bytes, timeout_s, progress=None):
+        calls.append(url)
+        if len(calls) == 1:
+            if progress is not None:   # 主地址已收部分字节后连接被重置
+                progress.update(downloaded=12345, total_bytes=99999)
+            raise OSError("[WinError 10054] 远程主机强迫关闭了一个现有的连接。")
+        return "example.com\n"          # 镜像成功，不更新 progress
+    monkeypatch.setattr(threat_list, "_download_once", fake_once)
+    p = {}
+    text = threat_list.download(
+        "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
+        progress=p)
+    assert text == "example.com\n"
+    assert len(calls) == 2
+    assert calls[1] == "https://cdn.jsdelivr.net/gh/StevenBlack/hosts@master/hosts"
+    assert p["downloaded"] == 0        # 镜像重试前已重置
+    assert p["total_bytes"] == 0
 
 
 # ---------------- 条目分页查看 ----------------
@@ -521,6 +547,29 @@ def test_import_conflict_409(client, token):
                         json={"source": "hagezi_ti", "enabled": True},
                         headers=_h(token))
         assert r.status_code == 409
+    finally:
+        t.update(status="idle", stage="", message="", error=None,
+                 finished_at=None)
+
+
+def test_import_status_without_source_lists_tasks(client, token):
+    """status 不带 source → 返回非 idle 任务列表（前端多源并发轮询/刷新恢复用）。"""
+    t = threat_list.begin_import("stevenblack")
+    try:
+        r = client.get("/api/threatlist/import/status",
+                       headers=_h(token))
+        assert r.status_code == 200
+        items = r.json()["data"]
+        assert isinstance(items, list)
+        mine = [i for i in items if i["source"] == "stevenblack"]
+        assert mine and mine[0]["status"] == "running"
+        # idle 任务不出现在列表
+        assert all(i["status"] != "idle" for i in items)
+        # 带 source 的单源查询仍可用
+        single = client.get("/api/threatlist/import/status?source=stevenblack",
+                            headers=_h(token)).json()["data"]
+        assert single["source"] == "stevenblack"
+        assert single["status"] == "running"
     finally:
         t.update(status="idle", stage="", message="", error=None,
                  finished_at=None)

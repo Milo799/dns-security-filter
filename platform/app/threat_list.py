@@ -213,6 +213,8 @@ _MIRROR_RULES = [
      "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/"),
     ("https://raw.githubusercontent.com/sjhgvr/oisd/main/",
      "https://cdn.jsdelivr.net/gh/sjhgvr/oisd@main/"),
+    ("https://raw.githubusercontent.com/StevenBlack/hosts/master/",
+     "https://cdn.jsdelivr.net/gh/StevenBlack/hosts@master/"),
 ]
 
 
@@ -230,11 +232,17 @@ def _download_once(url: str, max_bytes: int, timeout_s: int,
 
     progress（可选）：更新 downloaded（已收字节）与 total_bytes
     （Content-Length，服务端未返回时为 0 表示未知）。
+
+    超时拆分：连接 15s / 读空闲 min(timeout_s, 30)s——GitHub raw 偶发
+    连接中段被静默丢弃（无 RST/FIN）时能尽快超时，交给上层降级镜像；
+    健康连接即使很慢也不会连续 30s 收不到任何字节。
     """
     with httpx.stream(
         "GET", url,
         headers={"User-Agent": "dns-security-filter/1.0"},
-        timeout=timeout_s, follow_redirects=True,
+        timeout=httpx.Timeout(timeout_s, connect=min(timeout_s, 15),
+                              read=min(timeout_s, 30)),
+        follow_redirects=True,
     ) as resp:
         resp.raise_for_status()
         if progress is not None:
@@ -258,9 +266,10 @@ def download(url: str, max_bytes: int = 100 * 1024 * 1024,
              timeout_s: int = 60, progress: dict | None = None) -> str:
     """下载列表文本；主地址失败（网络/超时/HTTP 错误）自动尝试镜像 URL。
 
-    - 仅已知镜像规则的地址（目前 hagezi 仓库）会降级；
+    - 仅已知镜像规则的地址（hagezi / oisd / StevenBlack 仓库）会降级，
+      应对 GitHub raw 偶发连接重置（WinError 10054 等）；
     - 镜像也失败时抛出最后一次异常，由调用方决定是否报错；
-    - progress 透传各阶段字节进度。
+    - progress 透传各阶段字节进度；降级镜像前重置已收字节。
     """
     try:
         return _download_once(url, max_bytes, timeout_s, progress)
@@ -269,6 +278,9 @@ def download(url: str, max_bytes: int = 100 * 1024 * 1024,
         if mirror is None:
             raise
         logger.warning("主地址下载失败，降级镜像：%s", mirror)
+        if progress is not None:
+            progress.update(downloaded=0, total_bytes=0,
+                            message="主地址失败，改用镜像重试…")
         return _download_once(mirror, max_bytes, timeout_s, progress)
 
 

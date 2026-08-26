@@ -891,9 +891,10 @@ async function loadThreatlist(){
         +'<div id="tlp_'+x.key+'" style="margin-top:6px;max-width:320px"></div>'
         +'</td></tr>';
     }).join('');
+    resumeTlProgress();
   }catch(e){toast(e.message,true)}
 }
-var tlTimer=null, tlKey='';
+var tlTimer=null, tlPolling={};
 async function importThreatList(key){
   if(!confirm('确认导入/更新「'+key+'」？将整源替换该来源现有数据。视网络与体量需数分钟，期间可离开页面，进度会实时展示'))return;
   try{
@@ -902,10 +903,30 @@ async function importThreatList(key){
   }catch(e){toast(e.message,true)}
 }
 function startTlProgress(key){
-  tlKey=key; clearInterval(tlTimer);
-  showTlProgress(key,{status:'running',stage:'download',downloaded:0,total_bytes:0,parsed:0,inserted:0,total:0,message:'提交任务…'});
-  tlTimer=setInterval(pollTlProgress,1000);
-  pollTlProgress();
+  tlPolling[key]=true;
+  showTlProgress(key,{source:key,status:'running',stage:'download',downloaded:0,total_bytes:0,parsed:0,inserted:0,total:0,message:'提交任务…'});
+  ensureTlTimer();
+}
+function ensureTlTimer(){
+  if(!tlTimer){
+    tlTimer=setInterval(pollTlProgress,1000);
+    pollTlProgress();
+  }
+}
+/* 页面加载后恢复仍在进行中的任务进度（刷新页面不丢进度条） */
+async function resumeTlProgress(){
+  try{
+    var items=(await api('GET','/api/threatlist/import/status')).data;
+    var hit=false;
+    (items||[]).forEach(function(t){
+      if(t.status==='running'&&t.source){
+        tlPolling[t.source]=true;
+        showTlProgress(t.source,t);
+        hit=true;
+      }
+    });
+    if(hit)ensureTlTimer();
+  }catch(e){}
 }
 function fmtBytes(n){
   if(!n&&n!==0)return '';
@@ -930,13 +951,13 @@ function showTlProgress(key,d){
   if(!el)return;
   if(d.status==='done'){
     el.innerHTML='<div class="tl-progress done"><div class="tl-progress-bar" style="width:100%"></div><div class="tl-progress-text">✅ '+esc(d.message)+'</div></div>';
-    clearInterval(tlTimer);tlTimer=null;
+    delete tlPolling[key];
     setTimeout(function(){el.innerHTML='';loadThreatlist();},2000);
     return;
   }
   if(d.status==='error'){
     el.innerHTML='<div class="tl-progress error"><div class="tl-progress-text">❌ '+esc(d.error||'导入失败')+'</div></div>';
-    clearInterval(tlTimer);tlTimer=null;
+    delete tlPolling[key];
     setTimeout(function(){el.innerHTML='';loadThreatlist();},4000);
     return;
   }
@@ -944,9 +965,17 @@ function showTlProgress(key,d){
   el.innerHTML='<div class="tl-progress"><div class="tl-progress-bar" style="width:'+p+'%"></div><div class="tl-progress-text">'+esc(tlStageText(d))+'</div></div>';
 }
 async function pollTlProgress(){
+  var keys=Object.keys(tlPolling);
+  if(!keys.length){clearInterval(tlTimer);tlTimer=null;return;}
   try{
-    var d=(await api('GET','/api/threatlist/import/status?source='+encodeURIComponent(tlKey))).data;
-    showTlProgress(tlKey,d);
+    var items=(await api('GET','/api/threatlist/import/status')).data;
+    var seen={};
+    (items||[]).forEach(function(t){seen[t.source]=t;});
+    keys.forEach(function(k){
+      var d=seen[k];
+      if(!d){delete tlPolling[k];return;}
+      showTlProgress(k,d);
+    });
   }catch(e){clearInterval(tlTimer);tlTimer=null;}
 }
 async function toggleThreatList(key,to){

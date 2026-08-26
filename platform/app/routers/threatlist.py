@@ -114,11 +114,19 @@ def import_list(body: ImportBody, user: str = Depends(get_current_user)):
 
 
 @router.get("/import/status")
-def import_status(source: str = Query(..., min_length=1),
+def import_status(source: str | None = Query(None),
                   _: str = Depends(get_current_user)):
-    """查询某来源导入任务进度（download/parse/insert 三阶段）。"""
-    return {"code": 0, "message": "ok",
-            "data": threat_list.import_progress(source)}
+    """查询导入任务进度（download/parse/insert 三阶段）。
+
+    source 省略时返回本进程全部非 idle 任务列表，
+    供前端一次轮询多个并发任务、刷新页面后恢复进行中任务的进度展示。
+    """
+    if source:
+        data = threat_list.import_progress(source)
+    else:
+        data = [t for t in threat_list.import_progress()
+                if t["status"] != "idle"]
+    return {"code": 0, "message": "ok", "data": data}
 
 
 @router.get("/domains")
