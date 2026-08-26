@@ -1,6 +1,6 @@
-# Windows DNS 安全过滤中间件 需求说明书（完整版 V2.0）
+# Windows DNS 安全过滤中间件 需求说明书（完整版 V2.1）
 
-> 本文档由《需求说明书-v1》（精简版 V3.1）合并开发至今（V1.1~V2.0）用户提出的全部需求与优化项而成，
+> 本文档由《需求说明书-v1》（精简版 V3.1）合并开发至今（V1.1~V2.1）用户提出的全部需求与优化项而成，
 > 是系统当前能力的完整需求基线。正文保持 V3.1 的精简骨架，各章节补充迭代增强内容；新增章节以「▲」标注。
 
 ## 一、建设目标
@@ -102,30 +102,31 @@ Windows DNS
 | 来源 | 内容 | 规模 | 自动更新周期 | 定位 |
 |------|------|------|-------------|------|
 | hagezi 威胁情报（hagezi_ti） | 恶意软件/钓鱼/C2/欺诈（TIF 完整版） | 约 210 万条 | 每日 | 安全专项主名单，量最大、误伤最小 |
-| hagezi 威胁情报精简（hagezi_mini）▲ | 同上（TIF Mini 精简版） | 约 8.6 万条 | 每日 | 内存占用约为完整版 1/20，资源受限部署选择 |
+| hagezi 威胁情报精简（hagezi_mini）▲ | 同上（TIF Mini 精简版） | 约 17 万条 | 每日 | 内存占用约为完整版 1/12，资源受限部署选择 |
 | hagezi 综合大名单（hagezi_ult） | 恶意+广告+追踪（ULTIMATE） | 约 27 万条 | 每日 | 全量拦截，误伤面较大 |
 | StevenBlack hosts | 广告/恶意/追踪统一 hosts | 约 15 万条 | 每日 | 经典通用名单 |
 | URLhaus 恶意域名 | 当前活跃恶意软件分发域名 | 约 300~2000 条 | **30 分钟** | 高及时哨兵名单，0day 响应 |
 | OISD 综合大名单 | 恶意/广告/追踪（Big） | 约 20 万条 | 每日 | 低误报，与 hagezi 互为独立交叉验证 |
 
-- **导入机制**：整源替换（重复导入即增量更新，不留陈旧条目）；导入在后台执行并实时展示进度（下载→解析→入库三阶段）；
+- **导入机制**：整源替换（重复导入即增量更新，不留陈旧条目）；导入在后台执行并实时展示进度（下载→解析→入库三阶段）；▲ 支持多源并发导入，进度轮询按源独立进行，刷新页面可恢复进行中任务的进度；
 - **匹配机制**：内存缓存 O(1) 匹配——域名精确匹配 + 逐级父域后缀匹配（列表含 bad.com 则 a.bad.com 命中）、IP 精确匹配；导入/启停/清空后自动刷新缓存；
-- **下载容错**：GitHub raw 主地址不可达时自动降级到 jsDelivr CDN 镜像（hagezi / oisd 已配置镜像规则）；
-- ▲ **按源周期自动更新**：每个内置源带独立更新周期（`update_interval_s`），到期才更新、未到期跳过；调度 tick = min(用户配置间隔, 各源最小周期)（下限 60 秒），保证 URLhaus 的 30 分钟短周期能被及时调度；单源失败不影响其他源与服务；
+- **下载容错**▲：GitHub raw 主地址不可达或中段静默丢弃时，自动降级到 jsDelivr CDN 镜像（hagezi / oisd / StevenBlack 已配置镜像规则）；流式下载超时拆分（连接 15 秒 / 读空闲 30 秒），卡死快速触发降级；降级前重置进度字节，避免进度条回跳；
+- **按源周期自动更新**▲：每个内置源带独立更新周期（`update_interval_s`），到期才更新、未到期跳过；调度 tick = min(用户配置间隔, 各源最小周期)（下限 60 秒），保证 URLhaus 的 30 分钟短周期能被及时调度；单源失败不影响其他源与服务；**各源实际更新周期 = min(源内置周期, 用户全局配置间隔)**——用户把全局间隔调短（如 1 小时），hagezi 等长周期源随之缩短提前到期，urlhaus 等源自身更短的不受影响；
+- **查询性能**▲：统计覆盖索引（source, updated_at, enabled）+ 进程内统计缓存（写操作联动失效）+ 服务启动后台预热线程（内存匹配缓存与统计缓存双预热），源列表页毫秒级响应，服务重启后无首次查询阻塞；
 - **优先级**：离线大名单命中判定在手工黑名单之后、在线情报源之前；白名单始终最高优先级；
 - 提供"查看条目"分页弹窗，可按关键字/启停状态检索来源内条目。
 
 ### 4. 威胁情报 API 配置（▲ 扩展为"内置多源 + 可扩展"）
 
 - 支持对接多个免费威胁情报 API，可独立启用/禁用，支持并行调用与超时控制；
-- **内置源清单**（seed 预置、开箱即用，免 Key 源直接可用）：
+- **内置源清单**（seed 预置、开箱即用，免 Key 源直接可用；▲ URLhaus 官方已从免 Key 改为强制鉴权）：
 
 | 类别 | 来源 | 类型 | 需 Key | 说明 |
 |------|------|------|--------|------|
 | DNSBL | spamhaus_zen / spamhaus_dbl | IP / 域名 | 否 | 全球最大反垃圾/恶意源（SBL/XBL/PBL） |
 | DNSBL | dronebl | IP | 否 | 僵尸网络/扫描源 |
 | DNSBL | spfbl | 域名+IP | 否 | 反垃圾/恶意源 |
-| 免 Key API | URLhaus | 域名+IP | 否 | abuse.ch 活跃恶意分发（在线查询版） |
+| 免费 API | URLhaus | 域名+IP | 是（Auth-Key）▲ | abuse.ch 活跃恶意分发（在线查询版）；官方已强制 HTTP 头 Auth-Key，auth.abuse.ch 免费申请；未配 Key 时测试连通性给出明确提示 |
 | 免 Key API | PhishTank | 域名 | 否 | 钓鱼站点众包库 |
 | 免 Key API | DShield | IP | 否 | SANS 攻击源情报（可配 min_count/max_age） |
 | 免 Key API | Blocklist.de | IP | 否 | 暴力破解/扫描攻击源 |
@@ -139,6 +140,7 @@ Windows DNS
 
 - **三态语义**：命中→拦截；明确未命中→放行；网络失败/超时→无结论（fail-safe 默认拦截）；
 - **能力声明**：每个适配器声明支持域名/IP 维度，检测时按能力分配查询，避免"仅 IP 类源参与域名查询"导致误判；
+- ▲ **诊断信息**：在线源"测试连通性"失败时返回具体原因（缺 Key / Key 无效 / 请求过于频繁 / 网络错误），适配器维护 last_error 供排查；在线源支持**编辑**（超时、描述、API Key 等，Key 留空表示保持不变），适配器类型创建后不可改；
 - 未配置 Key 的 Key 型源不发起请求、直接返回无结论，不影响 fail-safe 裁决。
 
 ### 5. 多源融合策略 ▲
@@ -176,7 +178,7 @@ Windows DNS
 
 ### 9. 简单管理
 
-- Web 管理界面：黑白名单管理（拆页）、威胁情报源管理（在线源表格 + 离线大名单表格）、日志查询、测试中心、检测开关（一键启停安全检测）、平台运行状态展示、操作审计；
+- Web 管理界面：黑白名单管理（拆页）、威胁情报源管理（在线源表格 + 离线大名单表格 + 在线源编辑）、日志查询、测试中心、检测开关（一键启停安全检测）、平台运行状态展示、操作审计；
 - ▲ 操作审计：敏感操作（名单增删改、情报源启停/导入、融合策略切换、检测开关、系统配置修改等）全部留痕，审计详情可读化展示；
 - ▲ 系统配置热生效：Web 修改配置（告警 IP/TTL、上游 DNS、日志保留、检测开关、自动更新等）即时生效，无需重启服务；
 - 管理员账号密码登录（JWT），禁止匿名访问；初始密码首次初始化后必须修改。
@@ -236,7 +238,7 @@ docker compose -f deploy/docker/docker-compose.yml up -d --build
 |------|------|------|
 | 构建期 | `docker.io` / `registry-1.docker.io`（或内网镜像仓库）、`pypi.org`（或国内镜像）、`proxy.golang.org`（或 goproxy.cn） | 拉取基础镜像 / Python 依赖 / Go module |
 | 离线大名单 | `raw.githubusercontent.com`、`cdn.jsdelivr.net`、`urlhaus.abuse.ch` | hagezi/StevenBlack/OISD 主地址+镜像、URLhaus 名单 |
-| 在线情报源 | `zen.spamhaus.org`、`dbl.spamhaus.org`、`dnsbl.dronebl.org`、`dnsbl.spfbl.net`（53/UDP）；`threatfox-api.abuse.ch`、`api.threatbook.cn`、`api.xforce.ibmcloud.com`、`otx.alienvault.com`、`api.greynoise.io`、`checkurl.phishtank.com`、`isc.sans.edu`、`api.blocklist.de`（443/TCP） | DNSBL 查询 / 厂商威胁情报 API |
+| 在线情报源 | `zen.spamhaus.org`、`dbl.spamhaus.org`、`dnsbl.dronebl.org`、`dnsbl.spfbl.net`（53/UDP）；`urlhaus-api.abuse.ch`、`threatfox-api.abuse.ch`、`api.threatbook.cn`、`api.xforce.ibmcloud.com`、`otx.alienvault.com`、`api.greynoise.io`、`checkurl.phishtank.com`、`isc.sans.edu`、`api.blocklist.de`（443/TCP） | DNSBL 查询 / 厂商威胁情报 API |
 | 上游递归 DNS | `8.8.8.8`、`8.8.4.4` 或 `114.114.114.114`（UDP/TCP 53） | 平台公网域名解析 |
 
 > 最小出站建议：`raw.githubusercontent.com`、`cdn.jsdelivr.net`、`urlhaus.abuse.ch`、上游 DNS 53。
@@ -258,9 +260,14 @@ docker compose -f deploy/docker/docker-compose.yml up -d --build
 | 迭代 8 | 离线大名单新增 **URLhaus**（30 分钟高及时哨兵）与 **OISD**（每日低误报交叉验证） |
 | 迭代 9 | **hagezi mini 精简版**（内存占用约 1/20，资源受限部署选择）；威胁情报源页改为**表格化展示** |
 | 迭代 10 | **Docker 化部署**（镜像 + 编排 + 网络白名单清单） |
+| 迭代 11 | URLhaus 在线 API 适配官方**强制 Auth-Key 鉴权**（缺 Key / Key 无效 / 限流分类诊断提示）；在线情报源新增**编辑**入口（超时 / 描述 / API Key，双模式弹窗） |
+| 迭代 12 | 威胁情报源表格**操作列交互优化**：按钮单行化、紧凑样式、文案缩短 + 悬停提示 |
+| 迭代 13 | 离线大名单**下载容错强化**：StevenBlack 补 jsDelivr 镜像规则、读空闲超时 30 秒快速降级、多源并发进度轮询 + 刷新页面恢复进行中进度 |
+| 迭代 14 | 离线大名单**页面加载性能优化**：统计覆盖索引 + 进程内统计缓存 + 启动后台预热（源列表接口 1.05s → 毫秒级） |
+| 迭代 15 | 自动更新间隔配置**真正生效**：各源实际更新周期 = min(源内置周期, 用户全局配置间隔) |
 
 ## 八、待办与后续可选
 
 - Go 代理层编译验证（开发环境无 Go，需安装后 `go build ./...`）；
-- 威胁情报适配器真实 API Key 联调（微步/IBM/OTX/GreyNoise 等）；
+- 威胁情报适配器真实 API Key 联调（微步 / IBM / OTX / GreyNoise / URLhaus Auth-Key 等，需用户提供 Key）；
 - 平台前端可继续优化：大名单自动更新调度可视化（各源下次更新时间展示）。

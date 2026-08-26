@@ -76,6 +76,7 @@ docker exec dnsfilter-platform python -c "import socket;print(socket.getaddrinfo
 | `zen.spamhaus.org` / `dbl.spamhaus.org` | spamhaus_zen / spamhaus_dbl（DNSBL） | 53/UDP |
 | `dnsbl.dronebl.org` | dronebl（DNSBL） | 53/UDP |
 | `dnsbl.spfbl.net` | spfbl（DNSBL） | 53/UDP |
+| `urlhaus-api.abuse.ch` | URLhaus（在线查询版，需 Auth-Key） | 443/TCP |
 | `threatfox-api.abuse.ch` | ThreatFox | 443/TCP |
 | `api.threatbook.cn` | 微步威胁情报 | 443/TCP |
 | `api.xforce.ibmcloud.com` | IBM X-Force | 443/TCP |
