@@ -420,12 +420,14 @@ def source_due(key: str, interval_s: int) -> bool:
     return (datetime.now() - last).total_seconds() >= interval_s
 
 
-def auto_update_once() -> dict:
+def auto_update_once(user_interval_s: int | None = None) -> dict:
     """同步执行一轮自动更新：对每个"已启用"的内置来源下载并整源替换。
 
     - 仅更新内置来源；自定义来源未存 URL 元数据，无法自动更新，保持手工导入；
-    - 每个来源按 update_interval_s 判断是否到期（未到期跳过，标记 skipped）；
-      高及时小名单（如 urlhaus 30 分钟）与大名单（每日）在同一轮调度中并存；
+    - 每个来源按到期周期判断是否到期（未到期跳过，标记 skipped）；
+      到期周期 = min(源内置 update_interval_s, user_interval_s)：
+      用户配置（全局间隔）可缩短长周期源的更新频率，
+      但不影响短周期源（如 urlhaus 30 分钟）自身更短的更新周期；
     - 单来源失败不影响其他来源（隔离）；
     - 返回 {source_key: {"ok": bool, "imported": int, "error": str|None,
       "skipped": bool}}。
@@ -441,6 +443,8 @@ def auto_update_once() -> dict:
             continue
         info = meta[key]
         interval = info.get("update_interval_s", 24 * 3600)
+        if user_interval_s is not None:
+            interval = min(interval, user_interval_s)
         if not source_due(key, interval):
             results[key] = {"ok": True, "imported": 0, "error": None,
                             "skipped": True}

@@ -56,7 +56,8 @@ async def auto_update_loop() -> None:
         if not getattr(CONFIG, "threatlist_auto_update", False):
             continue
         try:
-            results = await asyncio.to_thread(threat_list.auto_update_once)
+            results = await asyncio.to_thread(
+                threat_list.auto_update_once, interval_seconds())
             ok = [k for k, v in results.items() if v["ok"] and not v.get("skipped")]
             fail = [k for k, v in results.items() if not v["ok"]]
             if fail:

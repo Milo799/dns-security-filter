@@ -649,6 +649,37 @@ def test_auto_update_tick_min_src(monkeypatch):
     assert auto_update.tick_seconds() <= 30 * 60
 
 
+def test_auto_update_once_user_interval_shortens_long_sources(monkeypatch):
+    """用户配置间隔可缩短长周期源的到期判断。
+
+    hagezi_ti 源内置周期 24h，刚导入（远未到 24h）：
+    - 不传 user_interval_s → 按源自身 24h 判断 → skipped
+    - 传 user_interval_s=1（1 秒）→ min(24h, 1s)=1s → 到期 → 下载替换
+    """
+    import app.threat_list as tl_mod
+    threat_list.delete_source("hagezi_ti")
+    threat_list.import_source("hagezi_ti", "fresh.com\n")
+    calls = []
+    monkeypatch.setattr(tl_mod, "download",
+                        lambda *a, **k: calls.append(a[0]) or "new.com\n")
+    try:
+        # 不传参：源自身 24h 周期，刚导入 → 未到期 → skipped
+        res = threat_list.auto_update_once()
+        assert res["hagezi_ti"]["skipped"] is True
+        assert len(calls) == 0
+
+        # 传 0 秒间隔：min(24h, 0)=0 → 到期 → 下载
+        res = threat_list.auto_update_once(user_interval_s=0)
+        assert res["hagezi_ti"]["ok"] is True
+        assert res["hagezi_ti"]["skipped"] is False
+        assert res["hagezi_ti"]["imported"] == 1
+        assert len(calls) == 1
+        assert not threat_list.check_domain("fresh.com")
+        assert threat_list.check_domain("new.com")
+    finally:
+        threat_list.delete_source("hagezi_ti")
+
+
 # ---------------- 统计缓存与启动预热（页面加载性能） ----------------
 
 def test_source_stats_cached_until_invalidate():
