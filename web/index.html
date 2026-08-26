@@ -33,7 +33,8 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .btn-normal{background:#fff;color:var(--sapBrand);border-color:var(--sapBrand)}.btn-normal:hover{background:var(--sapBrandLight)}
 .btn-subtle{background:transparent;color:var(--sapText);border-color:transparent}.btn-subtle:hover{background:#eaeaea}
 .btn-compact{height:30px;padding:0 12px;font-size:13px}
-.td-ops{display:flex;flex-wrap:wrap;gap:6px;align-items:center;max-width:200px}
+.td-ops{display:flex;flex-wrap:nowrap;gap:4px;align-items:center}
+.td-ops .btn-compact{height:28px;padding:0 10px;font-size:12px}
 .btn-danger-subtle{background:transparent;color:#d04343;border-color:transparent}.btn-danger-subtle:hover{background:#fbeaea}
 .login-btn{width:100%;height:40px;justify-content:center;margin-top:6px}
 .login-err{color:var(--sapError);font-size:12px;margin:-8px 0 12px;min-height:16px}
@@ -91,8 +92,8 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .t-check .tv{font-family:Consolas,monospace;font-size:12.5px;color:var(--sapTextSec);word-break:break-all}
 .table-wrap{overflow-x:auto}
 table.sap{width:100%;border-collapse:collapse}
-table.sap th{background:#f7f8f9;color:var(--sapTextSec);font-size:12px;font-weight:600;text-align:left;padding:9px 12px;border-bottom:1px solid #e8e9ea;white-space:nowrap}
-table.sap td{padding:10px 12px;border-bottom:1px solid #f0f1f2;font-size:13px;vertical-align:middle;white-space:nowrap}
+table.sap th{background:#f7f8f9;color:var(--sapTextSec);font-size:12px;font-weight:600;text-align:left;padding:8px 10px;border-bottom:1px solid #e8e9ea;white-space:nowrap}
+table.sap td{padding:8px 10px;border-bottom:1px solid #f0f1f2;font-size:13px;vertical-align:middle;white-space:nowrap}
 table.sap tbody tr:hover{background:#f5faff}
 .mono{font-family:Consolas,monospace;font-size:12.5px}
 .link{color:var(--sapBrand);cursor:pointer}.link:hover{text-decoration:underline}
@@ -843,16 +844,16 @@ async function loadThreatintel(){
         +(x.is_builtin?' <span class="tag tag-blue">内置开源</span>':'')
         +(x.adapter_registered?'':' <span class="tag tag-error">未注册</span>')+'</td>'
         +'<td><span class="tag '+(x.adapter_type==='dnsbl'?'tag-neutral':'tag-blue')+'">'+(x.adapter_type==='dnsbl'?'DNSBL':'HTTP')+'</span></td>'
-        +'<td style="white-space:normal;word-break:break-all">'+iface+'</td>'
+        +'<td style="white-space:normal;word-break:break-all;max-width:250px">'+iface+'</td>'
         +'<td class="mono">'+(x.supports_domain?'域名':'')+(x.supports_domain&&x.supports_ip?'+':'')+(x.supports_ip?'IP':'')+'</td>'
         +'<td class="mono">'+x.timeout_ms+' ms</td>'
         +'<td class="mono">'+(x.api_key_masked?esc(x.api_key_masked):'—')+'</td>'
         +'<td>'+(x.enabled?'<span class="tag tag-success"><span class="dot"></span>已启用</span>':'<span class="tag tag-neutral">已停用</span>')+'</td>'
         +'<td><div class="td-ops">'
-        +'<button class="btn btn-normal btn-compact" onclick="editSrc('+x.id+')">编辑</button>'
-        +'<button class="btn btn-normal btn-compact" onclick="testSrc('+x.id+')">测试连通性</button>'
-        +'<button class="btn btn-subtle btn-compact" onclick="toggleSrc('+x.id+','+(!x.enabled?1:0)+')">'+(x.enabled?'停用':'启用')+'</button>'
-        +(x.is_builtin?'':'<button class="btn btn-subtle btn-danger-subtle btn-compact" onclick="delSrc('+x.id+',\''+esc(x.name)+'\')">删除</button>')
+        +'<button class="btn btn-normal btn-compact" title="编辑该源配置" onclick="editSrc('+x.id+')">编辑</button>'
+        +'<button class="btn btn-normal btn-compact" title="测试连通性" onclick="testSrc('+x.id+')">测试</button>'
+        +'<button class="btn btn-subtle btn-compact" title="'+(x.enabled?'停用该源':'启用该源')+'" onclick="toggleSrc('+x.id+','+(!x.enabled?1:0)+')">'+(x.enabled?'停用':'启用')+'</button>'
+        +(x.is_builtin?'':'<button class="btn btn-subtle btn-danger-subtle btn-compact" title="删除该源" onclick="delSrc('+x.id+',\''+esc(x.name)+'\')">删除</button>')
         +'</div></td></tr>';
     }).join(''):'<tr><td colspan="8"><div class="empty-tip">尚未接入情报源</div></td></tr>';
 
@@ -877,13 +878,13 @@ async function loadThreatlist(){
     document.getElementById('tlRows').innerHTML=d.map(function(x){
       var has=x.total>0;
       return '<tr><td style="white-space:nowrap"><b>'+esc(x.name)+'</b><div class="form-hint" style="margin-bottom:0">'+esc(x.key)+'</div></td>'
-        +'<td style="white-space:normal">'+esc(x.description)+'</td>'
+        +'<td style="white-space:normal;max-width:300px" title="'+esc(x.description)+'">'+esc(x.description)+'</td>'
         +'<td>'+(has?x.total+' 条':'<span class="tag tag-neutral">未导入</span>')+'</td>'
         +'<td>'+(has?(x.enabled_cnt>0?'<span class="tag tag-success"><span class="dot"></span>启用中</span>':'<span class="tag tag-neutral">已停用</span>'):'-')+'</td>'
         +'<td class="mono">'+esc(x.updated_at||'-')+'</td>'
         +'<td><div class="td-ops">'
         +'<button class="btn btn-normal btn-compact" onclick="importThreatList(\''+x.key+'\')">'+(has?'↻ 更新':'⬇ 导入')+'</button>'
-        +(has?'<button class="btn btn-subtle btn-compact" onclick="openThreatListModal(\''+x.key+'\',\''+esc(x.name)+'\')">查看条目</button>'
+        +(has?'<button class="btn btn-subtle btn-compact" title="查看命中条目" onclick="openThreatListModal(\''+x.key+'\',\''+esc(x.name)+'\')">条目</button>'
         +'<button class="btn btn-subtle btn-compact" onclick="toggleThreatList(\''+x.key+'\','+(x.enabled_cnt>0?0:1)+')">'+(x.enabled_cnt>0?'停用':'启用')+'</button>'
         +'<button class="btn btn-subtle btn-danger-subtle btn-compact" onclick="delThreatList(\''+x.key+'\')">清空</button>':'')
         +'</div>'
