@@ -93,3 +93,7 @@ CREATE TABLE IF NOT EXISTS threat_list (
 );
 CREATE INDEX IF NOT EXISTS idx_threat_list       ON threat_list (source, enabled);
 CREATE INDEX IF NOT EXISTS idx_threat_list_value ON threat_list (value);
+-- 统计覆盖索引：source_stats() 的 GROUP BY 与 source_due() 的最近导入时间
+-- 全部由该索引覆盖（无需回表），291 万行统计约 0.5s → 配合进程内缓存仅首次执行；
+-- source_due 的 ORDER BY updated_at DESC LIMIT 1 直接 seek 索引段尾（毫秒级）。
+CREATE INDEX IF NOT EXISTS idx_threat_list_stats ON threat_list (source, updated_at, enabled);

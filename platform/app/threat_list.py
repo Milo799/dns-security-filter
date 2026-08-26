@@ -20,9 +20,11 @@
 URLhaus 为"当前活跃"哨兵名单，误伤极小但规模小，适合与全量大名单叠加使用。
 """
 
+import copy
 import ipaddress
 import logging
 import re
+import threading
 from datetime import datetime
 
 import httpx
@@ -398,10 +400,15 @@ def source_due(key: str, interval_s: int) -> bool:
     - 从未导入 / 时间无法解析 → 视为到期（允许尝试）；
     - 距最近导入 >= interval_s → 到期；
     - 测试可直接调用。
+
+    实现为 ORDER BY updated_at DESC LIMIT 1：命中 idx_threat_list_stats
+    (source, updated_at, enabled) 覆盖索引直接 seek 段尾，毫秒级返回，
+    避免对 291 万行大源做整段 MAX 聚合扫描。
     """
     with db_cursor() as cur:
         cur.execute(
-            "SELECT MAX(updated_at) AS t FROM threat_list WHERE source=?",
+            "SELECT updated_at AS t FROM threat_list WHERE source=? "
+            "ORDER BY updated_at DESC LIMIT 1",
             (key,))
         row = cur.fetchone()
     if row is None or row["t"] is None:
@@ -453,8 +460,20 @@ def auto_update_once() -> dict:
     return results
 
 
+_STATS_CACHE: dict | None = None     # source_stats() 结果缓存（invalidate 联动失效）
+
+
 def source_stats() -> dict:
-    """各来源统计：条数 / 启用条数 / 最近导入时间。"""
+    """各来源统计：条数 / 启用条数 / 最近导入时间。
+
+    GROUP BY 聚合需扫全部启停状态行（291 万级，覆盖索引下约 0.5s），
+    结果进程内缓存：页面反复进出毫秒级返回；
+    导入 / 启停 / 清空均调用 invalidate() 联动失效，保证一致性。
+    返回深拷贝，调用方修改不会污染缓存。
+    """
+    global _STATS_CACHE
+    if _STATS_CACHE is not None:
+        return copy.deepcopy(_STATS_CACHE)
     meta = _source_meta()
     with db_cursor() as cur:
         cur.execute(
@@ -474,6 +493,7 @@ def source_stats() -> dict:
         s.setdefault("total", 0)
         s.setdefault("enabled_cnt", 0)
         s.setdefault("updated_at", None)
+    _STATS_CACHE = copy.deepcopy(meta)
     return meta
 
 
@@ -517,28 +537,50 @@ def list_entries(source: str, keyword: str = "",
 
 _DOMAIN_CACHE: dict[str, str] | None = None   # value -> source（仅 enabled 条目）
 _IP_CACHE: dict[str, str] | None = None
+_CACHE_LOCK = threading.Lock()                # 防并发首次加载重复建缓存
 
 
 def invalidate() -> None:
-    """导入/启停/删除后调用，下次匹配自动重载。"""
-    global _DOMAIN_CACHE, _IP_CACHE
+    """导入/启停/删除后调用，下次匹配与统计自动重载。"""
+    global _DOMAIN_CACHE, _IP_CACHE, _STATS_CACHE
     _DOMAIN_CACHE = None
     _IP_CACHE = None
+    _STATS_CACHE = None
 
 
 def _load_cache() -> None:
     global _DOMAIN_CACHE, _IP_CACHE
     if _DOMAIN_CACHE is not None:
         return
-    doms: dict[str, str] = {}
-    ips: dict[str, str] = {}
-    with db_cursor() as cur:
-        cur.execute(
-            "SELECT value, target, source FROM threat_list WHERE enabled=1")
-        for row in cur.fetchall():
-            (doms if row["target"] == "domain" else ips)[row["value"]] = \
-                row["source"]
-    _DOMAIN_CACHE, _IP_CACHE = doms, ips
+    with _CACHE_LOCK:
+        if _DOMAIN_CACHE is not None:      # 双重检查：等锁期间他人已加载完
+            return
+        doms: dict[str, str] = {}
+        ips: dict[str, str] = {}
+        with db_cursor() as cur:
+            cur.execute(
+                "SELECT value, target, source FROM threat_list WHERE enabled=1")
+            for row in cur.fetchall():
+                (doms if row["target"] == "domain" else ips)[row["value"]] = \
+                    row["source"]
+        _DOMAIN_CACHE, _IP_CACHE = doms, ips
+
+
+def warm_cache() -> None:
+    """预热内存缓存（服务启动后台线程调用）。
+
+    enabled 条目全量载入约需数秒（291 万级），提前在启动阶段完成，
+    避免服务重启后首条 DNS 查询阻塞；顺带预热统计缓存
+    （source_stats 的 GROUP BY 约 0.5s），首次进离线大名单页面即毫秒级。
+    失败只记日志，不影响服务。
+    """
+    try:
+        _load_cache()
+        source_stats()
+        logger.info("离线大名单内存缓存预热完成：%d 域名 / %d IP",
+                    len(_DOMAIN_CACHE or {}), len(_IP_CACHE or {}))
+    except Exception as e:      # 兜底：预热失败留给检测时懒加载
+        logger.warning("离线大名单缓存预热失败（检测时将懒加载）：%s", e)
 
 
 def check_domain(domain: str) -> bool:

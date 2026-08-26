@@ -647,3 +647,60 @@ def test_auto_update_tick_min_src(monkeypatch):
     # 用户配置非法 → 仍能得出合理 tick
     monkeypatch.setattr(auto_update.CONFIG, "threatlist_auto_interval_hours", "xx")
     assert auto_update.tick_seconds() <= 30 * 60
+
+
+# ---------------- 统计缓存与启动预热（页面加载性能） ----------------
+
+def test_source_stats_cached_until_invalidate():
+    """source_stats 结果进程内缓存；写操作 invalidate 后自动重算。"""
+    threat_list.invalidate()               # 清缓存，强制下次从库重算
+    threat_list.import_source("hagezi_ti", "c1.com\n")
+    try:
+        assert threat_list.source_stats()["hagezi_ti"]["total"] == 1
+
+        # 缓存生效：绕过 invalidate 直插库，统计仍返回旧值
+        with db_cursor() as cur:
+            cur.execute("INSERT INTO threat_list (source, value) "
+                        "VALUES ('hagezi_ti', 'c2.com')")
+        assert threat_list.source_stats()["hagezi_ti"]["total"] == 1
+
+        # invalidate 后重算，反映直改数据
+        threat_list.invalidate()
+        assert threat_list.source_stats()["hagezi_ti"]["total"] == 2
+
+        # 返回深拷贝：调用方修改不污染缓存
+        s = threat_list.source_stats()
+        s["hagezi_ti"]["total"] = 999
+        assert threat_list.source_stats()["hagezi_ti"]["total"] == 2
+    finally:
+        threat_list.delete_source("hagezi_ti")
+        threat_list.invalidate()
+
+
+def test_warm_cache_loads_enabled_entries():
+    """warm_cache 启动预热：enabled 条目进入内存，停用条目不进。"""
+    threat_list.invalidate()
+    threat_list.import_source("stevenblack", "warm.com\n")
+    threat_list.enable_source("stevenblack", False)   # 停用 → 不进缓存
+    threat_list.import_source("hagezi_mini", "hot.example.net\n")
+    try:
+        threat_list.warm_cache()
+        assert threat_list.check_domain("hot.example.net")
+        assert not threat_list.check_domain("warm.com")
+        # 预热后无需懒加载即可命中（含父域后缀匹配）
+        assert threat_list.find_domain("a.hot.example.net") == (
+            "hagezi_mini", "hot.example.net")
+        # 统计缓存也被预热
+        assert threat_list.source_stats()["hagezi_mini"]["total"] == 1
+    finally:
+        threat_list.delete_source("stevenblack")
+        threat_list.delete_source("hagezi_mini")
+        threat_list.invalidate()
+
+
+def test_warm_cache_swallows_db_error(monkeypatch):
+    """预热失败只记日志不抛异常（服务启动兜底，不阻断启动流程）。"""
+    def _boom():
+        raise RuntimeError("db down")
+    monkeypatch.setattr(threat_list, "_load_cache", _boom)
+    threat_list.warm_cache()      # 不应抛出

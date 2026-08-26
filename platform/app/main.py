@@ -6,10 +6,12 @@
 import asyncio
 import logging
 import os
+import threading
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from app import threat_list
 from app.routers import (
     auth, list, threatintel, logs, config as config_router, audit,
     test as test_router, threatlist as threatlist_router,
@@ -28,6 +30,10 @@ async def on_startup():
     init_all()   # 建表 + 默认管理员 + 默认配置
     sync_config_from_db()   # DB 配置 → 内存 CONFIG（热配置基准）
     get_conn()
+    # 后台预热离线大名单内存缓存（全量 enabled 条目约数秒）：
+    # 避免服务重启后首条 DNS 查询懒加载阻塞；daemon 线程不拖慢启动。
+    threading.Thread(target=threat_list.warm_cache, daemon=True,
+                     name="tl-warmup").start()
     # 离线大名单自动更新后台任务（方案 A）
     from app.auto_update import auto_update_loop
     app.state.threatlist_auto_task = asyncio.create_task(auto_update_loop())
