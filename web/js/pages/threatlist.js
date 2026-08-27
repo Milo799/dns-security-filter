@@ -1,5 +1,5 @@
 /* ============================================================
-   pages/threatlist.js — 离线大名单（来源管理 / 调度可视化 /
+   pages/threatlist.js — 离线情报源（来源管理 / 调度可视化 /
    进度轮询 / 条目查看 / 命中查询）
    ============================================================ */
 async function loadThreatlist(){
@@ -190,8 +190,8 @@ async function runThreatListQuery(){
   try{
     var d = (await api('GET', '/api/threatlist/query?value=' + encodeURIComponent(v))).data;
     var parts = [];
-    if (d.threat_list.matched) parts.push('<span class="tag tag-error">大名单命中</span> 来源 ' + esc(d.threat_list.source) + ' · 条目 ' + esc(d.threat_list.entry));
-    else parts.push('<span class="tag tag-neutral">大名单未命中</span>');
+    if (d.threat_list.matched) parts.push('<span class="tag tag-error">离线情报命中</span> 来源 ' + esc(d.threat_list.source) + ' · 条目 ' + esc(d.threat_list.entry));
+    else parts.push('<span class="tag tag-neutral">离线情报未命中</span>');
     if (d.manual_whitelist) parts.push('<span class="tag tag-success">手工白名单命中</span> ' + esc(d.manual_whitelist) + '（放行）');
     if (d.manual_blacklist) parts.push('<span class="tag tag-error">手工黑名单命中</span> ' + esc(d.manual_blacklist));
     document.getElementById('tlQueryResult').innerHTML =
@@ -204,7 +204,7 @@ var tlModalSource = '', tlModalPage = 1, TL_SIZE = 50;
 function openThreatListModal(key, name){
   tlModalSource = key;
   tlModalPage = 1;
-  document.getElementById('tlModalTitle').textContent = '大名单条目 · ' + name + '（' + key + '）';
+  document.getElementById('tlModalTitle').textContent = '离线情报条目 · ' + name + '（' + key + '）';
   document.getElementById('tlKw').value = '';
   document.getElementById('tlEnabled').value = '';
   document.getElementById('tlModal').classList.add('show');
@@ -230,3 +230,5 @@ async function loadThreatEntries(page){
     pager(document.getElementById('tlEntryPager'), d.total, tlModalPage, TL_SIZE, 'loadThreatEntries');
   }catch(e){ toast(e.message, true); }
 }
+
+PAGE_LOADERS.threatlist = loadThreatlist;

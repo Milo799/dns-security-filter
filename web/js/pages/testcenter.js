@@ -70,7 +70,7 @@ function renderDomainResult(d){
       (d.local_blacklist.matched
         ? '<span class="tag tag-error"><span class="dot"></span>命中</span> <span class="rule-chip">' + esc(d.local_blacklist.rule) + '</span>'
         : '<span class="tag tag-neutral">未命中</span>') + '</div></div>' +
-    '<div class="t-check"><div class="tk">📋 离线大名单' + (isPtr ? ' IP' : '') + '</div><div>' +
+    '<div class="t-check"><div class="tk">📋 离线情报源' + (isPtr ? ' IP' : '') + '</div><div>' +
       (d.threat_list.matched
         ? '<span class="tag tag-error"><span class="dot"></span>命中</span> <span class="rule-chip">' + esc(d.threat_list.entry) + '</span> <span class="form-hint" style="margin:0">来源 ' + esc(d.threat_list.source) + '</span>'
         : '<span class="tag tag-neutral">未命中</span>') + '</div></div>' +
@@ -124,7 +124,7 @@ function renderIpResult(d){
       (d.local_blacklist.matched
         ? '<span class="tag tag-error"><span class="dot"></span>命中</span> <span class="rule-chip">' + esc(d.local_blacklist.rule) + '</span>'
         : '<span class="tag tag-neutral">未命中</span>') + '</div></div>' +
-    '<div class="t-check"><div class="tk">📋 离线大名单</div><div>' +
+    '<div class="t-check"><div class="tk">📋 离线情报源</div><div>' +
       (d.threat_list.matched
         ? '<span class="tag tag-error"><span class="dot"></span>命中</span> <span class="rule-chip">' + esc(d.threat_list.entry) + '</span> <span class="form-hint" style="margin:0">来源 ' + esc(d.threat_list.source) + '</span>'
         : '<span class="tag tag-neutral">未命中</span>') + '</div></div>' +

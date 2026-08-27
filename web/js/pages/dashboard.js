@@ -62,7 +62,7 @@ async function loadDashboard(){
     var items = [
       { key: 'local_blacklist', label: '本地黑名单', value: smap.local_blacklist || 0,
         color: Charts.cssVar('--danger', '#f43f5e') },
-      { key: 'threat_list', label: '离线大名单', value: smap.threat_list || 0,
+      { key: 'threat_list', label: '离线情报源', value: smap.threat_list || 0,
         color: Charts.cssVar('--warning', '#fbbf24') },
       { key: 'threatintel', label: '在线情报', value: smap.threatintel || 0,
         color: Charts.cssVar('--accent-2', '#6366f1') },
@@ -82,7 +82,7 @@ function renderChain(smap){
     { step: '1', icon: '🛡', name: '白名单', desc: '命中即放行', state: 'ok', badge: '✓ 放行' },
     { step: '2', icon: '🚫', name: '本地黑名单', desc: '域名精确 + 父域匹配',
       state: smap.local_blacklist ? 'hit' : 'idle', badge: smap.local_blacklist ? '⚡ 命中 ' + smap.local_blacklist.toLocaleString() + ' 次' : '未命中' },
-    { step: '3', icon: '📋', name: '离线大名单', desc: '本地离线域名库匹配',
+    { step: '3', icon: '📋', name: '离线情报源', desc: '本地离线域名库匹配',
       state: smap.threat_list ? 'hit' : 'idle', badge: smap.threat_list ? '⚡ 命中 ' + smap.threat_list.toLocaleString() + ' 次' : '未命中' },
     { step: '4', icon: '🌐', name: '在线情报', desc: '16 路威胁源实时查询',
       state: smap.threatintel ? 'hit' : 'idle', badge: smap.threatintel ? '⚡ 命中 ' + smap.threatintel.toLocaleString() + ' 次' : '未命中' },

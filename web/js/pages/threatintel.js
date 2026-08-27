@@ -1,6 +1,6 @@
 /* ============================================================
-   pages/threatintel.js — 威胁情报源（在线源 CRUD / 融合策略）
-   离线大名单模块见 threatlist.js，本页加载时一并刷新
+   pages/threatintel.js — 在线情报源（在线源 CRUD）
+   融合策略见 fusion.js，离线情报源见 threatlist.js
    ============================================================ */
 var srcItems = [];
 
@@ -35,15 +35,6 @@ async function loadThreatintel(){
         (x.is_builtin ? '' : '<button class="btn btn-subtle btn-danger-subtle btn-compact" title="删除该源" onclick="delSrc(' + x.id + ',\'' + esc(x.name) + '\')">删除</button>') +
         '</div></td></tr>';
     }).join('') : '<tr><td colspan="8"><div class="empty-state"><span class="es-ico">🌐</span>尚未接入情报源</div></td></tr>';
-
-    var cfg = (await api('GET', '/api/config')).data.items;
-    var cur = (cfg.fusion_strategy && cfg.fusion_strategy.value) || 'any';
-    document.querySelectorAll('#fusionCards .radio-inline-item').forEach(function(c){
-      var sel = c.dataset.v === cur;
-      c.classList.toggle('sel', sel);
-      c.querySelector('input').checked = sel;
-    });
-    loadThreatlist();
   }catch(e){ toast(e.message, true); }
 }
 
@@ -52,7 +43,7 @@ var srcEditId = null;
 
 function openSrcDialog(){
   srcEditId = null;
-  document.getElementById('srcModalTitle').textContent = '接入威胁情报源';
+  document.getElementById('srcModalTitle').textContent = '接入在线情报源';
   document.getElementById('mSrcName').disabled = false;
   document.getElementById('mSrcUrl').value = '';
   document.getElementById('mSrcKey').value = '';
@@ -73,7 +64,7 @@ function editSrc(id){
   var x = srcItems.find(function(i){ return i.id === id; });
   if (!x) return;
   srcEditId = id;
-  document.getElementById('srcModalTitle').textContent = '编辑威胁情报源';
+  document.getElementById('srcModalTitle').textContent = '编辑在线情报源';
   document.getElementById('mSrcName').innerHTML = '<option>' + esc(x.name) + '</option>';
   document.getElementById('mSrcName').disabled = true;
   document.getElementById('mSrcUrl').value = x.base_url || '';
@@ -141,18 +132,5 @@ async function delSrc(id, name){
     loadThreatintel();
   }catch(e){ toast(e.message, true); }
 }
-
-/* 融合策略切换 */
-document.querySelectorAll('#fusionCards .radio-inline-item').forEach(function(c){
-  c.addEventListener('click', async function(){
-    try{
-      await api('PUT', '/api/threatintel/fusion-strategy', {strategy: c.dataset.v});
-      document.querySelectorAll('#fusionCards .radio-inline-item').forEach(function(x){ x.classList.remove('sel'); });
-      c.classList.add('sel');
-      c.querySelector('input').checked = true;
-      toast('融合策略已切换为 ' + c.dataset.v + '（已记入审计）');
-    }catch(e){ toast(e.message, true); }
-  });
-});
 
 PAGE_LOADERS.threatintel = loadThreatintel;
