@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 560" font-family="'PingFang SC','Microsoft YaHei','Segoe UI',sans-serif">
+  <!-- 背景 -->
+  <rect x="0" y="0" width="1000" height="560" fill="#f8fafc"/>
+  <rect x="1" y="1" width="998" height="558" fill="none" stroke="#cbd5e1" stroke-width="1.5" rx="10"/>
+
+  <!-- 标题 -->
+  <text x="500" y="34" text-anchor="middle" font-size="20" font-weight="700" fill="#0f172a">生产部署拓扑与容灾路径</text>
+  <text x="500" y="54" text-anchor="middle" font-size="11.5" fill="#64748b">Windows 域控 DNS 转发器 → 代理层（纯转发）→ 安全过滤平台（检测 + 公网解析 + IP 后置）→ 上游公网 DNS</text>
+
+  <!-- ==================== 节点 1：内网终端 ==================== -->
+  <g>
+    <rect x="22" y="118" width="150" height="108" rx="10" fill="#ffffff" stroke="#94a3b8" stroke-width="1.8"/>
+    <rect x="22" y="118" width="150" height="30" rx="10" fill="#94a3b8"/>
+    <rect x="22" y="136" width="150" height="12" fill="#94a3b8"/>
+    <text x="97" y="138" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff">内网终端</text>
+    <text x="97" y="172" text-anchor="middle" font-size="10.5" fill="#334155">PC / 服务器（多台）</text>
+    <text x="97" y="190" text-anchor="middle" font-size="10.5" fill="#334155">DNS 查询</text>
+    <text x="97" y="208" text-anchor="middle" font-size="9.5" fill="#64748b">携带客户端 IP（ECS）</text>
+  </g>
+
+  <!-- 箭头 1 -->
+  <g>
+    <line x1="172" y1="172" x2="206" y2="172" stroke="#64748b" stroke-width="2"/>
+    <polygon points="206,166 216,172 206,178" fill="#64748b"/>
+    <text x="194" y="162" text-anchor="middle" font-size="9" fill="#64748b">DNS</text>
+  </g>
+
+  <!-- ==================== 节点 2：Windows DNS ==================== -->
+  <g>
+    <rect x="216" y="98" width="180" height="148" rx="10" fill="#ffffff" stroke="#2563eb" stroke-width="2"/>
+    <rect x="216" y="98" width="180" height="30" rx="10" fill="#2563eb"/>
+    <rect x="216" y="116" width="180" height="12" fill="#2563eb"/>
+    <text x="306" y="118" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff">Windows DNS（域控）</text>
+    <text x="306" y="152" text-anchor="middle" font-size="10" fill="#334155">内网域名 → 本地权威解析</text>
+    <text x="306" y="170" text-anchor="middle" font-size="10" fill="#334155">外网域名 → 转发器</text>
+    <text x="306" y="188" text-anchor="middle" font-size="11" font-weight="700" fill="#2563eb">转发器 → 代理IP:53</text>
+    <text x="306" y="208" text-anchor="middle" font-size="9.5" fill="#64748b">透传 EDNS0 Client Subnet</text>
+    <text x="306" y="226" text-anchor="middle" font-size="9.5" fill="#64748b">携带真实客户端 IP</text>
+    <!-- 容灾标记 -->
+    <rect x="228" y="232" width="156" height="9" rx="4.5" fill="#fef2f2" stroke="#fecaca" stroke-width="1"/>
+    <text x="306" y="239" text-anchor="middle" font-size="8" fill="#dc2626">容灾切换点（唯一流量入口）</text>
+  </g>
+
+  <!-- 箭头 2 -->
+  <g>
+    <line x1="396" y1="172" x2="430" y2="172" stroke="#64748b" stroke-width="2"/>
+    <polygon points="430,166 440,172 430,178" fill="#64748b"/>
+    <text x="418" y="162" text-anchor="middle" font-size="9" fill="#64748b">DNS</text>
+  </g>
+
+  <!-- ==================== 节点 3：DNS 代理中间件 ==================== -->
+  <g>
+    <rect x="440" y="98" width="180" height="148" rx="10" fill="#ffffff" stroke="#059669" stroke-width="2"/>
+    <rect x="440" y="98" width="180" height="30" rx="10" fill="#059669"/>
+    <rect x="440" y="116" width="180" height="12" fill="#059669"/>
+    <text x="530" y="118" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff">DNS 代理中间件</text>
+    <text x="530" y="148" text-anchor="middle" font-size="10" fill="#334155">Linux 独立部署（Go + miekg/dns）</text>
+    <text x="530" y="166" text-anchor="middle" font-size="11" font-weight="700" fill="#059669">监听 53（UDP + TCP）</text>
+    <text x="530" y="186" text-anchor="middle" font-size="9.5" fill="#334155">收到请求 → 原样转发平台</text>
+    <text x="530" y="202" text-anchor="middle" font-size="9.5" fill="#334155">不改报文、不剥离 EDNS0</text>
+    <text x="530" y="220" text-anchor="middle" font-size="9.5" fill="#64748b">纯转发，无检测逻辑</text>
+    <text x="530" y="238" text-anchor="middle" font-size="9" fill="#059669">超时回 SERVFAIL（故障信号）</text>
+  </g>
+
+  <!-- 箭头 3 -->
+  <g>
+    <line x1="620" y1="172" x2="654" y2="172" stroke="#64748b" stroke-width="2"/>
+    <polygon points="654,166 664,172 654,178" fill="#64748b"/>
+    <text x="642" y="162" text-anchor="middle" font-size="9" fill="#64748b">DNS</text>
+  </g>
+
+  <!-- ==================== 节点 4：DNS 安全过滤平台 ==================== -->
+  <g>
+    <rect x="664" y="76" width="192" height="192" rx="10" fill="#ffffff" stroke="#d97706" stroke-width="2"/>
+    <rect x="664" y="76" width="192" height="30" rx="10" fill="#d97706"/>
+    <rect x="664" y="94" width="192" height="12" fill="#d97706"/>
+    <text x="760" y="96" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff">DNS 安全过滤平台</text>
+    <text x="760" y="126" text-anchor="middle" font-size="10" fill="#334155">独立服务器 · 监听 53</text>
+    <text x="760" y="146" text-anchor="middle" font-size="9.5" fill="#64748b">五层检测（优先级↓）</text>
+    <text x="760" y="164" text-anchor="middle" font-size="9.5" fill="#334155">① 人工白名单 → 放行</text>
+    <text x="760" y="180" text-anchor="middle" font-size="9.5" fill="#334155">② 人工黑名单 → 拦截</text>
+    <text x="760" y="196" text-anchor="middle" font-size="9.5" fill="#334155">③ 离线情报源 → 拦截</text>
+    <text x="760" y="212" text-anchor="middle" font-size="9.5" fill="#334155">④ 在线情报源（多源融合）</text>
+    <text x="760" y="228" text-anchor="middle" font-size="9.5" fill="#334155">⑤ 公网解析 → IP 后置过滤</text>
+    <line x1="676" y1="236" x2="844" y2="236" stroke="#e2e8f0" stroke-width="1"/>
+    <text x="760" y="252" text-anchor="middle" font-size="9.5" fill="#64748b">Web 管理界面 :8080（仅内网）</text>
+    <text x="760" y="264" text-anchor="middle" font-size="9" fill="#64748b">过滤日志 · 审计 · 离线名单自动更新</text>
+  </g>
+
+  <!-- 箭头 4 -->
+  <g>
+    <line x1="856" y1="172" x2="890" y2="172" stroke="#64748b" stroke-width="2"/>
+    <polygon points="890,166 900,172 890,178" fill="#64748b"/>
+    <text x="878" y="162" text-anchor="middle" font-size="9" fill="#64748b">解析</text>
+  </g>
+
+  <!-- ==================== 节点 5：上游公网 DNS ==================== -->
+  <g>
+    <rect x="900" y="118" width="78" height="108" rx="10" fill="#ffffff" stroke="#0891b2" stroke-width="1.8"/>
+    <rect x="900" y="118" width="78" height="30" rx="10" fill="#0891b2"/>
+    <rect x="900" y="136" width="78" height="12" fill="#0891b2"/>
+    <text x="939" y="138" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff">公网 DNS</text>
+    <text x="939" y="172" text-anchor="middle" font-size="9.5" fill="#334155">223.5.5.5</text>
+    <text x="939" y="190" text-anchor="middle" font-size="9.5" fill="#334155">114.114.114.114</text>
+    <text x="939" y="208" text-anchor="middle" font-size="9.5" fill="#334155">8.8.8.8 等</text>
+  </g>
+
+  <!-- ==================== 返回路径（下侧） ==================== -->
+  <g>
+    <path d="M 939 226 L 939 258 L 530 258 L 530 246" fill="none" stroke="#94a3b8" stroke-width="1.6" stroke-dasharray="5 4"/>
+    <polygon points="534,250 530,240 526,250" fill="#94a3b8"/>
+    <text x="735" y="254" text-anchor="middle" font-size="9.5" fill="#64748b">安全应答原路返回（平台 → 代理 → Windows DNS → 终端）</text>
+  </g>
+
+  <!-- ==================== 容灾路径（底部） ==================== -->
+  <g>
+    <line x1="306" y1="330" x2="939" y2="330" stroke="#dc2626" stroke-width="2" stroke-dasharray="7 5"/>
+    <polygon points="933,324 943,330 933,336" fill="#dc2626"/>
+    <polygon points="312,324 302,330 312,336" fill="#dc2626"/>
+    <rect x="480" y="318" width="286" height="26" rx="13" fill="#fef2f2" stroke="#fca5a5" stroke-width="1.2"/>
+    <text x="623" y="335" text-anchor="middle" font-size="11" font-weight="700" fill="#dc2626">容灾回退：故障时转发器改回公网 DNS</text>
+  </g>
+
+  <!-- ==================== 底部说明 ==================== -->
+  <g>
+    <rect x="22" y="380" width="956" height="160" rx="10" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.2"/>
+    <text x="40" y="404" font-size="12.5" font-weight="700" fill="#0f172a">部署要点</text>
+    <text x="40" y="426" font-size="10.5" fill="#334155">1. 端口分配：代理与平台 DNS 服务默认均监听 53；同机部署需错开（docker-compose 中代理对外映射 5353，容器内仍为 53）；</text>
+    <text x="40" y="444" font-size="10.5" fill="#334155">    代理独立机器部署时两台各占 53，Windows 转发器指向代理那台的 53。</text>
+    <text x="40" y="466" font-size="10.5" fill="#334155">2. 平台必须能出公网：配置中的 upstream_dns 需填真实公网 DNS（如 223.5.5.5），用于"转发去公网解析 → IP 后置过滤"环节；</text>
+    <text x="40" y="484" font-size="10.5" fill="#334155">    开发/测试环境若填 127.0.0.1:15354 等本地模拟地址且无进程监听，会导致公网解析失败、IP 后置链路不参与（非架构问题）。</text>
+    <text x="40" y="506" font-size="10.5" fill="#334155">3. 容灾：Windows DNS 转发器是唯一流量入口，代理或平台任一故障 → 人工将转发器改回公网 DNS，业务立即恢复（过滤暂时失效）；</text>
+    <text x="40" y="524" font-size="10.5" fill="#334155">    平台故障时代理回 SERVFAIL（解析失败信号），系统不会自动放行，避免中毒流量绕过过滤。</text>
+  </g>
+</svg>

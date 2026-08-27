@@ -370,6 +370,15 @@ Web"测试中心"页面，输入域名或 IP（含 PTR 模式）进行**只读�
 
 ## 八、部署规格 ▲（systemd 原生 + Docker）
 
+> 生产部署拓扑与容灾路径（源文件：`docs/assets/deployment-topology.svg`）：
+
+![生产部署拓扑与容灾路径](assets/deployment-topology.svg)
+
+**部署要点（与上图对应）：**
+- **端口分配**：代理与平台 DNS 服务默认均监听 53；同机部署需错开（docker-compose 中代理对外映射 5353，容器内仍为 53）；代理独立机器部署时两台各占 53，Windows 转发器指向代理那台的 53。
+- **平台必须能出公网**：`upstream_dns` 需填真实公网 DNS（如 223.5.5.5），用于"转发去公网解析 → IP 后置过滤"环节；开发/测试环境若填本地模拟地址（如 `127.0.0.1:15354`）且无进程监听，会导致公网解析失败、IP 后置链路不参与（非架构问题）。
+- **容灾回退**：Windows DNS 转发器是唯一流量入口，代理或平台任一故障 → 人工将转发器改回公网 DNS，业务立即恢复（过滤暂时失效）；平台故障时代理回 SERVFAIL（解析失败信号），系统**不会**自动放行，避免中毒流量绕过过滤。
+
 ### 方式一：Linux systemd（原生）
 - `deploy/install.sh` 一键落位：/opt/dns-security-filter，独立运行用户 dnsfilter；
 - 三个服务：`proxy.service`、`platform-dns.service`（53）、`platform-web.service`（8080）；
