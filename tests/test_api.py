@@ -289,3 +289,37 @@ def test_status_counts(client, token):
     r = client.get("/api/status/trend", headers=_h(token))
     assert r.status_code == 200
     assert isinstance(r.json()["data"]["items"], list)
+
+
+def test_status_breakdown(client, token):
+    from app.db import db_cursor
+    with db_cursor() as cur:
+        cur.execute(
+            """INSERT INTO filter_log
+               (client_ip, domain, query_type, filter_reason, action,
+                malicious_ips, final_result, source_api)
+               VALUES ('', 'bd-a.test', 'A', 'local_blacklist', 'intercept',
+                       '', 'alert_ip:1.2.3.4', ''),
+                      ('', 'bd-a.test', 'A', 'threat_list', 'intercept',
+                       '', 'alert_ip:1.2.3.4', ''),
+                      ('', 'bd-b.test', 'A', 'threatintel:any:urlhaus',
+                       'intercept', '', 'alert_ip:1.2.3.4', 'urlhaus'),
+                      ('', 'bd-c.test', 'A', 'ip_filter', 'remove_ip',
+                       '6.6.6.6', 'remaining_ips:7.7.7.7', '')"""
+        )
+    r = client.get("/api/status/breakdown", headers=_h(token))
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert data["days"] == 7
+    by = {s["key"]: s["count"] for s in data["sources"]}
+    assert by["local_blacklist"] >= 1
+    assert by["threat_list"] >= 1
+    assert by["threatintel"] >= 1
+    assert by["ip_filter"] >= 1
+    assert any(t["domain"] == "bd-a.test" and t["count"] >= 2
+               for t in data["top_domains"])
+    # 参数边界
+    r = client.get("/api/status/breakdown?days=999&top=0", headers=_h(token))
+    assert r.status_code == 200
+    d2 = r.json()["data"]
+    assert d2["days"] == 90

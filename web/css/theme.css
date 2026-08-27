@@ -1,0 +1,77 @@
+/* ============================================================
+   theme.css — 深浅双主题变量（默认深色 SOC 态势风，body.light 切换浅色）
+   所有组件颜色一律走变量，切换主题只需换 html/body 类
+   ============================================================ */
+:root{
+  /* 底色 */
+  --bg:#0b1120;            /* 页面底色：深蓝黑 */
+  --bg-soft:#0e1526;       /* 次级底色 */
+  --card:#121a2e;          /* 卡片 */
+  --card-2:#182238;        /* 卡片内嵌块 */
+  --nav-bg:#0d1424;        /* 侧边导航 */
+  --shell-bg:rgba(13,20,36,.82); /* 顶栏（毛玻璃） */
+  --border:#1f2b47;        /* 边框 */
+  --border-2:#2b3a63;      /* 强调边框 */
+
+  /* 文字 */
+  --text:#e6edf7;
+  --text-sec:#94a3bd;
+  --text-dim:#5d7299;
+
+  /* 语义色 */
+  --accent:#38bdf8;        /* 主青蓝 */
+  --accent-2:#6366f1;      /* 蓝紫 */
+  --accent-bg:rgba(56,189,248,.12);
+  --danger:#f43f5e;        /* 红（拦截/风险） */
+  --danger-bg:rgba(244,63,94,.12);
+  --success:#34d399;       /* 绿（放行/健康） */
+  --success-bg:rgba(52,211,153,.12);
+  --warning:#fbbf24;       /* 橙黄（剔除/待处理） */
+  --warning-bg:rgba(251,191,36,.12);
+
+  /* 特效 */
+  --glow:0 0 14px rgba(56,189,248,.35);
+  --glow-red:0 0 14px rgba(244,63,94,.35);
+  --shadow:0 8px 28px rgba(0,0,0,.42);
+  --shadow-sm:0 2px 8px rgba(0,0,0,.3);
+
+  /* 尺寸 */
+  --radius:12px;
+  --radius-s:7px;
+  --mono:"Consolas","JetBrains Mono","Cascadia Code",monospace;
+  --font:"Segoe UI","PingFang SC","Microsoft YaHei",Arial,sans-serif;
+
+  color-scheme:dark;
+}
+/* 浅色主题：body.light 覆盖 */
+body.light{
+  --bg:#eef2f8;
+  --bg-soft:#e4eaf3;
+  --card:#ffffff;
+  --card-2:#f5f8fc;
+  --nav-bg:#f8fafc;
+  --shell-bg:rgba(255,255,255,.85);
+  --border:#dbe3ee;
+  --border-2:#c3cfdf;
+
+  --text:#1e293b;
+  --text-sec:#5b6b84;
+  --text-dim:#94a3b8;
+
+  --accent:#0284c7;
+  --accent-2:#6366f1;
+  --accent-bg:#e8f4fc;
+  --danger:#e11d48;
+  --danger-bg:#fdeef1;
+  --success:#0d9488;
+  --success-bg:#e6f7f5;
+  --warning:#d97706;
+  --warning-bg:#fdf3e3;
+
+  --glow:0 0 10px rgba(2,132,199,.22);
+  --glow-red:0 0 10px rgba(225,29,72,.22);
+  --shadow:0 4px 16px rgba(15,23,42,.08);
+  --shadow-sm:0 1px 4px rgba(15,23,42,.06);
+
+  color-scheme:light;
+}

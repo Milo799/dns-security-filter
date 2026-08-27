@@ -1,0 +1,95 @@
+/* ============================================================
+   pages.css — 页面独有样式（仪表盘态势 / 测试中心 / 大名单等）
+   ============================================================ */
+
+/* ================= 仪表盘布局 ================= */
+.dash-row{display:grid;grid-template-columns:1.55fr 1fr;gap:18px;margin-bottom:0}
+.dash-row .card{margin-bottom:0}
+@media(max-width:1100px){.dash-row{grid-template-columns:1fr}}
+.dash-row + .dash-row{margin-top:18px}
+.chart-box{width:100%;min-height:230px}
+.chart-box svg{display:block;width:100%;height:auto}
+.donut-wrap{display:flex;align-items:center;justify-content:center;gap:18px;flex-wrap:wrap;padding:6px 0}
+.donut-legend{display:flex;flex-direction:column;gap:8px;min-width:130px}
+.donut-legend .dl-item{display:flex;align-items:center;gap:8px;font-size:12.5px}
+.donut-legend .dl-dot{width:10px;height:10px;border-radius:3px;flex-shrink:0}
+.donut-legend .dl-name{color:var(--text-sec)}
+.donut-legend .dl-val{margin-left:auto;font-weight:700;font-variant-numeric:tabular-nums}
+.toplist{display:flex;flex-direction:column;gap:9px;padding:4px 0}
+.toplist .tl-item{display:flex;align-items:center;gap:10px}
+.toplist .tl-rank{
+  width:22px;height:22px;border-radius:6px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  font-size:11px;font-weight:800;color:var(--text-dim);background:var(--bg-soft);
+}
+.toplist .tl-rank.r1{color:#fff;background:linear-gradient(135deg,#f59e0b,#f43f5e)}
+.toplist .tl-rank.r2{color:var(--text-sec);background:var(--card-2)}
+.toplist .tl-rank.r3{color:var(--text-sec);background:var(--card-2)}
+.toplist .tl-domain{font-family:var(--mono);font-size:12.5px;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px}
+.toplist .tl-bar{flex:1;height:7px;border-radius:4px;background:var(--bg-soft);overflow:hidden}
+.toplist .tl-bar i{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,var(--danger),var(--warning));opacity:.85;transition:width .6s ease}
+.toplist .tl-count{font-family:var(--mono);font-size:12px;color:var(--text-sec);min-width:34px;text-align:right}
+
+/* ================= 五层检测链路 ================= */
+.chain{display:flex;align-items:stretch;gap:0;padding:10px 0 6px;flex-wrap:wrap}
+.chain-node{
+  flex:1;min-width:96px;background:var(--bg-soft);border:1px solid var(--border);
+  border-radius:9px;padding:9px 8px 8px;text-align:center;position:relative;
+  transition:all .25s;
+}
+.chain-node .cn-step{
+  font-size:10px;font-weight:800;color:var(--text-dim);letter-spacing:.08em;
+  text-transform:uppercase;display:block;margin-bottom:3px;
+}
+.chain-node .cn-name{font-size:12.5px;font-weight:700;display:block}
+.chain-node .cn-count{font-size:11px;color:var(--text-dim);display:block;margin-top:4px;font-family:var(--mono)}
+.chain-node.hit{border-color:rgba(244,63,94,.55);background:var(--danger-bg);box-shadow:var(--glow-red)}
+.chain-node.hit .cn-count{color:var(--danger);font-weight:700}
+.chain-node.hot{border-color:rgba(251,191,36,.55);background:var(--warning-bg)}
+.chain-node.hot .cn-count{color:var(--warning);font-weight:700}
+.chain-node.ok{border-color:rgba(52,211,153,.4)}
+.chain-node .cn-live{display:block;margin-top:5px}
+.chain-arrow{display:flex;align-items:center;color:var(--text-dim);padding:0 4px;font-size:14px;flex-shrink:0}
+@media(max-width:760px){.chain-arrow{display:none}}
+
+/* ================= 测试中心 ================= */
+.t-tabs{display:flex;gap:6px;border-bottom:1px solid var(--border);margin-bottom:6px}
+.t-tab{
+  height:38px;padding:0 20px;border:none;background:transparent;
+  font-size:13.5px;color:var(--text-sec);border-bottom:2px solid transparent;
+  cursor:pointer;transition:all .15s;
+}
+.t-tab:hover{color:var(--accent)}
+.t-tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:700}
+.verdict-banner{
+  display:flex;align-items:center;gap:14px;padding:16px 20px;
+  border-radius:var(--radius);margin-bottom:18px;font-size:13.5px;flex-wrap:wrap;
+  border:1px solid;
+}
+.verdict-banner .vb-title{font-size:16px;font-weight:800}
+.verdict-banner .vb-icon{font-size:22px}
+.verdict-intercept{background:var(--danger-bg);color:var(--danger);border-color:rgba(244,63,94,.4)}
+.verdict-allow{background:var(--success-bg);color:var(--success);border-color:rgba(52,211,153,.4)}
+.verdict-neutral{background:var(--card-2);color:var(--text-sec);border-color:var(--border)}
+.rule-chip{
+  display:inline-block;background:var(--bg-soft);border:1px solid var(--border-2);
+  border-radius:5px;padding:2px 8px;font-family:var(--mono);font-size:12px;
+  color:var(--text);margin:2px 2px 0 0;
+}
+.t-hit{color:var(--danger);font-weight:600}
+.t-miss{color:var(--success)}
+.t-error{color:var(--text-dim)}
+.t-check{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 0;border-bottom:1px solid var(--border);font-size:13px;flex-wrap:wrap}
+.t-check:last-child{border-bottom:none}
+.t-check .tk{display:flex;align-items:center;gap:10px;min-width:160px}
+.t-check .tv{font-family:var(--mono);font-size:12px;color:var(--text-sec);word-break:break-all}
+
+/* ================= 大名单查询结果 ================= */
+.tl-query-result{
+  margin:10px 0 0;border:1px solid var(--border);border-radius:10px;
+  padding:11px 14px;font-size:13px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;
+  background:var(--bg-soft);
+}
+
+/* ================= 审计详情 ================= */
+.count-note{font-size:12px;color:var(--text-dim);margin-left:auto}

@@ -117,6 +117,57 @@ def status_trend(days: int = 7, _: str = Depends(get_current_user)):
     return {"code": 0, "message": "ok", "data": {"days": days, "items": items}}
 
 
+@router.get("/status/breakdown")
+def status_breakdown(days: int = 7, top: int = 10,
+                     _: str = Depends(get_current_user)):
+    """拦截来源构成 + Top 拦截域名（仪表盘态势图用，只读）。
+
+    来源按 filter_reason 前缀归类：
+      local_blacklist → 本地黑名单；threat_list → 离线大名单；
+      threatintel:*   → 在线情报；  ip_filter      → IP 后置过滤。
+    """
+    days = max(1, min(days, 90))
+    top = max(1, min(top, 50))
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT
+                 SUM(CASE WHEN filter_reason='local_blacklist'
+                     THEN 1 ELSE 0 END) AS local_blacklist,
+                 SUM(CASE WHEN filter_reason='threat_list'
+                     THEN 1 ELSE 0 END) AS threat_list,
+                 SUM(CASE WHEN filter_reason LIKE 'threatintel:%'
+                     THEN 1 ELSE 0 END) AS threatintel,
+                 SUM(CASE WHEN filter_reason='ip_filter'
+                     THEN 1 ELSE 0 END) AS ip_filter
+               FROM filter_log
+               WHERE timestamp >= datetime('now', ?)""",
+            (f"-{days} days",),
+        )
+        row = cur.fetchone()
+        sources = [
+            {"key": "local_blacklist", "label": "本地黑名单",
+             "count": row["local_blacklist"] or 0},
+            {"key": "threat_list", "label": "离线大名单",
+             "count": row["threat_list"] or 0},
+            {"key": "threatintel", "label": "在线情报",
+             "count": row["threatintel"] or 0},
+            {"key": "ip_filter", "label": "IP 后置",
+             "count": row["ip_filter"] or 0},
+        ]
+        cur.execute(
+            """SELECT domain, COUNT(*) AS cnt FROM filter_log
+               WHERE timestamp >= datetime('now', ?)
+                 AND action IN ('intercept','remove_ip')
+               GROUP BY domain ORDER BY cnt DESC LIMIT ?""",
+            (f"-{days} days", top),
+        )
+        top_domains = [{"domain": r["domain"], "count": r["cnt"]}
+                       for r in cur.fetchall()]
+    return {"code": 0, "message": "ok",
+            "data": {"days": days, "sources": sources,
+                     "top_domains": top_domains}}
+
+
 @router.post("/detection/toggle")
 def toggle_detection(body: dict, user: str = Depends(get_current_user)):
     """切换检测总开关；关闭时全部请求直接放行（操作留痕）。"""

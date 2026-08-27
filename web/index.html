@@ -3,158 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DNS 安全过滤平台 · 管理控制台</title>
-<style>
-/* ============ SAP Fiori 风格（与原型 prototype.html 保持一致） ============ */
-:root{
-  --sapBrand:#0070f2;--sapBrandHover:#0064d9;--sapBrandLight:#ebf5ff;
-  --sapShellBorder:#d9d9d9;--sapNavBg:#f7f8f9;--sapPageBg:#f2f3f4;
-  --sapCard:#ffffff;--sapCardBorder:#e5e5e5;--sapText:#1d2d3e;--sapTextSec:#6a6d70;
-  --sapSuccess:#36a41e;--sapSuccessBg:#f1fdf0;--sapError:#ee3939;--sapErrorBg:#ffeceb;
-  --sapWarning:#e9730f;--sapWarningBg:#fff4e8;--sapNeutralBg:#f2f3f4;
-  --sapBorder:#89919a;--radius:12px;--radiusS:6px;
-}
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:"72","Segoe UI",Arial,"Microsoft YaHei",sans-serif;background:var(--sapPageBg);color:var(--sapText);font-size:14px;line-height:1.5}
-button{font-family:inherit;cursor:pointer}
-input,select,textarea{font-family:inherit;font-size:14px}
-#loginScreen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#0a3d75 0%,#0070f2 100%);z-index:100}
-.login-card{background:#fff;border-radius:var(--radius);box-shadow:0 8px 32px rgba(0,0,0,.25);padding:48px 44px 36px;width:400px}
-.login-logo{display:flex;align-items:center;gap:10px;margin-bottom:6px}
-.logo-mark{width:34px;height:34px;border-radius:8px;background:var(--sapBrand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px}
-.login-title{font-size:20px;font-weight:600}
-.login-sub{color:var(--sapTextSec);font-size:13px;margin-bottom:28px}
-.field{margin-bottom:18px}
-.field label{display:block;font-size:13px;color:var(--sapTextSec);margin-bottom:6px}
-.field input{width:100%;height:38px;border:1px solid var(--sapBorder);border-radius:var(--radiusS);padding:0 12px;outline:none}
-.field input:focus{border-color:var(--sapBrand);box-shadow:0 0 0 1px var(--sapBrand)}
-.btn{height:36px;padding:0 18px;border-radius:var(--radiusS);font-size:14px;border:1px solid transparent;display:inline-flex;align-items:center;gap:6px}
-.btn-emphasized{background:var(--sapBrand);color:#fff}.btn-emphasized:hover{background:var(--sapBrandHover)}
-.btn-normal{background:#fff;color:var(--sapBrand);border-color:var(--sapBrand)}.btn-normal:hover{background:var(--sapBrandLight)}
-.btn-subtle{background:transparent;color:var(--sapText);border-color:transparent}.btn-subtle:hover{background:#eaeaea}
-.btn-compact{height:30px;padding:0 12px;font-size:13px}
-.td-ops{display:flex;flex-wrap:nowrap;gap:4px;align-items:center}
-.td-ops .btn-compact{height:28px;padding:0 10px;font-size:12px}
-.btn-danger-subtle{background:transparent;color:#d04343;border-color:transparent}.btn-danger-subtle:hover{background:#fbeaea}
-.login-btn{width:100%;height:40px;justify-content:center;margin-top:6px}
-.login-err{color:var(--sapError);font-size:12px;margin:-8px 0 12px;min-height:16px}
-#app{display:none;min-height:100vh;flex-direction:column}
-.shell-bar{height:52px;background:#fff;border-bottom:1px solid var(--sapShellBorder);display:flex;align-items:center;padding:0 20px;gap:16px;position:sticky;top:0;z-index:50}
-.shell-title{font-size:16px;font-weight:600}
-.shell-right{margin-left:auto;display:flex;align-items:center;gap:10px}
-.avatar{width:32px;height:32px;border-radius:50%;background:#5b738d;color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600}
-.layout{display:flex;flex:1;min-height:calc(100vh - 52px)}
-.sidenav{width:216px;background:var(--sapNavBg);border-right:1px solid #e8e9ea;padding:14px 10px;flex-shrink:0}
-.nav-group-title{font-size:11px;color:var(--sapTextSec);text-transform:uppercase;letter-spacing:.06em;padding:10px 12px 6px}
-.nav-item{display:flex;align-items:center;gap:12px;padding:9px 12px;border-radius:6px;cursor:pointer;margin-bottom:2px;border-left:3px solid transparent}
-.nav-item:hover{background:#eceef0}
-.nav-item.active{color:var(--sapBrand);background:var(--sapBrandLight);border-left-color:var(--sapBrand);font-weight:600}
-.content{flex:1;padding:22px 28px 48px;max-width:1400px;overflow-x:auto}
-.page{display:none}.page.active{display:block}
-.page-head{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:20px;gap:16px;flex-wrap:wrap}
-.page-title{font-size:22px;font-weight:600}
-.page-sub{color:var(--sapTextSec);font-size:13px;margin-top:3px}
-.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.card{background:var(--sapCard);border-radius:var(--radius);box-shadow:0 0 0 1px var(--sapCardBorder);margin-bottom:18px}
-.card-head{padding:16px 20px 12px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.card-title{font-size:16px;font-weight:600}
-.card-body{padding:0 20px 20px}
-.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:18px}
-.kpi{background:#fff;border-radius:var(--radius);box-shadow:0 0 0 1px var(--sapCardBorder);padding:18px 20px}
-.kpi-label{font-size:13px;color:var(--sapTextSec)}
-.kpi-value{font-size:32px;font-weight:700;margin-top:6px;font-variant-numeric:tabular-nums}
-.kpi-red .kpi-value{color:var(--sapError)}.kpi-green .kpi-value{color:#188918}.kpi-blue .kpi-value{color:var(--sapBrand)}
-.tag{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 10px;border-radius:12px;font-size:12px;white-space:nowrap}
-.tag-success{background:var(--sapSuccessBg);color:var(--sapSuccess)}
-.tag-error{background:var(--sapErrorBg);color:var(--sapError)}
-.tag-warning{background:var(--sapWarningBg);color:var(--sapWarning)}
-.tag-neutral{background:var(--sapNeutralBg);color:var(--sapTextSec)}
-.tag-blue{background:var(--sapBrandLight);color:var(--sapBrand)}
-.dot{width:7px;height:7px;border-radius:50%;background:currentColor}
-/* 测试中心 */
-.t-tabs{display:flex;gap:6px;border-bottom:1px solid var(--sapBorder)}
-.t-tab{height:38px;padding:0 20px;border:none;background:transparent;font-size:14px;color:var(--sapTextSec);border-bottom:2px solid transparent;cursor:pointer}
-.t-tab:hover{color:var(--sapBrand)}
-.t-tab.active{color:var(--sapBrand);border-bottom-color:var(--sapBrand);font-weight:600}
-.verdict-banner{display:flex;align-items:center;gap:14px;padding:16px 20px;border-radius:var(--radius);margin-bottom:18px;font-size:13.5px;flex-wrap:wrap}
-.verdict-banner .vb-title{font-size:16px;font-weight:700}
-.verdict-banner .vb-icon{font-size:22px}
-.verdict-intercept{background:var(--sapErrorBg);color:var(--sapError)}
-.verdict-allow{background:var(--sapSuccessBg);color:var(--sapSuccess)}
-.verdict-neutral{background:var(--sapNeutralBg);color:var(--sapTextSec)}
-.rule-chip{display:inline-block;background:#fff;border:1px solid var(--sapBorder);border-radius:5px;padding:2px 8px;font-family:Consolas,monospace;font-size:12.5px;color:var(--sapText);margin:2px 2px 0 0}
-.t-hit{color:var(--sapError);font-weight:600}
-.t-miss{color:#188918}
-.t-error{color:var(--sapTextSec)}
-.t-check{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 0;border-bottom:1px solid #f0f1f2;font-size:13.5px;flex-wrap:wrap}
-.t-check:last-child{border-bottom:none}
-.t-check .tk{display:flex;align-items:center;gap:10px;min-width:160px}
-.t-check .tv{font-family:Consolas,monospace;font-size:12.5px;color:var(--sapTextSec);word-break:break-all}
-.table-wrap{overflow-x:auto}
-table.sap{width:100%;border-collapse:collapse}
-table.sap th{background:#f7f8f9;color:var(--sapTextSec);font-size:12px;font-weight:600;text-align:left;padding:8px 10px;border-bottom:1px solid #e8e9ea;white-space:nowrap}
-table.sap td{padding:8px 10px;border-bottom:1px solid #f0f1f2;font-size:13px;vertical-align:middle;white-space:nowrap}
-table.sap tbody tr:hover{background:#f5faff}
-.mono{font-family:Consolas,monospace;font-size:12.5px}
-.link{color:var(--sapBrand);cursor:pointer}.link:hover{text-decoration:underline}
-.row-actions{display:flex;gap:2px}
-.icon-btn{width:28px;height:28px;border:none;background:transparent;border-radius:6px;font-size:14px}.icon-btn:hover{background:#eaeef2}
-.filter-bar{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;padding:14px 20px}
-.f-item label{display:block;font-size:12px;color:var(--sapTextSec);margin-bottom:4px}
-.f-item input,.f-item select{height:32px;border:1px solid var(--sapBorder);border-radius:var(--radiusS);padding:0 10px;outline:none;min-width:120px;background:#fff}
-.f-item input:focus,.f-item select:focus{border-color:var(--sapBrand);box-shadow:0 0 0 1px var(--sapBrand)}
-.pager{display:flex;align-items:center;gap:10px;justify-content:flex-end;padding:12px 20px;color:var(--sapTextSec);font-size:13px}
-.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px 28px}
-.form-row{display:flex;flex-direction:column;margin-bottom:14px}
-.form-row label{font-size:13px;color:var(--sapTextSec);margin-bottom:6px}
-.req::after{content:" *";color:var(--sapError)}
-.form-row input,.form-row select{height:36px;border:1px solid var(--sapBorder);border-radius:var(--radiusS);padding:0 12px;outline:none;background:#fff}
-.form-row input:focus,.form-row select:focus{border-color:var(--sapBrand);box-shadow:0 0 0 1px var(--sapBrand)}
-.form-hint{font-size:12px;color:var(--sapTextSec);margin-top:4px}
-.switch{position:relative;width:44px;height:24px;display:inline-block;flex-shrink:0}
-.switch input{opacity:0;width:0;height:0}
-.slider{position:absolute;inset:0;background:#89919a;border-radius:12px;transition:.2s;cursor:pointer}
-.slider::before{content:"";position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;top:3px;left:3px;transition:.2s}
-.switch input:checked + .slider{background:var(--sapBrand)}
-.switch input:checked + .slider::before{transform:translateX(20px)}
-.switch-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid #f0f1f2;gap:16px}
-.switch-row:last-child{border-bottom:none}
-.switch-desc{font-size:12px;color:var(--sapTextSec);margin-top:2px}
-.chart-bars{display:flex;align-items:flex-end;gap:14px;height:180px;padding:10px 4px 0}
-.chart-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px}
-.chart-col .bar{width:70%;background:var(--sapBrand);border-radius:4px 4px 0 0;min-height:3px;position:relative}
-.chart-col .bar .v{position:absolute;top:-20px;left:50%;transform:translateX(-50%);font-size:11px;color:var(--sapTextSec);opacity:0}
-.chart-col .bar:hover .v{opacity:1}
-.chart-col .d{font-size:12px;color:var(--sapTextSec)}
-.radio-inline{display:flex;gap:12px;flex-wrap:wrap}
-.radio-inline-item{border:1px solid var(--sapCardBorder);border-radius:var(--radiusS);padding:12px 16px;cursor:pointer;display:flex;gap:10px;align-items:flex-start;flex:1;min-width:210px;background:#fff}
-.radio-inline-item:hover{border-color:var(--sapBrand)}
-.radio-inline-item.sel{border-color:var(--sapBrand);background:var(--sapBrandLight);box-shadow:0 0 0 1px var(--sapBrand)}
-.ri-title{font-weight:600;font-size:14px}.ri-desc{font-size:12px;color:var(--sapTextSec);margin-top:3px}
-#toast{position:fixed;bottom:28px;right:28px;background:#323539;color:#fff;border-radius:8px;padding:13px 20px;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.3);display:none;z-index:200;align-items:center;gap:10px;max-width:460px}
-#toast.show{display:flex}
-.modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:150}
-.modal-mask.show{display:flex}
-.modal{background:#fff;border-radius:var(--radius);width:540px;max-width:94vw;max-height:88vh;overflow:auto}
-.modal-head{padding:18px 24px 12px;font-size:17px;font-weight:600;border-bottom:1px solid #efefef;display:flex;justify-content:space-between;align-items:center}
-.modal-body{padding:20px 24px}
-.modal-foot{padding:14px 24px 20px;display:flex;justify-content:flex-end;gap:10px}
-.empty-tip{padding:36px;text-align:center;color:var(--sapTextSec);font-size:13px}
-.count-note{font-size:12px;color:var(--sapTextSec);margin-left:auto}
-.loading{padding:30px;text-align:center;color:var(--sapTextSec)}
-.tl-progress{position:relative;height:22px;background:var(--sapBg2, #f2f3f5);border-radius:6px;overflow:hidden;border:1px solid var(--sapBorder, #e0e0e0)}
-.tl-progress .tl-progress-bar{position:absolute;left:0;top:0;bottom:0;width:0;background:linear-gradient(90deg,#2f7de1,#4aa3ff);transition:width .5s ease}
-.tl-progress .tl-progress-text{position:relative;padding:2px 8px;font-size:12px;line-height:16px;color:var(--sapTextMain, #333);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tl-progress.done{border-color:#5c9e5c}
-.tl-progress.done .tl-progress-bar{background:linear-gradient(90deg,#3d8b3d,#5cbf5c)}
-.tl-progress.error{border-color:#c0392b}
-.tl-progress.error .tl-progress-bar{background:linear-gradient(90deg,#c0392b,#e74c3c);width:100%}
-.audit-readable{font-size:13px;line-height:1.5;color:var(--sapText);word-break:break-all}
-.audit-raw{margin-top:4px;font-size:11.5px}
-.audit-raw summary{cursor:pointer;color:var(--sapTextSec);user-select:none}
-.audit-raw summary:hover{color:var(--sapText)}
-.audit-raw code{font-family:Consolas,monospace;font-size:11px;color:var(--sapTextSec);word-break:break-all;display:block;margin-top:4px;padding:6px 8px;background:var(--sapBg2);border-radius:4px}
-</style>
+<title>DNS 安全过滤平台 · 安全运营中心</title>
+<link rel="stylesheet" href="css/theme.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/pages.css">
 </head>
 <body>
 
@@ -162,7 +14,8 @@ table.sap tbody tr:hover{background:#f5faff}
 <div id="loginScreen">
   <div class="login-card">
     <div class="login-logo"><div class="logo-mark">DNS</div><div class="login-title">DNS 安全过滤平台</div></div>
-    <div class="login-sub">管理控制台 · 仅限授权管理员访问</div>
+    <div class="login-sub">安全运营中心 · 仅限授权管理员访问</div>
+    <div class="login-sec">检测链路 · 白名单 / 黑名单 / 离线大名单 / 在线情报 / IP 后置</div>
     <div class="field"><label>用户名</label><input id="loginUser" type="text" value="admin" autocomplete="off"></div>
     <div class="field"><label>密码</label><input id="loginPass" type="password" placeholder="请输入密码" autocomplete="off"></div>
     <div class="login-err" id="loginErr"></div>
@@ -173,10 +26,11 @@ table.sap tbody tr:hover{background:#f5faff}
 <!-- ==================== 应用 ==================== -->
 <div id="app">
   <div class="shell-bar">
-    <div class="logo-mark" style="width:30px;height:30px;font-size:13px">DNS</div>
-    <div class="shell-title">DNS 安全过滤平台</div>
+    <div class="logo-mark" style="width:30px;height:30px;font-size:12px">DNS</div>
+    <div class="shell-title">DNS 安全过滤平台<small>Security Operations Center</small></div>
     <div class="shell-right">
-      <span id="statusBadge" class="tag tag-success"><span class="dot"></span>检测运行中</span>
+      <span id="statusBadge" class="tag tag-success"><span class="dot pulse"></span>检测运行中</span>
+      <button class="theme-toggle" id="themeToggle" title="切换深浅主题" onclick="toggleTheme()">☾</button>
       <div class="avatar" id="avatar">AD</div>
       <button class="btn btn-subtle btn-compact" onclick="doLogout()">退出</button>
     </div>
@@ -184,42 +38,77 @@ table.sap tbody tr:hover{background:#f5faff}
 
   <div class="layout">
     <div class="sidenav">
+      <div class="nav-group-title">总览</div>
+      <div class="nav-item active" data-page="dashboard">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
+        安全态势
+      </div>
       <div class="nav-group-title">监控</div>
-      <div class="nav-item active" data-page="dashboard"><span>📊</span>仪表盘</div>
-      <div class="nav-item" data-page="logs"><span>📋</span>过滤日志</div>
+      <div class="nav-item" data-page="logs">
+        <svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        过滤日志
+      </div>
       <div class="nav-group-title">策略管理</div>
-      <div class="nav-item" data-page="whitelist"><span>🟢</span>白名单</div>
-      <div class="nav-item" data-page="blacklist"><span>🔴</span>黑名单</div>
-      <div class="nav-item" data-page="testcenter"><span>🧪</span>测试中心</div>
-      <div class="nav-item" data-page="threatintel"><span>🌐</span>威胁情报源</div>
+      <div class="nav-item" data-page="whitelist">
+        <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+        白名单
+      </div>
+      <div class="nav-item" data-page="blacklist">
+        <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>
+        黑名单
+      </div>
+      <div class="nav-item" data-page="testcenter">
+        <svg viewBox="0 0 24 24"><path d="M9 3h6"/><path d="M10 3v6L5 19a2 2 0 0 0 1.8 3h10.4a2 2 0 0 0 1.8-3L14 9V3"/><line x1="7" y1="15" x2="17" y2="15"/></svg>
+        测试中心
+      </div>
+      <div class="nav-group-title">情报</div>
+      <div class="nav-item" data-page="threatintel">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        威胁情报源
+      </div>
       <div class="nav-group-title">系统</div>
-      <div class="nav-item" data-page="config"><span>⚙️</span>系统配置</div>
-      <div class="nav-item" data-page="audit"><span>📝</span>操作审计</div>
+      <div class="nav-item" data-page="config">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        系统配置
+      </div>
+      <div class="nav-item" data-page="audit">
+        <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        操作审计
+      </div>
     </div>
 
     <div class="content">
 
-      <!-- 仪表盘 -->
+      <!-- ========== 安全态势总览（仪表盘） ========== -->
       <div class="page active" id="page-dashboard">
         <div class="page-head">
-          <div><div class="page-title">仪表盘</div><div class="page-sub">平台运行状态总览</div></div>
+          <div><div class="page-title">安全态势总览</div><div class="page-sub">DNS 过滤实时监控 · 近 7 日趋势与来源构成</div></div>
           <div class="toolbar"><button class="btn btn-normal btn-compact" onclick="loadDashboard()">↻ 刷新</button></div>
         </div>
         <div class="kpi-grid" id="kpiGrid"><div class="loading">加载中…</div></div>
-        <div class="card">
-          <div class="card-head"><div class="card-title">近 7 日拦截趋势</div><span class="tag tag-neutral">按天</span></div>
-          <div class="card-body"><div class="chart-bars" id="trendChart"><div class="loading">加载中…</div></div></div>
+        <div class="dash-row">
+          <div class="card card-glow">
+            <div class="card-head"><div class="card-title">近 7 日拦截趋势</div><span class="tag tag-neutral">拦截 / 剔除</span></div>
+            <div class="card-body"><div class="chart-box" id="trendChart"><div class="loading">加载中…</div></div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><div class="card-title">拦截来源构成</div><span class="tag tag-neutral">近 7 日</span></div>
+            <div class="card-body"><div class="chart-box" id="donutChart"><div class="loading">加载中…</div></div></div>
+          </div>
         </div>
-        <div class="card">
-          <div class="card-head"><div class="card-title">威胁情报源</div>
-            <button class="btn btn-subtle btn-compact" onclick="go('threatintel')">管理 →</button></div>
-          <div class="card-body table-wrap">
-            <table class="sap"><thead><tr><th>源</th><th>状态</th></tr></thead><tbody id="srcStatusRows"></tbody></table>
+        <div class="dash-row">
+          <div class="card">
+            <div class="card-head"><div class="card-title">Top 拦截域名</div><span class="tag tag-neutral">近 7 日</span></div>
+            <div class="card-body"><div id="topDomains"><div class="loading">加载中…</div></div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><div class="card-title">五层检测链路</div><span class="tag tag-neutral">近 7 日拦截分布</span></div>
+            <div class="card-body"><div id="chainViz" class="chain"></div></div>
           </div>
         </div>
       </div>
 
-      <!-- 过滤日志 -->
+      <!-- ========== 过滤日志 ========== -->
       <div class="page" id="page-logs">
         <div class="page-head">
           <div><div class="page-title">过滤日志</div><div class="page-sub">被拦截 / 剔除请求的完整记录（含客户端 IP）</div></div>
@@ -242,7 +131,7 @@ table.sap tbody tr:hover{background:#f5faff}
         </div>
       </div>
 
-      <!-- 白名单 -->
+      <!-- ========== 白名单 ========== -->
       <div class="page" id="page-whitelist">
         <div class="page-head">
           <div><div class="page-title">白名单</div><div class="page-sub">优先级最高：命中的域名 / IP 直接放行，跳过全部检测</div></div>
@@ -267,7 +156,7 @@ table.sap tbody tr:hover{background:#f5faff}
         </div>
       </div>
 
-      <!-- 黑名单 -->
+      <!-- ========== 黑名单 ========== -->
       <div class="page" id="page-blacklist">
         <div class="page-head">
           <div><div class="page-title">黑名单</div><div class="page-sub">命中的域名 / IP 直接拦截，不进行公网解析</div></div>
@@ -292,7 +181,7 @@ table.sap tbody tr:hover{background:#f5faff}
         </div>
       </div>
 
-      <!-- 测试中心 -->
+      <!-- ========== 测试中心 ========== -->
       <div class="page" id="page-testcenter">
         <div class="page-head">
           <div><div class="page-title">测试中心</div><div class="page-sub">人工验证黑白名单规则与情报源命中情况 · 只读探测，不影响运行与日志</div></div>
@@ -322,7 +211,7 @@ table.sap tbody tr:hover{background:#f5faff}
         <div id="testResult"></div>
       </div>
 
-      <!-- 威胁情报源 -->
+      <!-- ========== 威胁情报源 ========== -->
       <div class="page" id="page-threatintel">
         <div class="page-head">
           <div><div class="page-title">威胁情报源</div><div class="page-sub">多源适配器管理 · 已注册适配器：<span id="regAdapters" class="mono"></span></div></div>
@@ -359,14 +248,14 @@ table.sap tbody tr:hover{background:#f5faff}
               <div class="f-item" style="flex:1;min-width:240px"><label>查域名 / IP 是否命中</label><input id="tlQuery" placeholder="如 evil.example.com" style="width:100%" onkeydown="if(event.key==='Enter')runThreatListQuery()"></div>
               <button class="btn btn-emphasized btn-compact" onclick="runThreatListQuery()">查询</button>
             </div>
-            <div class="switch-row" style="margin:10px 0 0;background:#f6f7f9;border-radius:8px;padding:10px 12px">
+            <div class="switch-row" style="margin:10px 0 0;background:var(--bg-soft);border-radius:8px;padding:10px 12px;border:1px solid var(--border)">
               <div>
                 <div class="switch-label">自动更新</div>
                 <div class="switch-desc">按设定间隔自动整源更新「已启用」来源；各源实际更新周期取源内置周期与全局间隔的最小值（如 urlhaus 30 分钟不受全局间隔放大），单个来源失败不影响其他来源与服务</div>
               </div>
               <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                 <span class="form-hint" style="margin:0">间隔</span>
-                <input id="tlAutoInterval" type="number" min="1" max="720" style="width:72px" onchange="saveThreatListAuto()">
+                <input id="tlAutoInterval" type="number" min="1" max="720" style="width:72px;height:32px;border:1px solid var(--border);border-radius:6px;background:var(--bg-soft);padding:0 10px;color:var(--text)" onchange="saveThreatListAuto()">
                 <span class="form-hint" style="margin:0">小时</span>
                 <label class="switch" title="开启后服务将在每个间隔周期自动更新已启用来源"><input id="tlAutoUpdate" type="checkbox" onchange="saveThreatListAuto()"><span class="slider"></span></label>
               </div>
@@ -380,7 +269,7 @@ table.sap tbody tr:hover{background:#f5faff}
         </div>
       </div>
 
-      <!-- 系统配置 -->
+      <!-- ========== 系统配置 ========== -->
       <div class="page" id="page-config">
         <div class="page-head">
           <div><div class="page-title">系统配置</div><div class="page-sub">运行时修改，保存后立即生效</div></div>
@@ -412,7 +301,7 @@ table.sap tbody tr:hover{background:#f5faff}
         </div>
       </div>
 
-      <!-- 操作审计 -->
+      <!-- ========== 操作审计 ========== -->
       <div class="page" id="page-audit">
         <div class="page-head"><div><div class="page-title">操作审计</div><div class="page-sub">敏感操作留痕</div></div></div>
         <div class="card">
@@ -434,7 +323,7 @@ table.sap tbody tr:hover{background:#f5faff}
   </div>
 </div>
 
-<!-- 新建名单 -->
+<!-- ==================== 新建名单弹窗 ==================== -->
 <div class="modal-mask" id="listModal">
   <div class="modal">
     <div class="modal-head"><span>新建名单条目</span><button class="icon-btn" onclick="closeModal('listModal')">✕</button></div>
@@ -450,7 +339,7 @@ table.sap tbody tr:hover{background:#f5faff}
   </div>
 </div>
 
-<!-- 新增/编辑情报源 -->
+<!-- ==================== 新增/编辑情报源弹窗 ==================== -->
 <div class="modal-mask" id="srcModal">
   <div class="modal">
     <div class="modal-head"><span id="srcModalTitle">接入威胁情报源</span><button class="icon-btn" onclick="closeModal('srcModal')">✕</button></div>
@@ -460,26 +349,26 @@ table.sap tbody tr:hover{background:#f5faff}
       <div class="form-row"><label>API Key</label><input id="mSrcKey" type="password" placeholder="存储于服务端"></div>
       <div class="form-row"><label>超时（毫秒）</label><input id="mSrcTimeout" type="number" value="2000"></div>
       <div class="form-row"><label>描述</label><input id="mSrcDesc" placeholder="选填，展示在列表中"></div>
-      <div class="form-row"><label>扩展配置 JSON</label><textarea id="mSrcConfig" rows="3" style="width:100%;font-family:Consolas,monospace;font-size:12px;padding:8px 10px;border:1px solid var(--sapBorder);border-radius:6px" placeholder='DNSBL 源填查询域，如 {"zone":"zen.spamhaus.org"}；其余源按适配器说明填写，可留空'></textarea></div>
+      <div class="form-row"><label>扩展配置 JSON</label><textarea id="mSrcConfig" rows="3" placeholder='DNSBL 源填查询域，如 {"zone":"zen.spamhaus.org"}；其余源按适配器说明填写，可留空'></textarea></div>
     </div>
     <div class="modal-foot"><button class="btn btn-normal" onclick="closeModal('srcModal')">取消</button><button class="btn btn-emphasized" onclick="saveSrcEntry()">保 存</button></div>
   </div>
 </div>
 
-<!-- CSV 导入 -->
+<!-- ==================== CSV 导入弹窗 ==================== -->
 <div class="modal-mask" id="importModal">
   <div class="modal">
     <div class="modal-head"><span>导入名单 CSV</span><button class="icon-btn" onclick="closeModal('importModal')">✕</button></div>
     <div class="modal-body">
       <div class="form-hint" style="margin-bottom:10px">列：list_type,target,value,enabled,remark（首行表头自动跳过）</div>
-      <textarea id="mCsv" rows="10" style="width:100%;font-family:Consolas,monospace;font-size:12px;padding:10px;border:1px solid var(--sapBorder);border-radius:6px" placeholder="blacklist,domain,*.bad.com,1,备注&#10;blacklist,ip,10.0.0.0/8,,整段"></textarea>
+      <textarea id="mCsv" rows="10" style="width:100%;font-family:var(--mono);font-size:12px;padding:10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-soft);color:var(--text)" placeholder="blacklist,domain,*.bad.com,1,备注&#10;blacklist,ip,10.0.0.0/8,,整段"></textarea>
       <div id="importResult" class="form-hint" style="margin-top:8px"></div>
     </div>
     <div class="modal-foot"><button class="btn btn-normal" onclick="closeModal('importModal')">关闭</button><button class="btn btn-emphasized" onclick="doImportList()">导 入</button></div>
   </div>
 </div>
 
-<!-- 离线大名单条目查看 -->
+<!-- ==================== 离线大名单条目查看弹窗 ==================== -->
 <div class="modal-mask" id="tlModal">
   <div class="modal" style="width:780px">
     <div class="modal-head"><span id="tlModalTitle">大名单条目</span><button class="icon-btn" onclick="closeModal('tlModal')">✕</button></div>
@@ -498,742 +387,19 @@ table.sap tbody tr:hover{background:#f5faff}
   </div>
 </div>
 
-<div id="toast"><span id="toastMsg"></span></div>
+<div id="toast"></div>
 
-<script>
-/* ================= 基础 ================= */
-var TOKEN = localStorage.getItem('dnsf_token') || '';
-var USERNAME = localStorage.getItem('dnsf_user') || '';
-
-function toast(msg, err){
-  var t=document.getElementById('toast');
-  t.textContent = (err?'⚠ ':'✔ ')+msg;
-  t.style.background = err ? '#a6110f' : '#323539';
-  t.classList.add('show');
-  clearTimeout(toast._t); toast._t=setTimeout(function(){t.classList.remove('show')},2800);
-}
-function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
-
-async function api(method, path, body, raw){
-  var opts={method:method,headers:{}};
-  if(TOKEN) opts.headers['Authorization']='Bearer '+TOKEN;
-  if(body!==undefined){
-    if(raw){opts.headers['Content-Type']='text/csv; charset=utf-8';opts.body=body;}
-    else{opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(body);}
-  }
-  var r=await fetch(path,opts);
-  if(r.status===401){doLogout(true);throw new Error('登录已过期，请重新登录');}
-  var ct=r.headers.get('content-type')||'';
-  if(ct.indexOf('json')>=0){
-    var j=await r.json();
-    if(!r.ok){throw new Error((j.detail)||('HTTP '+r.status));}
-    return j;
-  }
-  return r;
-}
-
-/* ================= 登录 ================= */
-async function doLogin(){
-  var u=document.getElementById('loginUser').value.trim();
-  var p=document.getElementById('loginPass').value;
-  document.getElementById('loginErr').textContent='';
-  try{
-    var r=await api('POST','/api/auth/login',{username:u,password:p});
-    TOKEN=r.data.token; USERNAME=u;
-    localStorage.setItem('dnsf_token',TOKEN); localStorage.setItem('dnsf_user',u);
-    enterApp();
-  }catch(e){document.getElementById('loginErr').textContent=e.message;}
-}
-function doLogout(expired){
-  TOKEN=''; localStorage.removeItem('dnsf_token');
-  document.getElementById('app').style.display='none';
-  document.getElementById('loginScreen').style.display='flex';
-  if(expired) toast('登录已过期',true);
-}
-function enterApp(){
-  document.getElementById('loginScreen').style.display='none';
-  document.getElementById('app').style.display='flex';
-  document.getElementById('avatar').textContent=(USERNAME||'admin').slice(0,2).toUpperCase();
-  loadDashboard();
-}
-document.getElementById('loginPass').addEventListener('keydown',function(e){if(e.key==='Enter')doLogin()});
-
-/* ================= 导航 ================= */
-document.querySelectorAll('.nav-item').forEach(function(el){
-  el.addEventListener('click',function(){go(el.dataset.page)});
-});
-var PAGE_LOADERS={dashboard:loadDashboard,logs:loadLogs,whitelist:loadWhitelist,blacklist:loadBlacklist,threatintel:loadThreatintel,config:loadConfig,audit:loadAudit};
-function go(page){
-  document.querySelectorAll('.nav-item').forEach(function(n){n.classList.toggle('active',n.dataset.page===page)});
-  document.querySelectorAll('.page').forEach(function(p){p.classList.toggle('active',p.id==='page-'+page)});
-  window.scrollTo(0,0);
-  if(PAGE_LOADERS[page])PAGE_LOADERS[page]();
-}
-function pager(el,total,page,size,loader){
-  var pages=Math.max(1,Math.ceil(total/size));
-  el.innerHTML='<span>共 '+total+' 条 · 第 '+page+' / '+pages+' 页</span>'
-    +(page>1?'<button class="btn btn-normal btn-compact" onclick="'+loader+'('+(page-1)+')">‹</button>':'')
-    +(page<pages?'<button class="btn btn-normal btn-compact" onclick="'+loader+'('+(page+1)+')">›</button>':'');
-}
-function closeModal(id){document.getElementById(id).classList.remove('show')}
-
-/* ================= 仪表盘 ================= */
-async function loadDashboard(){
-  try{
-    var s=(await api('GET','/api/status')).data;
-    var badge=document.getElementById('statusBadge');
-    badge.className='tag '+(s.detection_enabled?'tag-success':'tag-error');
-    badge.innerHTML='<span class="dot"></span>'+(s.detection_enabled?'检测运行中':'检测已关闭');
-    document.getElementById('kpiGrid').innerHTML=
-      '<div class="kpi kpi-blue"><div class="kpi-label">检测引擎</div><div class="kpi-value" style="font-size:22px;margin-top:10px">'+(s.detection_enabled?'启用':'停用')+'</div><div class="form-hint" style="margin-top:4px">总开关状态</div></div>'
-     +'<div class="kpi kpi-red"><div class="kpi-label">今日拦截</div><div class="kpi-value">'+s.today_intercepts+'</div><div class="form-hint" style="margin-top:4px">intercept 应答</div></div>'
-     +'<div class="kpi" style="--c:#e9730f"><div class="kpi-label">今日剔除 IP</div><div class="kpi-value" style="color:var(--sapWarning)">'+s.today_removes+'</div><div class="form-hint" style="margin-top:4px">remove_ip 部分剔除</div></div>'
-     +'<div class="kpi kpi-green"><div class="kpi-label">今日放行</div><div class="kpi-value">'+s.today_allows+'</div><div class="form-hint" style="margin-top:4px">allow 记录（需开启）</div></div>';
-
-    document.getElementById('srcStatusRows').innerHTML=(s.threatintel_sources||[]).map(function(x){
-      return '<tr><td>'+esc(x.name)+'</td><td>'+(x.enabled?'<span class="tag tag-success"><span class="dot"></span>已启用</span>':'<span class="tag tag-neutral">已停用</span>')+'</td></tr>';
-    }).join('')||'<tr><td colspan="2"><div class="empty-tip">未配置情报源</div></td></tr>';
-
-    var tr=(await api('GET','/api/status/trend?days=7')).data.items||[];
-    var max=1; tr.forEach(function(d){max=Math.max(max,d.intercepts+d.removes)});
-    document.getElementById('trendChart').innerHTML=tr.length?tr.map(function(d){
-      var h=Math.round((d.intercepts+d.removes)/max*100);
-      return '<div class="chart-col"><div class="bar" style="height:'+Math.max(h,3)+'%"><span class="v">'+(d.intercepts+d.removes)+'</span></div><div class="d">'+d.day.slice(5)+'</div></div>';
-    }).join(''):'<div class="empty-tip" style="width:100%">暂无数据</div>';
-  }catch(e){toast(e.message,true)}
-}
-
-/* ================= 过滤日志 ================= */
-var logPage=1;
-async function loadLogs(page){
-  if(page)logPage=page;
-  var q=new URLSearchParams({page:logPage,size:20});
-  ['lgCip:client_ip','lgDomain:domain','lgAction:action','lgReason:reason'].forEach(function(p){
-    var v=document.getElementById(p.split(':')[0]).value.trim();
-    if(v)q.set(p.split(':')[1],v);
-  });
-  try{
-    var d=(await api('GET','/api/logs?'+q)).data;
-    document.getElementById('lgCount').textContent='共 '+d.total+' 条';
-    document.getElementById('logRows').innerHTML=d.items.length?d.items.map(function(l){
-      return '<tr><td class="mono">'+esc(l.timestamp)+'</td><td class="mono">'+(l.client_ip?esc(l.client_ip):'<span style="color:#c0c3c6">未透传</span>')+'</td><td class="mono">'+esc(l.domain)+'</td><td>'+esc(l.query_type)+'</td>'
-        +'<td>'+(l.action==='allow'?'<span class="tag tag-neutral">allow</span>':(l.filter_reason==='local_blacklist'?'<span class="tag tag-neutral">本地黑名单</span>':(l.filter_reason==='ip_filter'?'<span class="tag tag-warning">IP过滤</span>':'<span class="tag tag-error">'+esc(l.filter_reason)+'</span>')))+'</td>'
-        +'<td>'+(l.action==='intercept'?'<span class="tag tag-error">intercept</span>':(l.action==='remove_ip'?'<span class="tag tag-warning">remove_ip</span>':'<span class="tag tag-success">allow</span>'))+'</td>'
-        +'<td class="mono">'+esc(l.malicious_ips||'—')+'</td><td class="mono">'+esc(l.final_result)+'</td><td>'+esc(l.source_api||'—')+'</td></tr>';
-    }).join(''):'<tr><td colspan="9"><div class="empty-tip">暂无日志</div></td></tr>';
-    pager(document.getElementById('lgPager'),d.total,logPage,20,'loadLogs');
-  }catch(e){toast(e.message,true)}
-}
-async function exportLogs(){
-  var q=new URLSearchParams();
-  ['lgCip:client_ip','lgDomain:domain','lgAction:action','lgReason:reason'].forEach(function(p){
-    var v=document.getElementById(p.split(':')[0]).value.trim();
-    if(v)q.set(p.split(':')[1],v);
-  });
-  try{
-    var r=await api('GET','/api/logs/export?'+q);
-    downloadBlob(await r.blob(),'filter_log.csv');
-    toast('已导出');
-  }catch(e){toast(e.message,true)}
-}
-function downloadBlob(blob,name){
-  var a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);a.download=name;a.click();
-  setTimeout(function(){URL.revokeObjectURL(a.href)},1000);
-}
-
-/* ================= 白名单 / 黑名单（两个独立页面，公共渲染） ================= */
-function loadListData(page,listType,ids){
-  if(page)ids.page=page;
-  var q=new URLSearchParams({page:ids.page,size:20,list_type:listType});
-  var t=document.getElementById(ids.target).value;
-  if(t)q.set('target',t);
-  var kw=document.getElementById(ids.kw).value.trim();
-  if(kw)q.set('keyword',kw);
-  api('GET','/api/list?'+q).then(function(d){
-    document.getElementById(ids.count).textContent='共 '+d.data.total+' 条';
-    document.getElementById(ids.rows).innerHTML=d.data.items.length?d.data.items.map(function(x){
-      return '<tr><td class="mono">'+esc(x.value)+'</td>'
-        +'<td>'+(x.target==='domain'?'<span class="tag tag-blue">域名</span>':'<span class="tag tag-neutral">IP/CIDR</span>')+'</td>'
-        +'<td>'+(x.enabled?'<span class="tag tag-success"><span class="dot"></span>启用</span>':'<span class="tag tag-neutral">停用</span>')+'</td>'
-        +'<td style="white-space:normal">'+esc(x.remark||'')+'</td><td>'+esc(x.created_by)+'</td><td class="mono">'+esc(x.updated_at)+'</td>'
-        +'<td><div class="row-actions">'
-        +'<button class="icon-btn" title="'+(x.enabled?'停用':'启用')+'" onclick="toggleListItem('+x.id+','+(!x.enabled?1:0)+',\''+listType+'\')">'+(x.enabled?'⏸':'▶')+'</button>'
-        +'<button class="icon-btn" title="编辑备注" onclick="editListItem('+x.id+',\''+listType+'\')">✎</button>'
-        +'<button class="icon-btn" title="删除" onclick="delListItem('+x.id+',\''+esc(x.value).replace(/'/g,"")+'\',\''+listType+'\')">🗑</button>'
-        +'</div></td></tr>';
-    }).join(''):'<tr><td colspan="7"><div class="empty-tip">暂无条目</div></td></tr>';
-    pager(document.getElementById(ids.pager),d.data.total,ids.page,20,ids.loader);
-  }).catch(function(e){toast(e.message,true)});
-}
-var wlPage=1, blPage=1;
-var WL_IDS={page:1,target:'wlTarget',kw:'wlKw',count:'wlCount',rows:'wlRows',pager:'wlPager',loader:'loadWhitelist'};
-var BL_IDS={page:1,target:'blTarget',kw:'blKw',count:'blCount',rows:'blRows',pager:'blPager',loader:'loadBlacklist'};
-function loadWhitelist(page){loadListData(page,'whitelist',WL_IDS)}
-function loadBlacklist(page){loadListData(page,'blacklist',BL_IDS)}
-function openListDialog(listType){
-  document.getElementById('mListType').value=listType;
-  document.getElementById('mListTypeLabel').textContent=listType==='whitelist'?'🟢 白名单':'🔴 黑名单';
-  document.getElementById('listModal').classList.add('show');
-}
-async function saveListEntry(){
-  var body={list_type:document.getElementById('mListType').value,
-            target:document.getElementById('mTarget').value,
-            value:document.getElementById('mValue').value.trim(),
-            remark:document.getElementById('mRemark').value.trim()};
-  if(!body.value){toast('请填写"值"',true);return}
-  try{
-    await api('POST','/api/list',body);
-    closeModal('listModal');
-    document.getElementById('mValue').value='';document.getElementById('mRemark').value='';
-    toast('已创建（已记入审计）');
-    (body.list_type==='whitelist'?loadWhitelist:loadBlacklist)(1);
-  }catch(e){toast(e.message,true)}
-}
-function toggleListItem(id,to,listType){
-  api('PUT','/api/list/'+id,{enabled:!!to}).then(function(){
-    toast(to?'已启用':'已停用');
-    (listType==='whitelist'?loadWhitelist:loadBlacklist)();
-  }).catch(function(e){toast(e.message,true)});
-}
-function editListItem(id,listType){
-  var remark=prompt('修改备注：');
-  if(remark===null)return;
-  api('PUT','/api/list/'+id,{remark:remark}).then(function(){
-    toast('已更新');
-    (listType==='whitelist'?loadWhitelist:loadBlacklist)();
-  }).catch(function(e){toast(e.message,true)});
-}
-function delListItem(id,value,listType){
-  if(!confirm('确认删除条目 '+value+' ？'))return;
-  api('DELETE','/api/list/'+id).then(function(){
-    toast('已删除（已记入审计）');
-    (listType==='whitelist'?loadWhitelist:loadBlacklist)();
-  }).catch(function(e){toast(e.message,true)});
-}
-function importList(listType){
-  document.getElementById('importResult').textContent='';
-  document.getElementById('mCsv').value=listType+',domain,example.com,1,示例\n'+listType+',ip,10.0.0.0/8,,整段';
-  document.getElementById('importModal').classList.add('show');
-}
-async function doImportList(){
-  var csv=document.getElementById('mCsv').value;
-  if(!csv.trim()){toast('请粘贴 CSV 内容',true);return}
-  try{
-    var d=(await api('POST','/api/list/import',csv,true)).data;
-    document.getElementById('importResult').textContent='导入 '+d.imported+' 条，跳过 '+d.skipped+' 条'+(d.errors&&d.errors.length?('：'+d.errors.join('；')):'');
-    if(d.imported>0){loadWhitelist(1);loadBlacklist(1);}
-  }catch(e){toast(e.message,true)}
-}
-async function exportList(listType){
-  try{
-    var r=await api('GET','/api/list/export?list_type='+listType);
-    downloadBlob(await r.blob(),listType+'.csv');toast('已导出');
-  }catch(e){toast(e.message,true)}
-}
-
-/* ================= 测试中心 ================= */
-function ttDomainPlaceholder(){
-  var el=document.getElementById('ttDomain');
-  el.placeholder=document.getElementById('ttQtype').value==='PTR'?'如 8.8.8.8 或 8.8.8.8.in-addr.arpa':'如 example.com';
-}
-function switchTestTab(tab){
-  document.getElementById('tabDomain').classList.toggle('active',tab==='domain');
-  document.getElementById('tabIp').classList.toggle('active',tab==='ip');
-  document.getElementById('domainTestForm').style.display=tab==='domain'?'':'none';
-  document.getElementById('ipTestForm').style.display=tab==='ip'?'':'none';
-  document.getElementById('testResult').innerHTML='';
-}
-function pBadge(p){
-  if(p.status==='hit')return '<span class="tag tag-error"><span class="dot"></span>命中（恶意）</span>';
-  if(p.status==='miss')return '<span class="tag tag-success"><span class="dot"></span>未命中</span>';
-  if(p.status==='error')return '<span class="tag tag-neutral"><span class="dot"></span>无结论</span>';
-  return '<span class="tag tag-blue">不支持</span>';
-}
-function probeTable(probe){
-  if(!probe||!probe.length)return '<div class="empty-tip">未启用支持该查询类型的情报源</div>';
-  return '<table class="sap"><thead><tr><th>情报源</th><th>结果</th><th>详情</th></tr></thead><tbody>'
-    +probe.map(function(p){
-      return '<tr><td class="mono">'+esc(p.source)+'</td><td>'+pBadge(p)+'</td><td style="white-space:normal">'+esc(p.detail)+'</td></tr>';
-    }).join('')+'</tbody></table>';
-}
-function verdictBanner(action,title,reason){
-  var cls=action==='intercept'?'verdict-intercept':(action==='allow'?'verdict-allow':'verdict-neutral');
-  var icon=action==='intercept'?'🚫':(action==='allow'?'✅':'➡️');
-  return '<div class="verdict-banner '+cls+'"><span class="vb-icon">'+icon+'</span>'
-    +'<div><div class="vb-title">'+title+'</div><div>'+esc(reason)+'</div></div></div>';
-}
-async function runDomainTest(){
-  var domain=document.getElementById('ttDomain').value.trim();
-  if(!domain){toast('请输入域名',true);return}
-  var qtype=document.getElementById('ttQtype').value;
-  var cip=document.getElementById('ttCip').value.trim();
-  var el=document.getElementById('testResult');
-  el.innerHTML='<div class="card"><div class="loading">探测中…（情报源查询可能耗时数秒）</div></div>';
-  try{
-    var d=(await api('POST','/api/test/domain',{domain:domain,query_type:qtype,client_ip:cip})).data;
-    el.innerHTML=renderDomainResult(d);
-  }catch(e){el.innerHTML='';toast(e.message,true)}
-}
-function renderDomainResult(d){
-  var fv=d.final_verdict;
-  var isPtr=d.query_type==='PTR';
-  var html=verdictBanner(fv.action,fv.action==='intercept'?'判定：拦截':'判定：放行/转发',fv.reason);
-  if(!d.detection_enabled)
-    html+='<div class="verdict-banner verdict-neutral" style="margin-top:-6px"><span class="vb-icon">⏸</span><div><div class="vb-title">检测总开关已关闭</div><div>当前平台不对任何域名执行过滤，真实流量将直接转发</div></div></div>';
-  html+='<div class="card"><div class="card-head"><div class="card-title">'+(isPtr?'PTR 反向解析 · IP 维度':'本地名单检查')+'</div><span class="tag tag-neutral">'+esc(isPtr?(d.ptr_ip+' → '+d.domain):(d.domain+' · '+d.query_type))+'</span></div><div class="card-body" style="padding-top:0">'
-    +'<div class="t-check"><div class="tk">🟢 白名单'+(isPtr?' IP':'')+'</div><div>'+(d.whitelist.matched?'<span class="tag tag-success"><span class="dot"></span>命中</span> <span class="rule-chip">'+esc(d.whitelist.rule)+'</span>':'<span class="tag tag-neutral">未命中</span>')+'</div></div>'
-    +'<div class="t-check"><div class="tk">🔴 本地'+(isPtr?' IP':'')+'黑名单</div><div>'+(d.local_blacklist.matched?'<span class="tag tag-error"><span class="dot"></span>命中</span> <span class="rule-chip">'+esc(d.local_blacklist.rule)+'</span>':'<span class="tag tag-neutral">未命中</span>')+'</div></div>'
-    +'<div class="t-check"><div class="tk">📋 离线大名单'+(isPtr?' IP':'')+'</div><div>'+(d.threat_list.matched?'<span class="tag tag-error"><span class="dot"></span>命中</span> <span class="rule-chip">'+esc(d.threat_list.entry)+'</span> <span class="form-hint" style="margin:0">来源 '+esc(d.threat_list.source)+'</span>':'<span class="tag tag-neutral">未命中</span>')+'</div></div>'
-    +'</div></div>';
-  html+='<div class="card"><div class="card-head"><div class="card-title">威胁情报 · '+(isPtr?'IP 维度':'域名维度')+'</div><span class="tag tag-blue">启用源逐源结果</span></div><div class="card-body table-wrap" style="padding-top:0">'+probeTable(d.threatintel_domain)+'</div></div>';
-  if(d.resolution){
-    html+='<div class="card"><div class="card-head"><div class="card-title">公网解析（'+esc(d.query_type)+'）</div></div><div class="card-body" style="padding-top:0">'
-      +(d.resolution.ok?'<div class="t-check"><div class="tk">解析结果</div><div class="tv">'+d.resolution.ips.map(esc).join('　')+'</div></div>'
-        :'<div class="t-check"><div class="tk">解析结果</div><div class="t-error">解析失败（平台无法访问上游 DNS 或域名不存在）</div></div>')
-      +'</div></div>';
-    if(d.ip_checks&&d.ip_checks.length){
-      html+='<div class="card"><div class="card-head"><div class="card-title">IP 后置过滤</div><span class="tag tag-blue">逐 IP 校验</span></div><div class="card-body" style="padding-top:0">'
-        +d.ip_checks.map(function(c){
-          return '<div class="t-check" style="margin-top:6px"><div class="tk"><span class="mono">'+esc(c.ip)+'</span>'+(c.local_blacklist.matched?'<span class="tag tag-error">本地黑名单</span>':'')+'</div>'
-            +'<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
-            +(c.verdict==='intercept'?'<span class="tag tag-error"><span class="dot"></span>剔除</span>':'<span class="tag tag-success"><span class="dot"></span>放行</span>')
-            +'<span class="form-hint" style="margin:0">'+esc(c.reason)+'</span></div></div>'
-            +'<div class="card" style="margin:0 0 12px;box-shadow:none"><div class="card-body table-wrap" style="padding:0 0 6px">'+probeTable(c.threatintel_ip)+'</div></div>';
-        }).join('')+'</div></div>';
-    }
-  }
-  return html;
-}
-async function runIpTest(){
-  var ip=document.getElementById('ttIp').value.trim();
-  if(!ip){toast('请输入 IP 地址',true);return}
-  var el=document.getElementById('testResult');
-  el.innerHTML='<div class="card"><div class="loading">探测中…</div></div>';
-  try{
-    var d=(await api('POST','/api/test/ip',{ip:ip})).data;
-    el.innerHTML=renderIpResult(d);
-  }catch(e){el.innerHTML='';toast(e.message,true)}
-}
-function renderIpResult(d){
-  var inter=d.verdict==='intercept';
-  var html=verdictBanner(d.verdict,inter?'判定：拦截':'判定：放行',d.reason);
-  html+='<div class="card"><div class="card-head"><div class="card-title">本地名单检查</div><span class="tag tag-neutral">'+esc(d.ip)+'</span></div><div class="card-body" style="padding-top:0">'
-    +'<div class="t-check"><div class="tk">🔴 本地 IP 黑名单（含 CIDR）</div><div>'+(d.local_blacklist.matched?'<span class="tag tag-error"><span class="dot"></span>命中</span> <span class="rule-chip">'+esc(d.local_blacklist.rule)+'</span>':'<span class="tag tag-neutral">未命中</span>')+'</div></div>'
-    +'<div class="t-check"><div class="tk">📋 离线大名单</div><div>'+(d.threat_list.matched?'<span class="tag tag-error"><span class="dot"></span>命中</span> <span class="rule-chip">'+esc(d.threat_list.entry)+'</span> <span class="form-hint" style="margin:0">来源 '+esc(d.threat_list.source)+'</span>':'<span class="tag tag-neutral">未命中</span>')+'</div></div>'
-    +'</div></div>';
-  html+='<div class="card"><div class="card-head"><div class="card-title">威胁情报 · IP 维度</div><span class="tag tag-blue">启用源逐源结果</span></div><div class="card-body table-wrap" style="padding-top:0">'+probeTable(d.threatintel_ip)+'</div></div>';
-  return html;
-}
-
-/* ================= 威胁情报源 ================= */
-var srcItems=[];
-async function loadThreatintel(){
-  try{
-    var d=(await api('GET','/api/threatintel')).data;
-    document.getElementById('regAdapters').textContent=d.registered_adapters.join(' / ');
-    srcItems=d.items;
-    document.getElementById('srcRows').innerHTML=d.items.length?d.items.map(function(x){
-      var cfg={};try{cfg=JSON.parse(x.config||'{}')}catch(e){}
-      var zone=cfg.zone||'';
-      var iface=(x.adapter_type==='dnsbl'
-            ?(zone?'DNS 查询 · <span class="mono">'+esc(zone)+'</span>':'DNS 查询')
-            :esc(x.base_url||'（默认地址）'));
-      return '<tr>'
-        +'<td style="white-space:nowrap"><b>'+esc(x.name)+'</b>'
-        +(x.is_builtin?' <span class="tag tag-blue">内置开源</span>':'')
-        +(x.adapter_registered?'':' <span class="tag tag-error">未注册</span>')+'</td>'
-        +'<td><span class="tag '+(x.adapter_type==='dnsbl'?'tag-neutral':'tag-blue')+'">'+(x.adapter_type==='dnsbl'?'DNSBL':'HTTP')+'</span></td>'
-        +'<td style="white-space:normal;word-break:break-all;max-width:250px">'+iface+'</td>'
-        +'<td class="mono">'+(x.supports_domain?'域名':'')+(x.supports_domain&&x.supports_ip?'+':'')+(x.supports_ip?'IP':'')+'</td>'
-        +'<td class="mono">'+x.timeout_ms+' ms</td>'
-        +'<td class="mono">'+(x.api_key_masked?esc(x.api_key_masked):'—')+'</td>'
-        +'<td>'+(x.enabled?'<span class="tag tag-success"><span class="dot"></span>已启用</span>':'<span class="tag tag-neutral">已停用</span>')+'</td>'
-        +'<td><div class="td-ops">'
-        +'<button class="btn btn-normal btn-compact" title="编辑该源配置" onclick="editSrc('+x.id+')">编辑</button>'
-        +'<button class="btn btn-normal btn-compact" title="测试连通性" onclick="testSrc('+x.id+')">测试</button>'
-        +'<button class="btn btn-subtle btn-compact" title="'+(x.enabled?'停用该源':'启用该源')+'" onclick="toggleSrc('+x.id+','+(!x.enabled?1:0)+')">'+(x.enabled?'停用':'启用')+'</button>'
-        +(x.is_builtin?'':'<button class="btn btn-subtle btn-danger-subtle btn-compact" title="删除该源" onclick="delSrc('+x.id+',\''+esc(x.name)+'\')">删除</button>')
-        +'</div></td></tr>';
-    }).join(''):'<tr><td colspan="8"><div class="empty-tip">尚未接入情报源</div></td></tr>';
-
-    var cfg=(await api('GET','/api/config')).data.items;
-    var cur=(cfg.fusion_strategy&&cfg.fusion_strategy.value)||'any';
-    document.querySelectorAll('#fusionCards .radio-inline-item').forEach(function(c){
-      var sel=c.dataset.v===cur;
-      c.classList.toggle('sel',sel);
-      c.querySelector('input').checked=sel;
-    });
-    loadThreatlist();
-  }catch(e){toast(e.message,true)}
-}
-/* ================= 离线大名单 ================= */
-async function loadThreatlist(){
-  try{
-    var d=(await api('GET','/api/threatlist/sources')).data.items;
-    var cfg=(await api('GET','/api/config')).data.items;
-    var au=cfg.threatlist_auto_update, iv=cfg.threatlist_auto_interval_hours;
-    document.getElementById('tlAutoUpdate').checked = au ? au.value==='1' : false;
-    document.getElementById('tlAutoInterval').value = iv ? iv.value : 24;
-    document.getElementById('tlRows').innerHTML=d.map(function(x){
-      var has=x.total>0;
-      return '<tr><td style="white-space:nowrap"><b>'+esc(x.name)+'</b><div class="form-hint" style="margin-bottom:0">'+esc(x.key)+'</div></td>'
-        +'<td style="white-space:normal;max-width:300px" title="'+esc(x.description)+'">'+esc(x.description)+'</td>'
-        +'<td>'+(has?x.total+' 条':'<span class="tag tag-neutral">未导入</span>')+'</td>'
-        +'<td>'+(has?(x.enabled_cnt>0?'<span class="tag tag-success"><span class="dot"></span>启用中</span>':'<span class="tag tag-neutral">已停用</span>'):'-')+'</td>'
-        +'<td class="mono">'+esc(x.updated_at||'-')+'</td>'
-        +'<td>'+tlNextCell(x)+'</td>'
-        +'<td><div class="td-ops">'
-        +'<button class="btn btn-normal btn-compact" onclick="importThreatList(\''+x.key+'\')">'+(has?'↻ 更新':'⬇ 导入')+'</button>'
-        +(has?'<button class="btn btn-subtle btn-compact" title="查看命中条目" onclick="openThreatListModal(\''+x.key+'\',\''+esc(x.name)+'\')">条目</button>'
-        +'<button class="btn btn-subtle btn-compact" onclick="toggleThreatList(\''+x.key+'\','+(x.enabled_cnt>0?0:1)+')">'+(x.enabled_cnt>0?'停用':'启用')+'</button>'
-        +'<button class="btn btn-subtle btn-danger-subtle btn-compact" onclick="delThreatList(\''+x.key+'\')">清空</button>':'')
-        +'</div>'
-        +'<div id="tlp_'+x.key+'" style="margin-top:6px;max-width:320px"></div>'
-        +'</td></tr>';
-    }).join('');
-    resumeTlProgress();
-    if(!tlNextTimer){tlNextTimer=setInterval(tickTlNext,30000);}
-  }catch(e){toast(e.message,true)}
-}
-/* 下次更新调度可视化：实际周期 / 下次更新时间 / 倒计时 */
-var tlNextTimer=null;
-function fmtTlInterval(s){
-  if(!s)return '';
-  if(s%86400===0)return (s/86400)+' 天';
-  if(s%3600===0)return (s/3600)+' 小时';
-  if(s>=60)return Math.round(s/60)+' 分钟';
-  return s+' 秒';
-}
-function fmtTlRemaining(ms){
-  if(ms<=0)return '已到期';
-  var s=Math.round(ms/1000),d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60),p=[];
-  if(d)p.push(d+' 天');if(h)p.push(h+' 小时');if(m)p.push(m+' 分钟');
-  if(!p.length)p.push(s+' 秒');
-  return p.slice(0,2).join(' ')+'后';
-}
-function tlNextCell(x){
-  if(!x.auto_update_on)return '<span class="tag tag-neutral" title="自动更新开关未开启，请在上方开启">未开启</span>';
-  if(!x.total)return '<span class="tag tag-neutral">待导入</span>';
-  var iv=fmtTlInterval(x.effective_interval_s);
-  if(x.due)return '<span class="tag tag-warning">已到期 · 待调度</span>'
-    +'<div class="form-hint" style="margin-bottom:0">周期 '+esc(iv)+'，下轮调度自动更新</div>';
-  var atms=Date.parse(String(x.next_update_at||'').replace(' ','T'));
-  return '<div class="mono" style="font-size:12px">'+esc(x.next_update_at||'-')+'</div>'
-    +'<div class="form-hint" style="margin-bottom:0">周期 '+esc(iv)+' · <span class="tl-rem" data-at="'+atms+'">'+fmtTlRemaining(atms-Date.now())+'</span></div>';
-}
-function tickTlNext(){
-  document.querySelectorAll('.tl-rem').forEach(function(el){
-    var at=parseInt(el.getAttribute('data-at'),10);
-    if(at)el.textContent=fmtTlRemaining(at-Date.now());
-  });
-}
-var tlTimer=null, tlPolling={};
-async function importThreatList(key){
-  if(!confirm('确认导入/更新「'+key+'」？将整源替换该来源现有数据。视网络与体量需数分钟，期间可离开页面，进度会实时展示'))return;
-  try{
-    await api('POST','/api/threatlist/import',{source:key,enabled:true});
-    startTlProgress(key);
-  }catch(e){toast(e.message,true)}
-}
-function startTlProgress(key){
-  tlPolling[key]=true;
-  showTlProgress(key,{source:key,status:'running',stage:'download',downloaded:0,total_bytes:0,parsed:0,inserted:0,total:0,message:'提交任务…'});
-  ensureTlTimer();
-}
-function ensureTlTimer(){
-  if(!tlTimer){
-    tlTimer=setInterval(pollTlProgress,1000);
-    pollTlProgress();
-  }
-}
-/* 页面加载后恢复仍在进行中的任务进度（刷新页面不丢进度条） */
-async function resumeTlProgress(){
-  try{
-    var items=(await api('GET','/api/threatlist/import/status')).data;
-    var hit=false;
-    (items||[]).forEach(function(t){
-      if(t.status==='running'&&t.source){
-        tlPolling[t.source]=true;
-        showTlProgress(t.source,t);
-        hit=true;
-      }
-    });
-    if(hit)ensureTlTimer();
-  }catch(e){}
-}
-function fmtBytes(n){
-  if(!n&&n!==0)return '';
-  if(n<1024)return n+' B';
-  if(n<1048576)return (n/1024).toFixed(0)+' KB';
-  return (n/1048576).toFixed(1)+' MB';
-}
-function tlPercent(d){
-  if(d.stage==='download'&&d.total_bytes>0)return Math.min(100,Math.round(d.downloaded/d.total_bytes*100));
-  if(d.stage==='insert'&&d.total>0)return Math.min(100,Math.round(d.inserted/d.total*100));
-  return d.status==='done'?100:0;
-}
-function tlStageText(d){
-  if(d.stage==='download')return d.total_bytes>0?('下载 '+fmtBytes(d.downloaded)+' / '+fmtBytes(d.total_bytes)):('下载中 '+fmtBytes(d.downloaded));
-  if(d.stage==='parse')return '解析中（已处理 '+d.parsed.toLocaleString()+' 行）';
-  if(d.stage==='insert')return '入库中 '+d.inserted.toLocaleString()+' / '+d.total.toLocaleString();
-  if(d.status==='done')return d.message;
-  return d.message||'处理中…';
-}
-function showTlProgress(key,d){
-  var el=document.getElementById('tlp_'+key);
-  if(!el)return;
-  if(d.status==='done'){
-    el.innerHTML='<div class="tl-progress done"><div class="tl-progress-bar" style="width:100%"></div><div class="tl-progress-text">✅ '+esc(d.message)+'</div></div>';
-    delete tlPolling[key];
-    setTimeout(function(){el.innerHTML='';loadThreatlist();},2000);
-    return;
-  }
-  if(d.status==='error'){
-    el.innerHTML='<div class="tl-progress error"><div class="tl-progress-text">❌ '+esc(d.error||'导入失败')+'</div></div>';
-    delete tlPolling[key];
-    setTimeout(function(){el.innerHTML='';loadThreatlist();},4000);
-    return;
-  }
-  var p=tlPercent(d);
-  el.innerHTML='<div class="tl-progress"><div class="tl-progress-bar" style="width:'+p+'%"></div><div class="tl-progress-text">'+esc(tlStageText(d))+'</div></div>';
-}
-async function pollTlProgress(){
-  var keys=Object.keys(tlPolling);
-  if(!keys.length){clearInterval(tlTimer);tlTimer=null;return;}
-  try{
-    var items=(await api('GET','/api/threatlist/import/status')).data;
-    var seen={};
-    (items||[]).forEach(function(t){seen[t.source]=t;});
-    keys.forEach(function(k){
-      var d=seen[k];
-      if(!d){delete tlPolling[k];return;}
-      showTlProgress(k,d);
-    });
-  }catch(e){clearInterval(tlTimer);tlTimer=null;}
-}
-async function toggleThreatList(key,to){
-  try{
-    await api('PUT','/api/threatlist/source',{source:key,enabled:!!to});
-    toast(to?'已启用':'已停用');loadThreatlist();
-  }catch(e){toast(e.message,true)}
-}
-async function delThreatList(key){
-  if(!confirm('确认清空「'+key+'」全部条目？可随时重新导入恢复'))return;
-  try{
-    await api('DELETE','/api/threatlist/source?source='+encodeURIComponent(key));
-    toast('已清空');loadThreatlist();
-  }catch(e){toast(e.message,true)}
-}
-async function saveThreatListAuto(){
-  var on=document.getElementById('tlAutoUpdate').checked;
-  var h=parseInt(document.getElementById('tlAutoInterval').value,10)||24;
-  h=Math.max(1,Math.min(h,720));
-  document.getElementById('tlAutoInterval').value=h;
-  try{
-    await api('PUT','/api/config',{threatlist_auto_update:on,threatlist_auto_interval_hours:h});
-    toast(on?'自动更新已开启（每 '+h+' 小时）':'自动更新已关闭');
-  }catch(e){toast(e.message,true)}
-}
-async function runThreatListQuery(){
-  var v=document.getElementById('tlQuery').value.trim();
-  if(!v){toast('请输入要查询的域名或 IP',true);return}
-  try{
-    var d=(await api('GET','/api/threatlist/query?value='+encodeURIComponent(v))).data;
-    var parts=[];
-    if(d.threat_list.matched) parts.push('<span class="tag tag-error">大名单命中</span> 来源 '+esc(d.threat_list.source)+' · 条目 '+esc(d.threat_list.entry));
-    else parts.push('<span class="tag tag-neutral">大名单未命中</span>');
-    if(d.manual_whitelist) parts.push('<span class="tag tag-success">手工白名单命中</span> '+esc(d.manual_whitelist)+'（放行）');
-    if(d.manual_blacklist) parts.push('<span class="tag tag-error">手工黑名单命中</span> '+esc(d.manual_blacklist));
-    document.getElementById('tlQueryResult').innerHTML='<div class="card" style="margin:10px 0 0;box-shadow:none"><div class="card-body" style="padding:10px 12px;font-size:13px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">'+parts.join('')+'</div></div>';
-  }catch(e){toast(e.message,true)}
-}
-var tlModalSource='', tlModalPage=1, TL_SIZE=50;
-function openThreatListModal(key,name){
-  tlModalSource=key; tlModalPage=1;
-  document.getElementById('tlModalTitle').textContent='大名单条目 · '+name+'（'+key+'）';
-  document.getElementById('tlKw').value='';
-  document.getElementById('tlEnabled').value='';
-  document.getElementById('tlModal').classList.add('show');
-  loadThreatEntries(1);
-}
-async function loadThreatEntries(page){
-  if(page)tlModalPage=page;
-  var q=new URLSearchParams({source:tlModalSource,page:tlModalPage,size:TL_SIZE});
-  var kw=document.getElementById('tlKw').value.trim();
-  if(kw)q.set('keyword',kw);
-  var en=document.getElementById('tlEnabled').value;
-  if(en)q.set('enabled',en);
-  try{
-    var d=(await api('GET','/api/threatlist/domains?'+q)).data;
-    document.getElementById('tlEntryRows').innerHTML=d.items.length?d.items.map(function(x,i){
-      var n=(tlModalPage-1)*TL_SIZE+i+1;
-      return '<tr><td class="mono" style="color:var(--sapTextSec)">'+n+'</td>'
-        +'<td class="mono">'+esc(x.value)+'</td>'
-        +'<td>'+(x.target==='domain'?'<span class="tag tag-blue">域名</span>':'<span class="tag tag-neutral">IP</span>')+'</td>'
-        +'<td>'+(x.enabled?'<span class="tag tag-success"><span class="dot"></span>启用</span>':'<span class="tag tag-neutral">停用</span>')+'</td>'
-        +'<td class="mono">'+esc(x.updated_at||'—')+'</td></tr>';
-    }).join(''):'<tr><td colspan="5"><div class="empty-tip">无匹配条目</div></td></tr>';
-    pager(document.getElementById('tlEntryPager'),d.total,tlModalPage,TL_SIZE,'loadThreatEntries');
-  }catch(e){toast(e.message,true)}
-}
-var srcEditId=null;
-function openSrcDialog(){
-  srcEditId=null;
-  document.getElementById('srcModalTitle').textContent='接入威胁情报源';
-  document.getElementById('mSrcName').disabled=false;
-  document.getElementById('mSrcUrl').value='';
-  document.getElementById('mSrcKey').value='';
-  document.getElementById('mSrcKey').placeholder='存储于服务端';
-  document.getElementById('mSrcTimeout').value=2000;
-  document.getElementById('mSrcDesc').value='';
-  document.getElementById('mSrcConfig').value='';
-  var sel=document.getElementById('mSrcName');
-  // 已注册且未使用的适配器
-  api('GET','/api/threatintel').then(function(d){
-    var used=d.data.items.map(function(i){return i.name});
-    var avail=d.data.registered_adapters.filter(function(n){return used.indexOf(n)<0});
-    sel.innerHTML=(avail.length?avail:['example']).map(function(n){return '<option>'+n+'</option>'}).join('');
-    document.getElementById('srcModal').classList.add('show');
-  });
-}
-function editSrc(id){
-  var x=srcItems.find(function(i){return i.id===id});
-  if(!x)return;
-  srcEditId=id;
-  document.getElementById('srcModalTitle').textContent='编辑威胁情报源';
-  document.getElementById('mSrcName').innerHTML='<option>'+esc(x.name)+'</option>';
-  document.getElementById('mSrcName').disabled=true;
-  document.getElementById('mSrcUrl').value=x.base_url||'';
-  document.getElementById('mSrcKey').value='';
-  document.getElementById('mSrcKey').placeholder=x.api_key_masked?('留空保持不变（当前：'+x.api_key_masked+'）'):'留空保持不变';
-  document.getElementById('mSrcTimeout').value=x.timeout_ms;
-  document.getElementById('mSrcDesc').value=x.description||'';
-  var cfg='';try{cfg=JSON.stringify(JSON.parse(x.config||'{}'),null,2)}catch(e){cfg=x.config||''}
-  document.getElementById('mSrcConfig').value=(cfg==='{}')?'':cfg;
-  document.getElementById('srcModal').classList.add('show');
-}
-async function saveSrcEntry(){
-  var name=document.getElementById('mSrcName').value;
-  var base_url=document.getElementById('mSrcUrl').value.trim();
-  var api_key=document.getElementById('mSrcKey').value;
-  var timeout_ms=parseInt(document.getElementById('mSrcTimeout').value)||2000;
-  var description=document.getElementById('mSrcDesc').value.trim();
-  var config=document.getElementById('mSrcConfig').value.trim()||'';
-  if(config){try{JSON.parse(config)}catch(e){toast('扩展配置 JSON 格式错误：'+e.message,true);return}}
-  try{
-    if(srcEditId===null){
-      await api('POST','/api/threatintel',{name:name,base_url:base_url,api_key:api_key,
-        enabled:false,timeout_ms:timeout_ms,config:config,description:description});
-      toast('已接入，可测试连通性后启用');
-    }else{
-      var x=srcItems.find(function(i){return i.id===srcEditId});
-      await api('PUT','/api/threatintel/'+srcEditId,{name:x.name,adapter_type:x.adapter_type,
-        base_url:base_url,api_key:api_key,enabled:!!x.enabled,timeout_ms:timeout_ms,
-        config:config,description:description});
-      toast('已保存修改');
-    }
-    closeModal('srcModal');srcEditId=null;loadThreatintel();
-  }catch(e){toast(e.message,true)}
-}
-async function testSrc(id){
-  toast('测试中…');
-  try{
-    var d=(await api('POST','/api/threatintel/'+id+'/test')).data;
-    toast((d.ok?'连通正常 ':'连通失败 ')+d.detail+'（'+d.latency_ms+'ms）',!d.ok);
-  }catch(e){toast(e.message,true)}
-}
-async function toggleSrc(id,to){
-  var x=srcItems.find(function(i){return i.id===id});
-  try{
-    await api('PUT','/api/threatintel/'+id,{
-      name:x.name,adapter_type:x.adapter_type,base_url:x.base_url,api_key:'',
-      enabled:!!to,timeout_ms:x.timeout_ms,
-      config:x.config||'',description:x.description||''});
-    toast(to?'已启用':'已停用');loadThreatintel();
-  }catch(e){toast(e.message,true)}
-}
-async function delSrc(id,name){
-  if(!confirm('确认删除情报源 '+name+' ？'))return;
-  try{await api('DELETE','/api/threatintel/'+id);toast('已删除');loadThreatintel()}
-  catch(e){toast(e.message,true)}
-}
-document.querySelectorAll('#fusionCards .radio-inline-item').forEach(function(c){
-  c.addEventListener('click',async function(){
-    try{
-      await api('PUT','/api/threatintel/fusion-strategy',{strategy:c.dataset.v});
-      document.querySelectorAll('#fusionCards .radio-inline-item').forEach(function(x){x.classList.remove('sel')});
-      c.classList.add('sel');c.querySelector('input').checked=true;
-      toast('融合策略已切换为 '+c.dataset.v+'（已记入审计）');
-    }catch(e){toast(e.message,true)}
-  });
-});
-
-/* ================= 系统配置 ================= */
-async function loadConfig(){
-  try{
-    var d=(await api('GET','/api/config')).data.items;
-    var v=function(k,def){return d[k]?d[k].value:def};
-    document.getElementById('cfgAlertIp').value=v('alert_ip','127.0.0.1');
-    document.getElementById('cfgAlertTtl').value=v('alert_ttl','60');
-    document.getElementById('cfgUpstream').value=v('upstream_dns','8.8.8.8');
-    document.getElementById('cfgRetention').value=v('log_retention_days','90');
-    document.getElementById('cfgDetection').checked=v('detection_enabled','1')==='1';
-    document.getElementById('cfgAllowLog').checked=v('allow_log_enabled','0')==='1';
-  }catch(e){toast(e.message,true)}
-}
-async function saveConfig(){
-  var body={
-    alert_ip:document.getElementById('cfgAlertIp').value.trim(),
-    alert_ttl:parseInt(document.getElementById('cfgAlertTtl').value)||60,
-    upstream_dns:document.getElementById('cfgUpstream').value.trim(),
-    log_retention_days:parseInt(document.getElementById('cfgRetention').value)||90,
-  };
-  if(!body.alert_ip||!body.upstream_dns){toast('告警 IP 与上游 DNS 不能为空',true);return}
-  try{
-    await api('PUT','/api/config',body);
-    // 检测开关与放行日志走专用/布尔字段
-    var detection=document.getElementById('cfgDetection').checked;
-    await api('POST','/api/detection/toggle',{enabled:detection});
-    await api('PUT','/api/config',{allow_log_enabled:document.getElementById('cfgAllowLog').checked});
-    toast('配置已保存，立即生效');loadDashboard();
-  }catch(e){toast(e.message,true)}
-}
-
-/* ================= 操作审计 ================= */
-var auditPage=1;
-var AUDIT_LABELS={
-  list_create:'新增名单条目',list_update:'修改名单条目',list_delete:'删除名单条目',
-  list_import:'批量导入名单',threatintel_create:'新增情报源',threatintel_update:'修改情报源',
-  threatintel_delete:'删除情报源',threatlist_import:'导入离线大名单',
-  threatlist_enable:'启停离线大名单',threatlist_delete:'清空离线大名单',
-  fusion_strategy_change:'切换融合策略',detection_toggle:'切换检测开关',config_update:'修改系统配置'
-};
-async function loadAudit(page){
-  if(page)auditPage=page;
-  var q=new URLSearchParams({page:auditPage,size:20});
-  var op=document.getElementById('auOp').value.trim();
-  var act=document.getElementById('auAction').value;
-  if(op)q.set('operator',op); if(act)q.set('action',act);
-  try{
-    var d=(await api('GET','/api/audit?'+q)).data;
-    document.getElementById('auCount').textContent='共 '+d.total+' 条';
-    document.getElementById('auditRows').innerHTML=d.items.length?d.items.map(function(a){
-      var label=AUDIT_LABELS[a.action]||a.action;
-      var main=esc(a.readable||a.detail||'');
-      var raw=a.detail?( '<details class="audit-raw"><summary>原始数据</summary><code>'+esc(a.detail)+'</code></details>'):'';
-      return '<tr><td class="mono">'+esc(a.timestamp)+'</td><td>'+esc(a.operator)+'</td>'
-        +'<td><span class="tag tag-blue">'+esc(label)+'</span></td>'
-        +'<td><div class="audit-readable">'+main+'</div>'+raw+'</td></tr>';
-    }).join(''):'<tr><td colspan="4"><div class="empty-tip">暂无审计记录</div></td></tr>';
-    pager(document.getElementById('auPager'),d.total,auditPage,20,'loadAudit');
-  }catch(e){toast(e.message,true)}
-}
-
-/* ================= 启动 ================= */
-if(TOKEN){
-  api('GET','/api/status').then(enterApp).catch(function(){TOKEN='';localStorage.removeItem('dnsf_token')});
-}
-</script>
+<!-- 加载顺序：core → charts → pages → boot -->
+<script src="js/app.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/pages/dashboard.js"></script>
+<script src="js/pages/logs.js"></script>
+<script src="js/pages/lists.js"></script>
+<script src="js/pages/testcenter.js"></script>
+<script src="js/pages/threatintel.js"></script>
+<script src="js/pages/threatlist.js"></script>
+<script src="js/pages/config.js"></script>
+<script src="js/pages/audit.js"></script>
+<script src="js/boot.js"></script>
 </body>
 </html>
