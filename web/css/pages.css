@@ -222,3 +222,123 @@
   font-size:11px;font-weight:700;white-space:nowrap;max-width:66px;
   overflow:hidden;text-overflow:ellipsis;pointer-events:none;
 }
+
+/* ================= SOC 大屏动态效果（纯 CSS 动效层） =================
+   性能约定：仅 transform / opacity 动画（GPU 合成，不触发重排）
+   可访问性：prefers-reduced-motion 时全部降级 */
+body::before{
+  content:'';position:fixed;left:-176px;top:-176px;
+  width:calc(100vw + 352px);height:calc(100vh + 352px);
+  z-index:-1;pointer-events:none;
+  background-image:
+    linear-gradient(rgba(56,189,248,.05) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(56,189,248,.05) 1px,transparent 1px);
+  background-size:44px 44px;
+  animation:dnsf-grid 36s linear infinite;
+}
+@keyframes dnsf-grid{to{transform:translate(44px,44px)}}
+body.light::before{background-image:
+  linear-gradient(rgba(56,189,248,.09) 1px,transparent 1px),
+  linear-gradient(90deg,rgba(56,189,248,.09) 1px,transparent 1px)}
+
+/* 周期扫描光带（极淡，浮于内容上层不挡阅读） */
+body::after{
+  content:'';position:fixed;left:0;right:0;top:-160px;height:160px;
+  z-index:2;pointer-events:none;
+  background:linear-gradient(180deg,transparent 0%,rgba(56,189,248,.055) 50%,transparent 100%);
+  animation:dnsf-scan 9s linear infinite;
+}
+@keyframes dnsf-scan{0%{transform:translateY(0)}100%{transform:translateY(calc(100vh + 320px))}}
+body.light::after{opacity:0}
+
+/* ---- 大数字带：入场 + 呼吸 + 流光 + hover ---- */
+#page-dashboard .hero-kpi{animation:dnsf-rise .55s cubic-bezier(.22,.9,.35,1) backwards}
+#page-dashboard .hero-kpi:nth-child(2){animation-delay:.05s}
+#page-dashboard .hero-kpi:nth-child(3){animation-delay:.1s}
+#page-dashboard .hero-kpi:nth-child(4){animation-delay:.15s}
+#page-dashboard .hero-kpi:nth-child(5){animation-delay:.2s}
+@keyframes dnsf-rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.hero-kpi{transition:transform .25s ease,border-color .25s ease,box-shadow .25s ease}
+.hero-kpi:hover{transform:translateY(-3px);border-color:var(--border-2);box-shadow:0 10px 28px rgba(2,12,33,.5)}
+.hero-kpi::before{animation:dnsf-breathe 3.2s ease-in-out infinite}
+.hero-kpi:nth-child(2)::before{animation-delay:.6s}
+.hero-kpi:nth-child(3)::before{animation-delay:1.2s}
+.hero-kpi:nth-child(4)::before{animation-delay:1.8s}
+.hero-kpi:nth-child(5)::before{animation-delay:2.4s}
+@keyframes dnsf-breathe{0%,100%{opacity:.55}50%{opacity:1}}
+.hero-kpi .hk-value{position:relative;display:inline-block}
+.hk-value::after{
+  content:'';position:absolute;top:0;bottom:0;left:0;width:46%;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.18),transparent);
+  transform:translateX(-130%) skewX(-18deg);
+  animation:dnsf-sweep 4.6s ease-in-out infinite;
+  pointer-events:none;
+}
+.hero-kpi:nth-child(2) .hk-value::after{animation-delay:.9s}
+.hero-kpi:nth-child(3) .hk-value::after{animation-delay:1.8s}
+.hero-kpi:nth-child(4) .hk-value::after{animation-delay:2.7s}
+body.light .hk-value::after{background:linear-gradient(100deg,transparent,rgba(56,189,248,.28),transparent)}
+@keyframes dnsf-sweep{0%{transform:translateX(-130%) skewX(-18deg)}55%,100%{transform:translateX(340%) skewX(-18deg)}}
+
+/* ---- 风险仪表：呼吸光晕（跟随 SVG 轮廓） ---- */
+#riskGauge{animation:dnsf-gauge 3s ease-in-out infinite}
+@keyframes dnsf-gauge{0%,100%{filter:drop-shadow(0 0 2px rgba(56,189,248,.25))}50%{filter:drop-shadow(0 0 8px rgba(56,189,248,.55))}}
+
+/* ---- 图表动效：柱增长 / 线淡入 / 环形与热力图整体淡入 ---- */
+#hourlyChart svg rect{
+  transform-box:fill-box;transform-origin:center bottom;
+  animation:dnsf-grow .7s cubic-bezier(.22,.9,.35,1) backwards;
+}
+@keyframes dnsf-grow{from{transform:scaleY(.02)}to{transform:scaleY(1)}}
+#hourlyChart svg path{animation:dnsf-linein 1s ease backwards}
+@keyframes dnsf-linein{from{opacity:0}to{opacity:.95}}
+#donutChart svg,#heatmap svg{animation:dnsf-fadein .8s ease backwards}
+@keyframes dnsf-fadein{from{opacity:0}to{opacity:1}}
+
+/* ---- 五层链路：数据流光点自上而下流动（命中层转红） ---- */
+.cf-line::before{
+  content:'';position:absolute;left:50%;top:-10px;width:8px;height:8px;
+  margin-left:-4px;border-radius:50%;opacity:0;
+  background:var(--accent);box-shadow:0 0 10px 2px rgba(56,189,248,.65);
+  animation:dnsf-flow 2.2s ease-in-out infinite;
+}
+.cf-line.to-hit::before{background:var(--danger);box-shadow:0 0 10px 2px rgba(244,63,94,.65)}
+.chain-flow .cf-line:nth-of-type(4)::before{animation-delay:.4s}
+.chain-flow .cf-line:nth-of-type(6)::before{animation-delay:.8s}
+.chain-flow .cf-line:nth-of-type(8)::before{animation-delay:1.2s}
+@keyframes dnsf-flow{
+  0%{transform:translateY(0);opacity:0}
+  15%{opacity:1}
+  85%{opacity:1}
+  100%{transform:translateY(30px);opacity:0}
+}
+
+/* ---- 实时事件流：状态灯脉冲 + hover 高亮 ---- */
+.ev-item{position:relative;transition:background .2s ease,border-color .2s ease}
+.ev-item:hover{background:var(--card-2);border-color:var(--border-2)}
+.ev-item::before{
+  content:'';position:absolute;left:5px;top:50%;width:5px;height:5px;margin-top:-2.5px;
+  border-radius:50%;background:var(--danger);box-shadow:0 0 7px var(--danger);
+  animation:dnsf-blink 1.8s ease-in-out infinite;
+}
+.ev-item.ev-rm::before{background:var(--warning);box-shadow:0 0 7px var(--warning)}
+@keyframes dnsf-blink{0%,100%{opacity:.35}50%{opacity:1}}
+
+/* ---- Top 榜进度条：进场增长 ---- */
+.toplist .tl-bar i{
+  transform-box:fill-box;transform-origin:left center;
+  animation:dnsf-bargrow .7s cubic-bezier(.22,.9,.35,1) backwards;
+}
+@keyframes dnsf-bargrow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+
+/* ---- 分析维度卡片：hover 上浮 + 角标呼吸 ---- */
+.dash-3col .card{transition:transform .25s ease,border-color .25s ease,box-shadow .25s ease}
+.dash-3col .card:hover{transform:translateY(-2px);border-color:var(--border-2);box-shadow:0 10px 26px rgba(2,12,33,.45)}
+.card-corner::after{animation:dnsf-corner 4s ease-in-out infinite}
+@keyframes dnsf-corner{0%,100%{opacity:.35}50%{opacity:1}}
+
+/* ---- 可访问性：系统"减弱动态效果"时全部降级 ---- */
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+  body::before,body::after{display:none}
+}
