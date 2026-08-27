@@ -9,6 +9,7 @@
 
 import sys
 import os
+from datetime import datetime
 
 import pytest
 from dnslib import DNSRecord, QTYPE, A
@@ -735,3 +736,60 @@ def test_warm_cache_swallows_db_error(monkeypatch):
         raise RuntimeError("db down")
     monkeypatch.setattr(threat_list, "_load_cache", _boom)
     threat_list.warm_cache()      # 不应抛出
+
+
+# ---------------- 下次更新调度可视化 ----------------
+
+def test_next_update_schedule_computes_due_and_interval():
+    """调度信息：实际周期取 min(源内置, 用户配置)；下次时间 = 最近导入 + 实际周期。"""
+    threat_list.invalidate()
+    threat_list.import_source("hagezi_ti", "sched.com\n")   # 源内置周期 24h
+    threat_list.delete_source("urlhaus")                    # 未导入 → 视为到期
+    try:
+        # 不传用户间隔：实际周期 = 源内置 24h，刚导入 → 未到期
+        sched = threat_list.next_update_schedule()
+        ti = sched["hagezi_ti"]
+        assert ti["effective_interval_s"] == 24 * 3600
+        assert ti["due"] is False
+        assert ti["seconds_remaining"] > 0
+        # 下次时间 = 最近导入 + 24h（约等于 now + 24h，容忍 5 分钟误差）
+        nxt = datetime.strptime(ti["next_update_at"], "%Y-%m-%d %H:%M:%S")
+        delta = (nxt - datetime.now()).total_seconds()
+        assert abs(delta - 24 * 3600) < 300
+
+        # 用户配置 1h：min(24h, 1h) = 1h → 刚导入仍不到期，但下次时间提前到 1h 后
+        sched = threat_list.next_update_schedule(user_interval_s=3600)
+        ti = sched["hagezi_ti"]
+        assert ti["effective_interval_s"] == 3600
+        assert ti["due"] is False
+        nxt = datetime.strptime(ti["next_update_at"], "%Y-%m-%d %H:%M:%S")
+        assert abs((nxt - datetime.now()).total_seconds() - 3600) < 300
+
+        # 用户配置 0 秒：到期，剩余为 0
+        sched = threat_list.next_update_schedule(user_interval_s=0)
+        assert sched["hagezi_ti"]["due"] is True
+        assert sched["hagezi_ti"]["seconds_remaining"] == 0
+
+        # 未导入的源：next_update_at 为 None 且视为到期（源内置 30 分钟周期）
+        uh = threat_list.next_update_schedule()["urlhaus"]
+        assert uh["next_update_at"] is None
+        assert uh["due"] is True
+        assert uh["effective_interval_s"] == 30 * 60
+    finally:
+        threat_list.delete_source("hagezi_ti")
+        threat_list.invalidate()
+
+
+def test_next_update_schedule_invalid_timestamp_is_due():
+    """最近导入时间无法解析 → 视为到期（与 source_due 口径一致）。"""
+    threat_list.invalidate()
+    with db_cursor() as cur:
+        cur.execute("INSERT INTO threat_list (source, value, updated_at) "
+                    "VALUES ('oisd', 'bad-time.com', 'not-a-date')")
+    try:
+        sched = threat_list.next_update_schedule()
+        assert sched["oisd"]["due"] is True
+        assert sched["oisd"]["next_update_at"] is None
+    finally:
+        threat_list.delete_source("oisd")
+        threat_list.invalidate()

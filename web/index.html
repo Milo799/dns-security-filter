@@ -373,8 +373,8 @@ table.sap tbody tr:hover{background:#f5faff}
             </div>
             <div id="tlQueryResult"></div>
             <div class="table-wrap" style="margin-top:12px">
-              <table class="sap"><thead><tr><th>来源</th><th>说明</th><th>条数</th><th>状态</th><th>最近导入</th><th>操作</th></tr></thead>
-              <tbody id="tlRows"><tr><td colspan="6"><div class="loading">加载中…</div></td></tr></tbody></table>
+              <table class="sap"><thead><tr><th>来源</th><th>说明</th><th>条数</th><th>状态</th><th>最近导入</th><th title="自动更新到期时间（实际周期 = min(源内置周期, 全局间隔)）">下次更新</th><th>操作</th></tr></thead>
+              <tbody id="tlRows"><tr><td colspan="7"><div class="loading">加载中…</div></td></tr></tbody></table>
             </div>
           </div>
         </div>
@@ -882,6 +882,7 @@ async function loadThreatlist(){
         +'<td>'+(has?x.total+' 条':'<span class="tag tag-neutral">未导入</span>')+'</td>'
         +'<td>'+(has?(x.enabled_cnt>0?'<span class="tag tag-success"><span class="dot"></span>启用中</span>':'<span class="tag tag-neutral">已停用</span>'):'-')+'</td>'
         +'<td class="mono">'+esc(x.updated_at||'-')+'</td>'
+        +'<td>'+tlNextCell(x)+'</td>'
         +'<td><div class="td-ops">'
         +'<button class="btn btn-normal btn-compact" onclick="importThreatList(\''+x.key+'\')">'+(has?'↻ 更新':'⬇ 导入')+'</button>'
         +(has?'<button class="btn btn-subtle btn-compact" title="查看命中条目" onclick="openThreatListModal(\''+x.key+'\',\''+esc(x.name)+'\')">条目</button>'
@@ -892,7 +893,40 @@ async function loadThreatlist(){
         +'</td></tr>';
     }).join('');
     resumeTlProgress();
+    if(!tlNextTimer){tlNextTimer=setInterval(tickTlNext,30000);}
   }catch(e){toast(e.message,true)}
+}
+/* 下次更新调度可视化：实际周期 / 下次更新时间 / 倒计时 */
+var tlNextTimer=null;
+function fmtTlInterval(s){
+  if(!s)return '';
+  if(s%86400===0)return (s/86400)+' 天';
+  if(s%3600===0)return (s/3600)+' 小时';
+  if(s>=60)return Math.round(s/60)+' 分钟';
+  return s+' 秒';
+}
+function fmtTlRemaining(ms){
+  if(ms<=0)return '已到期';
+  var s=Math.round(ms/1000),d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60),p=[];
+  if(d)p.push(d+' 天');if(h)p.push(h+' 小时');if(m)p.push(m+' 分钟');
+  if(!p.length)p.push(s+' 秒');
+  return p.slice(0,2).join(' ')+'后';
+}
+function tlNextCell(x){
+  if(!x.auto_update_on)return '<span class="tag tag-neutral" title="自动更新开关未开启，请在上方开启">未开启</span>';
+  if(!x.total)return '<span class="tag tag-neutral">待导入</span>';
+  var iv=fmtTlInterval(x.effective_interval_s);
+  if(x.due)return '<span class="tag tag-warning">已到期 · 待调度</span>'
+    +'<div class="form-hint" style="margin-bottom:0">周期 '+esc(iv)+'，下轮调度自动更新</div>';
+  var atms=Date.parse(String(x.next_update_at||'').replace(' ','T'));
+  return '<div class="mono" style="font-size:12px">'+esc(x.next_update_at||'-')+'</div>'
+    +'<div class="form-hint" style="margin-bottom:0">周期 '+esc(iv)+' · <span class="tl-rem" data-at="'+atms+'">'+fmtTlRemaining(atms-Date.now())+'</span></div>';
+}
+function tickTlNext(){
+  document.querySelectorAll('.tl-rem').forEach(function(el){
+    var at=parseInt(el.getAttribute('data-at'),10);
+    if(at)el.textContent=fmtTlRemaining(at-Date.now());
+  });
 }
 var tlTimer=null, tlPolling={};
 async function importThreatList(key){

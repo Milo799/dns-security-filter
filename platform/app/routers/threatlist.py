@@ -7,7 +7,7 @@
 （下载 → 解析 → 入库三阶段，进度存进程内存）。
 
 接口：
-  GET    /api/threatlist/sources   内置来源 + 各来源条数/更新时间/启用状态
+  GET    /api/threatlist/sources   内置来源 + 各来源条数/更新时间/启用状态/下次更新调度
   GET    /api/threatlist/domains   ?source=&keyword=&enabled=&page=&size= 分页查看某来源具体条目
   POST   /api/threatlist/import    {source?, url?, enabled?} 后台下载并整源替换导入
   GET    /api/threatlist/import/status ?source=xxx 查询导入任务进度
@@ -23,9 +23,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from app import threat_list
+from app.auto_update import interval_seconds
 from app.audit import write_audit
 from app.auth import get_current_user
 from app.db import db_cursor, get_enabled_list
+from config import CONFIG
 from detectors import _match_domain, _match_ip
 
 router = APIRouter(prefix="/api/threatlist", tags=["threatlist"])
@@ -89,9 +91,17 @@ def _run_import_task(source: str, url: str, enabled: bool,
 
 @router.get("/sources")
 def list_sources(_: str = Depends(get_current_user)):
-    """内置来源元数据 + 各来源当前统计（条数/启用数/更新时间）。"""
-    return {"code": 0, "message": "ok", "data": {
-        "items": list(threat_list.source_stats().values())}}
+    """内置来源元数据 + 各来源当前统计（条数/启用数/更新时间）
+    + 自动更新调度信息（实际周期 / 下次更新时间 / 是否到期 / 开关状态）。"""
+    auto_on = bool(getattr(CONFIG, "threatlist_auto_update", False))
+    sched = threat_list.next_update_schedule(
+        interval_seconds() if auto_on else None)
+    items = []
+    for s in threat_list.source_stats().values():
+        s.update(sched.get(s["key"], {}))
+        s["auto_update_on"] = auto_on
+        items.append(s)
+    return {"code": 0, "message": "ok", "data": {"items": items}}
 
 
 @router.post("/import")

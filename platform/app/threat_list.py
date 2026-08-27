@@ -25,7 +25,7 @@ import ipaddress
 import logging
 import re
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import httpx
 
@@ -499,6 +499,42 @@ def source_stats() -> dict:
         s.setdefault("updated_at", None)
     _STATS_CACHE = copy.deepcopy(meta)
     return meta
+
+
+def next_update_schedule(user_interval_s: int | None = None) -> dict:
+    """各来源自动更新调度信息（前端「下次更新」可视化用）。
+
+    - 实际到期周期 = min(源内置 update_interval_s, user_interval_s)，
+      与 auto_update_once() 的到期判断口径完全一致；
+    - next_update_at = 最近导入时间 + 实际周期；从未导入为 None（视为到期）；
+    - due = 当前已到期（等待下个调度 tick 触发更新）；
+    - seconds_remaining = 距下次更新的秒数（到期为 0）。
+
+    结果依赖当前时刻，不做进程内缓存；底层复用 source_stats() 的
+    缓存（仅读 updated_at），毫秒级返回。
+    """
+    now = datetime.now()
+    out: dict = {}
+    for key, s in source_stats().items():
+        src_iv = int(s.get("update_interval_s") or 24 * 3600)
+        eff = src_iv if user_interval_s is None else min(src_iv,
+                                                          int(user_interval_s))
+        try:
+            last = datetime.strptime(str(s.get("updated_at")),
+                                     "%Y-%m-%d %H:%M:%S")
+        except (TypeError, ValueError):
+            last = None
+        if last is None:
+            out[key] = {"effective_interval_s": eff, "next_update_at": None,
+                        "due": True, "seconds_remaining": 0}
+        else:
+            nxt = last + timedelta(seconds=eff)
+            remaining = int((nxt - now).total_seconds())
+            out[key] = {"effective_interval_s": eff,
+                        "next_update_at": nxt.strftime("%Y-%m-%d %H:%M:%S"),
+                        "due": remaining <= 0,
+                        "seconds_remaining": max(0, remaining)}
+    return out
 
 
 def list_entries(source: str, keyword: str = "",
