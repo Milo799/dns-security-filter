@@ -125,3 +125,100 @@
 
 /* ================= 审计详情 ================= */
 .count-note{font-size:12px;color:var(--text-dim);margin-left:auto}
+
+/* ================= 安全态势大屏（SOC 三段式） ================= */
+
+/* ---- 第一段：威胁总览大数字带 ---- */
+.hero-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-bottom:18px}
+.hero-kpi{
+  position:relative;background:linear-gradient(180deg,var(--card),var(--bg-soft));
+  border:1px solid var(--border);border-radius:var(--radius);
+  padding:16px 18px 14px;overflow:hidden;
+}
+.hero-kpi::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--border-2);
+}
+.hero-kpi.hk-red::before{background:linear-gradient(90deg,transparent,var(--danger),transparent);box-shadow:var(--glow-red)}
+.hero-kpi.hk-orange::before{background:linear-gradient(90deg,transparent,var(--warning),transparent);box-shadow:0 0 10px rgba(251,191,36,.28)}
+.hero-kpi.hk-green::before{background:linear-gradient(90deg,transparent,var(--success),transparent);box-shadow:0 0 10px rgba(52,211,153,.28)}
+.hero-kpi.hk-gauge::before{background:linear-gradient(90deg,transparent,var(--accent),transparent);box-shadow:0 0 10px rgba(56,189,248,.28)}
+.hk-label{font-size:12px;color:var(--text-dim);letter-spacing:.5px;margin-bottom:8px}
+.hk-value{
+  font-family:var(--mono);font-size:30px;font-weight:800;line-height:1;
+  font-variant-numeric:tabular-nums;color:var(--text);
+  text-shadow:0 0 18px rgba(56,189,248,.16);
+}
+.hero-kpi.hk-red .hk-value{color:var(--danger);text-shadow:0 0 18px rgba(244,63,94,.28)}
+.hero-kpi.hk-orange .hk-value{color:var(--warning);text-shadow:0 0 18px rgba(251,191,36,.24)}
+.hero-kpi.hk-green .hk-value{color:var(--success);text-shadow:0 0 18px rgba(52,211,153,.24)}
+.hk-foot{
+  margin-top:10px;font-size:11.5px;color:var(--text-dim);
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:18px;
+}
+.gauge-box{display:flex;justify-content:center;align-items:center;min-height:58px;padding:2px 0 0}
+@media(max-width:1200px){.hero-grid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:760px){.hero-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:520px){.hero-grid{grid-template-columns:1fr}}
+
+/* ---- 第二/三段：分析维度与实时事件流三列 ---- */
+.dash-3col{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:18px}
+.dash-3col .card{margin-bottom:0}
+@media(max-width:1100px){.dash-3col{grid-template-columns:1fr}}
+
+/* ---- 卡片角标装饰 ---- */
+.card-corner{position:relative}
+.card-corner::after{
+  content:'';position:absolute;top:0;right:0;width:34px;height:34px;
+  border-top:2px solid var(--accent);border-right:2px solid var(--accent);
+  border-top-right-radius:var(--radius);opacity:.5;pointer-events:none;
+}
+
+/* ---- 实时拦截事件流 ---- */
+.event-stream{display:flex;flex-direction:column;gap:7px;max-height:330px;overflow-y:auto;padding-right:4px}
+.ev-item{
+  display:flex;align-items:center;gap:10px;padding:8px 11px;
+  background:var(--bg-soft);border:1px solid var(--border);border-radius:9px;
+  font-size:12.5px;animation:evIn .35s ease;
+}
+@keyframes evIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.ev-item.ev-in{border-left:3px solid var(--danger);background:linear-gradient(90deg,var(--danger-bg),var(--bg-soft) 55%)}
+.ev-item.ev-rm{border-left:3px solid var(--warning);background:linear-gradient(90deg,var(--warning-bg),var(--bg-soft) 55%)}
+.ev-time{font-family:var(--mono);font-size:11px;color:var(--text-dim);flex-shrink:0}
+.ev-dom{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:12px;color:var(--text)}
+.ev-reason{flex-shrink:0;font-size:11px;color:var(--text-sec);background:var(--card-2);border:1px solid var(--border);padding:1px 8px;border-radius:99px}
+.ev-act{flex-shrink:0;font-size:11px;font-weight:800;padding:2px 9px;border-radius:6px}
+.ev-in .ev-act{color:var(--danger);background:var(--danger-bg)}
+.ev-rm .ev-act{color:var(--warning);background:var(--warning-bg)}
+
+/* ---- 情报健康面板 ---- */
+.health-panel{
+  margin-top:12px;padding:10px 12px;background:var(--bg-soft);
+  border:1px dashed var(--border);border-radius:10px;
+  display:flex;flex-direction:column;gap:7px;
+}
+.hp-row{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--text-sec)}
+.hp-row b{
+  margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--text);
+  font-weight:700;text-align:right;max-width:62%;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;
+}
+.hp-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.hp-dot.ok{background:var(--success);box-shadow:0 0 8px rgba(52,211,153,.55)}
+.hp-dot.warn{background:var(--warning);box-shadow:0 0 8px rgba(251,191,36,.55)}
+.hp-dot.info{background:var(--accent);box-shadow:0 0 8px rgba(56,189,248,.55)}
+
+/* ---- Top 榜紧凑变体（卡片内） ---- */
+.toplist.mini{gap:6px;padding:2px 0}
+.toplist.mini .tl-item{gap:8px}
+.toplist.mini .tl-rank{width:19px;height:19px;font-size:10px}
+.toplist.mini .tl-domain{font-size:11.5px}
+.toplist.mini .tl-bar{height:6px}
+.toplist.mini .tl-count{font-size:11px;min-width:30px}
+
+/* ---- 24h 拦截热力图（行头绝对定位需容器 relative） ---- */
+.heatmap{position:relative;padding-top:6px}
+.hm-row-head{
+  position:absolute;left:2px;transform:translateY(calc(-50% + 11px));
+  font-size:11px;font-weight:700;white-space:nowrap;max-width:66px;
+  overflow:hidden;text-overflow:ellipsis;pointer-events:none;
+}

@@ -284,11 +284,29 @@ def test_status_counts(client, token):
     data = r.json()["data"]
     assert data["today_intercepts"] >= 1
     assert data["today_removes"] >= 1
+    assert data["today_total"] >= 2
+    assert data["today_total"] == (data["today_intercepts"]
+                                   + data["today_removes"]
+                                   + data["today_allows"])
     assert data["detection_enabled"] is True
 
     r = client.get("/api/status/trend", headers=_h(token))
     assert r.status_code == 200
     assert isinstance(r.json()["data"]["items"], list)
+
+    r = client.get("/api/status/hourly", headers=_h(token))
+    assert r.status_code == 200
+    d = r.json()["data"]
+    assert d["hours"] == 24
+    assert isinstance(d["items"], list)
+    assert all("hour" in it and "intercepts" in it and "removes" in it
+               and "local_blacklist" in it and "ip_filter" in it
+               for it in d["items"])
+    # 参数边界（钳制 1~168）
+    r = client.get("/api/status/hourly?hours=999", headers=_h(token))
+    assert r.json()["data"]["hours"] == 168
+    r = client.get("/api/status/hourly?hours=0", headers=_h(token))
+    assert r.json()["data"]["hours"] == 1
 
 
 def test_status_breakdown(client, token):
@@ -298,11 +316,11 @@ def test_status_breakdown(client, token):
             """INSERT INTO filter_log
                (client_ip, domain, query_type, filter_reason, action,
                 malicious_ips, final_result, source_api)
-               VALUES ('', 'bd-a.test', 'A', 'local_blacklist', 'intercept',
+               VALUES ('10.0.0.7', 'bd-a.test', 'A', 'local_blacklist', 'intercept',
                        '', 'alert_ip:1.2.3.4', ''),
-                      ('', 'bd-a.test', 'A', 'threat_list', 'intercept',
+                      ('10.0.0.7', 'bd-a.test', 'A', 'threat_list', 'intercept',
                        '', 'alert_ip:1.2.3.4', ''),
-                      ('', 'bd-b.test', 'A', 'threatintel:any:urlhaus',
+                      ('10.0.0.8', 'bd-b.test', 'A', 'threatintel:any:urlhaus',
                        'intercept', '', 'alert_ip:1.2.3.4', 'urlhaus'),
                       ('', 'bd-c.test', 'A', 'ip_filter', 'remove_ip',
                        '6.6.6.6', 'remaining_ips:7.7.7.7', '')"""
@@ -318,6 +336,10 @@ def test_status_breakdown(client, token):
     assert by["ip_filter"] >= 1
     assert any(t["domain"] == "bd-a.test" and t["count"] >= 2
                for t in data["top_domains"])
+    # 客户端 Top（空 client_ip 不参与）
+    assert any(c["client_ip"] == "10.0.0.7" and c["count"] >= 2
+               for c in data["top_clients"])
+    assert all(c["client_ip"] for c in data["top_clients"])
     # 参数边界
     r = client.get("/api/status/breakdown?days=999&top=0", headers=_h(token))
     assert r.status_code == 200

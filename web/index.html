@@ -83,31 +83,64 @@
 
     <div class="content">
 
-      <!-- ========== 安全态势总览（仪表盘） ========== -->
+      <!-- ========== 安全态势总览（SOC 三段式大屏） ========== -->
       <div class="page active" id="page-dashboard">
         <div class="page-head">
-          <div><div class="page-title">安全态势总览</div><div class="page-sub">DNS 过滤实时监控 · 近 7 日趋势与来源构成</div></div>
-          <div class="toolbar"><button class="btn btn-normal btn-compact" onclick="loadDashboard()">↻ 刷新</button></div>
-        </div>
-        <div class="kpi-grid" id="kpiGrid"><div class="loading">加载中…</div></div>
-        <div class="dash-row">
-          <div class="card card-glow">
-            <div class="card-head"><div class="card-title">近 7 日拦截趋势</div><span class="tag tag-neutral">拦截 / 剔除</span></div>
-            <div class="card-body"><div class="chart-box" id="trendChart"><div class="loading">加载中…</div></div></div>
+          <div><div class="page-title">安全态势总览</div><div class="page-sub">DNS 过滤实时监控 · 威胁总览 / 分析维度 / 实时事件流</div></div>
+          <div class="toolbar">
+            <span class="tag tag-neutral">自动刷新 10s</span>
+            <button class="btn btn-normal btn-compact" onclick="loadDashboard()">↻ 刷新</button>
           </div>
-          <div class="card">
+        </div>
+
+        <!-- 第一段：威胁总览大数字带 -->
+        <div class="hero-grid">
+          <div class="hero-kpi"><div class="hk-label">今日请求</div><div class="hk-value" id="hkTotal">--</div><div class="hk-foot">今日决策数 · 放行需开启放行日志</div></div>
+          <div class="hero-kpi hk-red"><div class="hk-label">今日拦截</div><div class="hk-value" id="hkInter">--</div><div class="hk-foot" id="hkInterFoot">较上一日 --</div></div>
+          <div class="hero-kpi hk-orange"><div class="hk-label">今日剔除 IP</div><div class="hk-value" id="hkRem">--</div><div class="hk-foot" id="hkRemFoot">较上一日 --</div></div>
+          <div class="hero-kpi hk-green"><div class="hk-label">今日放行</div><div class="hk-value" id="hkAllow">--</div><div class="hk-foot">allow 记录</div></div>
+          <div class="hero-kpi hk-gauge"><div class="hk-label">风险等级</div><div class="gauge-box" id="riskGauge"></div><div class="hk-foot" id="riskFoot">由今日拦截率推导</div></div>
+        </div>
+
+        <!-- 第二段：分析维度三列 -->
+        <div class="dash-3col">
+          <div class="card card-corner">
+            <div class="card-head"><div class="card-title">近 24h 拦截趋势</div><span class="tag tag-neutral">柱=拦截 / 线=剔除</span></div>
+            <div class="card-body"><div class="chart-box" id="hourlyChart"><div class="loading">加载中…</div></div></div>
+          </div>
+          <div class="card card-corner">
             <div class="card-head"><div class="card-title">拦截来源构成</div><span class="tag tag-neutral">近 7 日</span></div>
-            <div class="card-body"><div class="chart-box" id="donutChart"><div class="loading">加载中…</div></div></div>
+            <div class="card-body">
+              <div class="chart-box" id="donutChart" style="min-height:170px"><div class="loading">加载中…</div></div>
+              <div id="topDomainsMini"><div class="loading" style="min-height:60px">加载中…</div></div>
+            </div>
+          </div>
+          <div class="card card-corner">
+            <div class="card-head"><div class="card-title">五层检测链路</div><span class="tag tag-neutral">近 7 日拦截分布</span></div>
+            <div class="card-body">
+              <div id="chainViz" class="chain-flow"></div>
+              <div class="health-panel">
+                <div class="hp-row"><span class="hp-dot ok"></span><span>情报源健康</span><b id="hpSources">--</b></div>
+                <div class="hp-row"><span class="hp-dot warn"></span><span>离线情报库</span><b id="hpOffline">--</b></div>
+                <div class="hp-row"><span class="hp-dot info"></span><span>上游 DNS</span><b id="hpUpstream">--</b></div>
+              </div>
+            </div>
           </div>
         </div>
-        <div class="dash-row">
-          <div class="card">
-            <div class="card-head"><div class="card-title">Top 拦截域名</div><span class="tag tag-neutral">近 7 日</span></div>
-            <div class="card-body"><div id="topDomains"><div class="loading">加载中…</div></div></div>
+
+        <!-- 第三段：实时事件流三列 -->
+        <div class="dash-3col">
+          <div class="card card-corner">
+            <div class="card-head"><div class="card-title">实时拦截事件</div><span class="tag tag-error" id="evTag">3s 刷新</span></div>
+            <div class="card-body"><div class="event-stream" id="eventStream"><div class="loading">加载中…</div></div></div>
           </div>
-          <div class="card">
-            <div class="card-head"><div class="card-title">五层检测链路</div><span class="tag tag-neutral">近 7 日拦截分布</span></div>
-            <div class="card-body"><div id="chainViz" class="chain-flow"></div></div>
+          <div class="card card-corner">
+            <div class="card-head"><div class="card-title">客户端 Top</div><span class="tag tag-neutral">近 7 日拦截 / 剔除</span></div>
+            <div class="card-body"><div id="topClients"><div class="loading">加载中…</div></div></div>
+          </div>
+          <div class="card card-corner">
+            <div class="card-head"><div class="card-title">24h 拦截热力图</div><span class="tag tag-neutral">小时 × 来源</span></div>
+            <div class="card-body"><div class="chart-box" id="heatmap" style="min-height:150px"><div class="loading">加载中…</div></div></div>
           </div>
         </div>
       </div>

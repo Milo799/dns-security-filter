@@ -90,11 +90,15 @@ def platform_status(_: str = Depends(get_current_user)):
         cur.execute("SELECT value FROM system_config WHERE key='detection_enabled'")
         detection = cur.fetchone()["value"] == "1"
 
+    intercepts = row["intercepts"] or 0
+    removes = row["removes"] or 0
+    allows = row["allows"] or 0
     return {"code": 0, "message": "ok", "data": {
         "detection_enabled": detection,
-        "today_intercepts": row["intercepts"] or 0,
-        "today_removes": row["removes"] or 0,
-        "today_allows": row["allows"] or 0,
+        "today_intercepts": intercepts,
+        "today_removes": removes,
+        "today_allows": allows,
+        "today_total": intercepts + removes + allows,
         "threatintel_sources": sources,
     }}
 
@@ -115,6 +119,37 @@ def status_trend(days: int = 7, _: str = Depends(get_current_user)):
         )
         items = [dict(r) for r in cur.fetchall()]
     return {"code": 0, "message": "ok", "data": {"days": days, "items": items}}
+
+
+@router.get("/status/hourly")
+def status_hourly(hours: int = 24, _: str = Depends(get_current_user)):
+    """近 N 小时拦截/剔除聚合（SOC 大屏：24h 柱线图与热力图共用）。
+
+    hour 为完整 'YYYY-MM-DD HH:00'（跨天不合并），前端取 slice(11,16)。
+    intercepts/removes 供柱线图；四类来源列供小时×来源热力图。
+    """
+    hours = max(1, min(hours, 168))
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT strftime('%Y-%m-%d %H:00', timestamp) AS hour,
+                 SUM(CASE WHEN action='intercept' THEN 1 ELSE 0 END) AS intercepts,
+                 SUM(CASE WHEN action='remove_ip'  THEN 1 ELSE 0 END) AS removes,
+                 SUM(CASE WHEN filter_reason='local_blacklist' THEN 1 ELSE 0 END)
+                   AS local_blacklist,
+                 SUM(CASE WHEN filter_reason='threat_list' THEN 1 ELSE 0 END)
+                   AS threat_list,
+                 SUM(CASE WHEN filter_reason LIKE 'threatintel:%' THEN 1 ELSE 0 END)
+                   AS threatintel,
+                 SUM(CASE WHEN filter_reason='ip_filter' THEN 1 ELSE 0 END)
+                   AS ip_filter
+               FROM filter_log
+               WHERE timestamp >= datetime('now','localtime', ?)
+               GROUP BY hour ORDER BY hour""",
+            (f"-{hours} hours",),
+        )
+        items = [dict(r) for r in cur.fetchall()]
+    return {"code": 0, "message": "ok",
+            "data": {"hours": hours, "items": items}}
 
 
 @router.get("/status/breakdown")
@@ -163,9 +198,20 @@ def status_breakdown(days: int = 7, top: int = 10,
         )
         top_domains = [{"domain": r["domain"], "count": r["cnt"]}
                        for r in cur.fetchall()]
+        cur.execute(
+            """SELECT client_ip, COUNT(*) AS cnt FROM filter_log
+               WHERE timestamp >= datetime('now','localtime', ?)
+                 AND action IN ('intercept','remove_ip')
+                 AND client_ip != ''
+               GROUP BY client_ip ORDER BY cnt DESC LIMIT ?""",
+            (f"-{days} days", top),
+        )
+        top_clients = [{"client_ip": r["client_ip"], "count": r["cnt"]}
+                       for r in cur.fetchall()]
     return {"code": 0, "message": "ok",
             "data": {"days": days, "sources": sources,
-                     "top_domains": top_domains}}
+                     "top_domains": top_domains,
+                     "top_clients": top_clients}}
 
 
 @router.post("/detection/toggle")
