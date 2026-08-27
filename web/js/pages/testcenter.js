@@ -59,14 +59,14 @@ function renderDomainResult(d){
   if (!d.detection_enabled)
     html += '<div class="verdict-banner verdict-neutral" style="margin-top:-6px"><span class="vb-icon">⏸</span>' +
       '<div><div class="vb-title">检测总开关已关闭</div><div>当前平台不对任何域名执行过滤，真实流量将直接转发</div></div></div>';
-  html += '<div class="card"><div class="card-head"><div class="card-title">' + (isPtr ? 'PTR 反向解析 · IP 维度' : '本地名单检查') + '</div>' +
+  html += '<div class="card"><div class="card-head"><div class="card-title">' + (isPtr ? 'PTR 反向解析 · IP 维度' : '自定名单检查') + '</div>' +
     '<span class="tag tag-neutral">' + esc(isPtr ? (d.ptr_ip + ' → ' + d.domain) : (d.domain + ' · ' + d.query_type)) + '</span></div>' +
     '<div class="card-body" style="padding-top:0">' +
-    '<div class="t-check"><div class="tk">🟢 白名单' + (isPtr ? ' IP' : '') + '</div><div>' +
+    '<div class="t-check"><div class="tk">🟢 自定白名单' + (isPtr ? ' IP' : '') + '</div><div>' +
       (d.whitelist.matched
         ? '<span class="tag tag-success"><span class="dot"></span>命中</span> <span class="rule-chip">' + esc(d.whitelist.rule) + '</span>'
         : '<span class="tag tag-neutral">未命中</span>') + '</div></div>' +
-    '<div class="t-check"><div class="tk">🔴 本地' + (isPtr ? ' IP' : '') + '黑名单</div><div>' +
+    '<div class="t-check"><div class="tk">🔴 自定' + (isPtr ? ' IP' : '') + '黑名单</div><div>' +
       (d.local_blacklist.matched
         ? '<span class="tag tag-error"><span class="dot"></span>命中</span> <span class="rule-chip">' + esc(d.local_blacklist.rule) + '</span>'
         : '<span class="tag tag-neutral">未命中</span>') + '</div></div>' +
@@ -90,7 +90,7 @@ function renderDomainResult(d){
         '<div class="card-body" style="padding-top:0">' +
         d.ip_checks.map(function(c){
           return '<div class="t-check" style="margin-top:6px"><div class="tk"><span class="mono">' + esc(c.ip) + '</span>' +
-            (c.local_blacklist.matched ? '<span class="tag tag-error">本地黑名单</span>' : '') + '</div>' +
+            (c.local_blacklist.matched ? '<span class="tag tag-error">自定黑名单</span>' : '') + '</div>' +
             '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
             (c.verdict === 'intercept'
               ? '<span class="tag tag-error"><span class="dot"></span>剔除</span>'
@@ -117,10 +117,10 @@ async function runIpTest(){
 function renderIpResult(d){
   var inter = d.verdict === 'intercept';
   var html = verdictBanner(d.verdict, inter ? '判定：拦截' : '判定：放行', d.reason);
-  html += '<div class="card"><div class="card-head"><div class="card-title">本地名单检查</div>' +
+  html += '<div class="card"><div class="card-head"><div class="card-title">自定名单检查</div>' +
     '<span class="tag tag-neutral">' + esc(d.ip) + '</span></div>' +
     '<div class="card-body" style="padding-top:0">' +
-    '<div class="t-check"><div class="tk">🔴 本地 IP 黑名单（含 CIDR）</div><div>' +
+    '<div class="t-check"><div class="tk">🔴 自定 IP 黑名单（含 CIDR）</div><div>' +
       (d.local_blacklist.matched
         ? '<span class="tag tag-error"><span class="dot"></span>命中</span> <span class="rule-chip">' + esc(d.local_blacklist.rule) + '</span>'
         : '<span class="tag tag-neutral">未命中</span>') + '</div></div>' +

@@ -15,7 +15,7 @@
   <div class="login-card">
     <div class="login-logo"><div class="logo-mark">DNS</div><div class="login-title">DNS 安全过滤平台</div></div>
     <div class="login-sub">安全运营中心 · 仅限授权管理员访问</div>
-    <div class="login-sec">检测链路 · 白名单 / 黑名单 / 离线情报源 / 在线情报源 / IP 后置</div>
+    <div class="login-sec">检测链路 · 自定白名单 / 自定黑名单 / 离线情报源 / 在线情报源 / IP 后置</div>
     <div class="field"><label>用户名</label><input id="loginUser" type="text" value="admin" autocomplete="off"></div>
     <div class="field"><label>密码</label><input id="loginPass" type="password" placeholder="请输入密码" autocomplete="off"></div>
     <div class="login-err" id="loginErr"></div>
@@ -68,11 +68,11 @@
       </div>
       <div class="nav-item" data-page="whitelist">
         <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
-        白名单
+        自定白名单
       </div>
       <div class="nav-item" data-page="blacklist">
         <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>
-        黑名单
+        自定黑名单
       </div>
       <div class="nav-group-title">系统</div>
       <div class="nav-item" data-page="config">
@@ -139,10 +139,10 @@
         </div>
       </div>
 
-      <!-- ========== 白名单 ========== -->
+      <!-- ========== 自定白名单 ========== -->
       <div class="page" id="page-whitelist">
         <div class="page-head">
-          <div><div class="page-title">白名单</div><div class="page-sub">优先级最高：命中的域名 / IP 直接放行，跳过全部检测</div></div>
+          <div><div class="page-title">自定白名单</div><div class="page-sub">手动维护 · 优先级最高：命中的域名 / IP 直接放行，跳过全部检测</div></div>
           <div class="toolbar">
             <button class="btn btn-normal btn-compact" onclick="importList('whitelist')">⬆ 导入 CSV</button>
             <button class="btn btn-normal btn-compact" onclick="exportList('whitelist')">⬇ 导出</button>
@@ -164,10 +164,10 @@
         </div>
       </div>
 
-      <!-- ========== 黑名单 ========== -->
+      <!-- ========== 自定黑名单 ========== -->
       <div class="page" id="page-blacklist">
         <div class="page-head">
-          <div><div class="page-title">黑名单</div><div class="page-sub">命中的域名 / IP 直接拦截，不进行公网解析</div></div>
+          <div><div class="page-title">自定黑名单</div><div class="page-sub">手动维护 · 命中的域名 / IP 直接拦截，不进行公网解析</div></div>
           <div class="toolbar">
             <button class="btn btn-normal btn-compact" onclick="importList('blacklist')">⬆ 导入 CSV</button>
             <button class="btn btn-normal btn-compact" onclick="exportList('blacklist')">⬇ 导出</button>
@@ -192,7 +192,7 @@
       <!-- ========== 测试中心 ========== -->
       <div class="page" id="page-testcenter">
         <div class="page-head">
-          <div><div class="page-title">测试中心</div><div class="page-sub">人工验证黑白名单规则与情报源命中情况 · 只读探测，不影响运行与日志</div></div>
+          <div><div class="page-title">测试中心</div><div class="page-sub">人工验证自定名单规则与情报源命中情况 · 只读探测，不影响运行与日志</div></div>
         </div>
         <div class="card">
           <div class="card-head">
@@ -248,7 +248,7 @@
               <label class="radio-inline-item" data-v="majority"><input type="radio" name="fusion"><div><div class="ri-title">majority</div><div class="ri-desc">多数源判定恶意才拦截。</div></div></label>
               <label class="radio-inline-item" data-v="all"><input type="radio" name="fusion"><div><div class="ri-title">all</div><div class="ri-desc">全部源一致判定恶意才拦截（最保守）。</div></div></label>
             </div>
-            <div class="form-hint" style="margin-top:12px">注：全部启用源均超时/异常时，按安全优先原则默认拦截（fail-safe）。融合策略仅作用于在线情报源之间的结果汇总，离线情报源与黑白名单命中不受影响。</div>
+            <div class="form-hint" style="margin-top:12px">注：全部启用源均超时/异常时，按安全优先原则默认拦截（fail-safe）。融合策略仅作用于在线情报源之间的结果汇总，离线情报源与自定名单命中不受影响。</div>
           </div>
         </div>
       </div>
@@ -266,7 +266,7 @@
             <div class="info-item"><b>零 API / 零 Key</b>与在线情报源不同，匹配全程在本地完成，不产生外部查询，不依赖公网可达。</div>
             <div class="info-item"><b>匹配方式</b>域名精确 + 逐级父域匹配（evil.example.com 可命中 example.com 条目）。</div>
             <div class="info-item"><b>自动更新</b>实际周期取「全局间隔」与「源内置周期」的较小值，urlhaus 保持 30 分钟高时效；单源失败不影响其他来源与服务。</div>
-            <div class="info-item"><b>优先级</b>低于手工白/黑名单，高于在线情报源。</div>
+            <div class="info-item"><b>优先级</b>低于自定白/黑名单，高于在线情报源。</div>
           </div>
         </div>
         <div class="card">

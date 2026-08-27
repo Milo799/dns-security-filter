@@ -1,5 +1,5 @@
 /* ============================================================
-   pages/lists.js — 白名单 / 黑名单（公共渲染 + CRUD + 导入导出）
+   pages/lists.js — 自定白名单 / 自定黑名单（公共渲染 + CRUD + 导入导出）
    ============================================================ */
 function loadListData(page, listType, ids){
   if (page) ids.page = page;
@@ -38,7 +38,7 @@ function loadBlacklist(page){ loadListData(page, 'blacklist', BL_IDS); }
 
 function openListDialog(listType){
   document.getElementById('mListType').value = listType;
-  document.getElementById('mListTypeLabel').textContent = listType === 'whitelist' ? '🟢 白名单' : '🔴 黑名单';
+  document.getElementById('mListTypeLabel').textContent = listType === 'whitelist' ? '🟢 自定白名单' : '🔴 自定黑名单';
   document.getElementById('listModal').classList.add('show');
 }
 

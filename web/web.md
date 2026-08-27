@@ -6,7 +6,7 @@
 |------|----------|
 | 登录 | POST /api/auth/login |
 | 仪表盘 | GET /api/status |
-| 黑白名单 | /api/list*（CRUD + 导入导出） |
+| 自定名单（白/黑） | /api/list*（CRUD + 导入导出） |
 | 威胁情报源 | /api/threatintel*（含融合策略） |
 | 过滤日志 | /api/logs*（查询 + 导出 CSV） |
 | 系统配置 | GET/PUT /api/config、POST /api/detection/toggle |
