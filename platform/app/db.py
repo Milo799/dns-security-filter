@@ -1,28 +1,43 @@
 """SQLite 连接与初始化。
 
-单实例 + SQLite（PRD 技术选型）。所有 Web/DNS 模块共享一个连接，
-SQLite 写并发低但本项目规模足够；必要时加简单锁即可。
+单实例 + SQLite（PRD 技术选型）。连接按**线程隔离**（threading.local）：
+- 每个线程持有独立连接，互不共享——避免多线程（后台导入/自动更新/
+  Web 请求/检测主流程）在同一连接上交叉开事务导致的
+  "cannot start a transaction within a transaction" / API misuse 报错；
+- 同一线程内的 db_cursor() 事务语义不变（正常提交、异常回滚）；
+- WAL 模式 + busy_timeout 30s：跨连接并发写时自动等待而非立刻报错。
 """
 
 import os
 import sqlite3
+import threading
 from contextlib import contextmanager
 
 from config import CONFIG
 
 _SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "schema.sql")
-_conn: sqlite3.Connection | None = None
+_local = threading.local()
+_init_lock = threading.Lock()   # 首次建表/迁移的跨线程互斥
 
 
 def get_conn() -> sqlite3.Connection:
-    global _conn
-    if _conn is None:
+    """当前线程的 SQLite 连接（首次访问时创建并初始化）。"""
+    conn = getattr(_local, "conn", None)
+    if conn is not None:
+        return conn
+    with _init_lock:
+        conn = getattr(_local, "conn", None)   # double-check
+        if conn is not None:
+            return conn
         os.makedirs(os.path.dirname(CONFIG.database) or ".", exist_ok=True)
-        _conn = sqlite3.connect(CONFIG.database, check_same_thread=False)
-        _conn.row_factory = sqlite3.Row
-        _conn.execute("PRAGMA journal_mode=WAL;")
-        init_schema(_conn)
-    return _conn
+        conn = sqlite3.connect(CONFIG.database, check_same_thread=False,
+                               timeout=30)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA busy_timeout=30000;")
+        init_schema(conn)
+        _local.conn = conn
+    return conn
 
 
 def init_schema(conn: sqlite3.Connection) -> None:

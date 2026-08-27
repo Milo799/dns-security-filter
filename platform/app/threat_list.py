@@ -290,30 +290,37 @@ def download(url: str, max_bytes: int = 100 * 1024 * 1024,
 # 导入 / 状态（SQLite）
 # ---------------------------------------------------------------------------
 
+_IMPORT_WRITE_LOCK = threading.Lock()   # 入库写锁：SQLite 单写者，多源并发导入时串行入库
+
 def import_source(source: str, text: str, enabled: bool = True,
                   progress: dict | None = None) -> int:
     """整源替换导入：DELETE 后批量 INSERT（事务内），返回实际导入条数。
 
     重复导入即增量更新；enabled 仅影响本批次默认启用状态（后续可整体切换）。
     progress（可选）：解析后置 total 为总条数，分批入库时更新 inserted。
+
+    并发安全：多来源并发导入时，下载/解析可并行，入库段由
+    _IMPORT_WRITE_LOCK 串行化（SQLite 单写者 + 线程本地连接，
+    避免共享连接交叉事务报错）。
     """
     values = parse_content(text, progress=progress)
     rows = [(source, v, "domain", int(enabled)) for v in values]
     if progress is not None:
         progress.update(stage="insert", total=len(rows),
                         message=f"入库中 0/{len(rows)}")
-    with db_cursor() as cur:
-        cur.execute("DELETE FROM threat_list WHERE source=?", (source,))
-        BATCH = 50000
-        for i in range(0, len(rows), BATCH):
-            cur.executemany(
-                """INSERT INTO threat_list (source, value, target, enabled)
-                   VALUES (?, ?, ?, ?)""",
-                rows[i:i + BATCH],
-            )
-            if progress is not None:
-                done = min(i + BATCH, len(rows))
-                progress.update(inserted=done, message=f"入库中 {done}/{len(rows)}")
+    with _IMPORT_WRITE_LOCK:
+        with db_cursor() as cur:
+            cur.execute("DELETE FROM threat_list WHERE source=?", (source,))
+            BATCH = 50000
+            for i in range(0, len(rows), BATCH):
+                cur.executemany(
+                    """INSERT INTO threat_list (source, value, target, enabled)
+                       VALUES (?, ?, ?, ?)""",
+                    rows[i:i + BATCH],
+                )
+                if progress is not None:
+                    done = min(i + BATCH, len(rows))
+                    progress.update(inserted=done, message=f"入库中 {done}/{len(rows)}")
     invalidate()
     logger.info("离线大名单 %s 导入 %d 条", source, len(rows))
     return len(rows)
