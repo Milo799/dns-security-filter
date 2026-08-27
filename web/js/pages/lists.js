@@ -1,6 +1,22 @@
 /* ============================================================
-   pages/lists.js — 自定白名单 / 自定黑名单（公共渲染 + CRUD + 导入导出）
+   pages/lists.js — 人工情报源（白/黑名单 Tab 切换 + CRUD + 导入导出）
    ============================================================ */
+
+/* ---------- 白/黑 Tab 切换（防错：两个 Tab 各自独立工具栏与表格） ---------- */
+var listTab = 'whitelist';
+function switchListTab(type){
+  listTab = type;
+  document.getElementById('tabWl').classList.toggle('active', type === 'whitelist');
+  document.getElementById('tabBl').classList.toggle('active', type === 'blacklist');
+  document.getElementById('wlPanel').style.display = type === 'whitelist' ? '' : 'none';
+  document.getElementById('blPanel').style.display = type === 'blacklist' ? '' : 'none';
+  if (type === 'whitelist') loadWhitelist(); else loadBlacklist();
+}
+function refreshListTab(){
+  if (listTab === 'whitelist') loadWhitelist(); else loadBlacklist();
+}
+function loadManualintel(){ switchListTab(listTab); }
+
 function loadListData(page, listType, ids){
   if (page) ids.page = page;
   var q = new URLSearchParams({page: ids.page, size: 20, list_type: listType});
@@ -38,7 +54,7 @@ function loadBlacklist(page){ loadListData(page, 'blacklist', BL_IDS); }
 
 function openListDialog(listType){
   document.getElementById('mListType').value = listType;
-  document.getElementById('mListTypeLabel').textContent = listType === 'whitelist' ? '🟢 自定白名单' : '🔴 自定黑名单';
+  document.getElementById('mListTypeLabel').textContent = listType === 'whitelist' ? '🟢 白名单 · 放行豁免' : '🔴 黑名单 · 直接拦截';
   document.getElementById('listModal').classList.add('show');
 }
 
@@ -98,7 +114,7 @@ async function doImportList(){
     document.getElementById('importResult').textContent =
       '导入 ' + d.imported + ' 条，跳过 ' + d.skipped + ' 条' +
       (d.errors && d.errors.length ? ('：' + d.errors.join('；')) : '');
-    if (d.imported > 0){ loadWhitelist(1); loadBlacklist(1); }
+    if (d.imported > 0){ refreshListTab(); }
   }catch(e){ toast(e.message, true); }
 }
 
@@ -110,5 +126,4 @@ async function exportList(listType){
   }catch(e){ toast(e.message, true); }
 }
 
-PAGE_LOADERS.whitelist = loadWhitelist;
-PAGE_LOADERS.blacklist = loadBlacklist;
+PAGE_LOADERS.manualintel = loadManualintel;

@@ -192,8 +192,8 @@ async function runThreatListQuery(){
     var parts = [];
     if (d.threat_list.matched) parts.push('<span class="tag tag-error">离线情报命中</span> 来源 ' + esc(d.threat_list.source) + ' · 条目 ' + esc(d.threat_list.entry));
     else parts.push('<span class="tag tag-neutral">离线情报未命中</span>');
-    if (d.manual_whitelist) parts.push('<span class="tag tag-success">自定白名单命中</span> ' + esc(d.manual_whitelist) + '（放行）');
-    if (d.manual_blacklist) parts.push('<span class="tag tag-error">自定黑名单命中</span> ' + esc(d.manual_blacklist));
+    if (d.manual_whitelist) parts.push('<span class="tag tag-success">人工白名单命中</span> ' + esc(d.manual_whitelist) + '（放行）');
+    if (d.manual_blacklist) parts.push('<span class="tag tag-error">人工黑名单命中</span> ' + esc(d.manual_blacklist));
     document.getElementById('tlQueryResult').innerHTML =
       '<div class="tl-query-result">' + parts.join('') + '</div>';
   }catch(e){ toast(e.message, true); }

@@ -3,8 +3,8 @@
    ============================================================ */
 var auditPage = 1;
 var AUDIT_LABELS = {
-  list_create: '新增名单条目', list_update: '修改名单条目', list_delete: '删除名单条目',
-  list_import: '批量导入名单', threatintel_create: '新增情报源', threatintel_update: '修改情报源',
+  list_create: '新增人工情报条目', list_update: '修改人工情报条目', list_delete: '删除人工情报条目',
+  list_import: '批量导入人工情报', threatintel_create: '新增情报源', threatintel_update: '修改情报源',
   threatintel_delete: '删除情报源', threatlist_import: '导入离线情报源',
   threatlist_enable: '启停离线情报源', threatlist_delete: '清空离线情报源',
   fusion_strategy_change: '切换融合策略', detection_toggle: '切换检测开关', config_update: '修改系统配置'

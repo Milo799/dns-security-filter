@@ -15,7 +15,7 @@
   <div class="login-card">
     <div class="login-logo"><div class="logo-mark">DNS</div><div class="login-title">DNS 安全过滤平台</div></div>
     <div class="login-sub">安全运营中心 · 仅限授权管理员访问</div>
-    <div class="login-sec">检测链路 · 自定白名单 / 自定黑名单 / 离线情报源 / 在线情报源 / IP 后置</div>
+    <div class="login-sec">检测链路 · 人工白/黑名单 / 离线情报源 / 在线情报源 / IP 后置</div>
     <div class="field"><label>用户名</label><input id="loginUser" type="text" value="admin" autocomplete="off"></div>
     <div class="field"><label>密码</label><input id="loginPass" type="password" placeholder="请输入密码" autocomplete="off"></div>
     <div class="login-err" id="loginErr"></div>
@@ -66,13 +66,9 @@
         <svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
         离线情报源
       </div>
-      <div class="nav-item" data-page="whitelist">
-        <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
-        自定白名单
-      </div>
-      <div class="nav-item" data-page="blacklist">
-        <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>
-        自定黑名单
+      <div class="nav-item" data-page="manualintel">
+        <svg viewBox="0 0 24 24"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+        人工情报源
       </div>
       <div class="nav-group-title">系统</div>
       <div class="nav-item" data-page="config">
@@ -139,60 +135,87 @@
         </div>
       </div>
 
-      <!-- ========== 自定白名单 ========== -->
-      <div class="page" id="page-whitelist">
+      <!-- ========== 人工情报源（白/黑名单） ========== -->
+      <div class="page" id="page-manualintel">
         <div class="page-head">
-          <div><div class="page-title">自定白名单</div><div class="page-sub">手动维护 · 优先级最高：命中的域名 / IP 直接放行，跳过全部检测</div></div>
-          <div class="toolbar">
-            <button class="btn btn-normal btn-compact" onclick="importList('whitelist')">⬆ 导入 CSV</button>
-            <button class="btn btn-normal btn-compact" onclick="exportList('whitelist')">⬇ 导出</button>
-            <button class="btn btn-emphasized btn-compact" onclick="openListDialog('whitelist')">＋ 新建条目</button>
+          <div><div class="page-title">人工情报源</div><div class="page-sub">手动维护的放行 / 拦截规则 · 优先级高于在线与离线情报源</div></div>
+          <div class="toolbar"><button class="btn btn-normal btn-compact" onclick="refreshListTab()">↻ 刷新</button></div>
+        </div>
+        <div class="info-panel">
+          <div class="info-title">✍ 人工情报源说明</div>
+          <div class="info-grid">
+            <div class="info-item"><b>🟢 白名单 · 放行豁免</b>优先级最高，命中的域名 / IP 直接放行，跳过全部检测。</div>
+            <div class="info-item"><b>🔴 黑名单 · 直接拦截</b>命中的域名 / IP 直接拦截，不进行公网解析。</div>
+            <div class="info-item"><b>批量导入</b>CSV 的 list_type 列区分白 / 黑名单，支持混合导入；适合批量录入人工情报。</div>
+            <div class="info-item"><b>优先级顺序</b>白名单 &gt; 黑名单 &gt; 离线情报源 &gt; 在线情报源 &gt; IP 后置。</div>
           </div>
         </div>
-        <div class="card">
-          <div class="filter-bar">
-            <div class="f-item"><label>目标类型</label><select id="wlTarget" onchange="wlPage=1;loadWhitelist()"><option value="">全部</option><option value="domain">域名</option><option value="ip">IP / CIDR</option></select></div>
-            <div class="f-item"><label>关键字</label><input id="wlKw" placeholder="域名或 IP 片段" onkeydown="if(event.key==='Enter'){wlPage=1;loadWhitelist()}"></div>
-            <button class="btn btn-emphasized btn-compact" onclick="wlPage=1;loadWhitelist()">查询</button>
-            <span class="count-note" id="wlCount"></span>
-          </div>
-          <div class="table-wrap">
-            <table class="sap"><thead><tr><th>值</th><th>类型</th><th>状态</th><th>备注</th><th>创建人</th><th>更新时间</th><th>操作</th></tr></thead>
-            <tbody id="wlRows"><tr><td colspan="7"><div class="loading">加载中…</div></td></tr></tbody></table>
-          </div>
-          <div class="pager" id="wlPager"></div>
+        <div class="t-tabs" style="margin-bottom:12px">
+          <button class="t-tab active" id="tabWl" onclick="switchListTab('whitelist')">🟢 白名单 · 放行豁免</button>
+          <button class="t-tab" id="tabBl" onclick="switchListTab('blacklist')">🔴 黑名单 · 直接拦截</button>
         </div>
-      </div>
 
-      <!-- ========== 自定黑名单 ========== -->
-      <div class="page" id="page-blacklist">
-        <div class="page-head">
-          <div><div class="page-title">自定黑名单</div><div class="page-sub">手动维护 · 命中的域名 / IP 直接拦截，不进行公网解析</div></div>
-          <div class="toolbar">
-            <button class="btn btn-normal btn-compact" onclick="importList('blacklist')">⬆ 导入 CSV</button>
-            <button class="btn btn-normal btn-compact" onclick="exportList('blacklist')">⬇ 导出</button>
-            <button class="btn btn-emphasized btn-compact" onclick="openListDialog('blacklist')">＋ 新建条目</button>
+        <!-- 白名单 Tab -->
+        <div id="wlPanel">
+          <div class="card">
+            <div class="card-head">
+              <div class="card-title">🟢 白名单</div>
+              <span class="tag tag-success">命中即放行 · 优先级最高</span>
+              <div class="toolbar" style="margin-left:auto">
+                <button class="btn btn-normal btn-compact" onclick="importList('whitelist')">⬆ 导入 CSV</button>
+                <button class="btn btn-normal btn-compact" onclick="exportList('whitelist')">⬇ 导出</button>
+                <button class="btn btn-emphasized btn-compact" onclick="openListDialog('whitelist')">＋ 新建白名单条目</button>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="filter-bar">
+                <div class="f-item"><label>目标类型</label><select id="wlTarget" onchange="wlPage=1;loadWhitelist()"><option value="">全部</option><option value="domain">域名</option><option value="ip">IP / CIDR</option></select></div>
+                <div class="f-item"><label>关键字</label><input id="wlKw" placeholder="域名或 IP 片段" onkeydown="if(event.key==='Enter'){wlPage=1;loadWhitelist()}"></div>
+                <button class="btn btn-emphasized btn-compact" onclick="wlPage=1;loadWhitelist()">查询</button>
+                <span class="count-note" id="wlCount"></span>
+              </div>
+              <div class="table-wrap">
+                <table class="sap"><thead><tr><th>值</th><th>类型</th><th>状态</th><th>备注</th><th>创建人</th><th>更新时间</th><th>操作</th></tr></thead>
+                <tbody id="wlRows"><tr><td colspan="7"><div class="loading">加载中…</div></td></tr></tbody></table>
+              </div>
+              <div class="pager" id="wlPager"></div>
+            </div>
           </div>
         </div>
-        <div class="card">
-          <div class="filter-bar">
-            <div class="f-item"><label>目标类型</label><select id="blTarget" onchange="blPage=1;loadBlacklist()"><option value="">全部</option><option value="domain">域名</option><option value="ip">IP / CIDR</option></select></div>
-            <div class="f-item"><label>关键字</label><input id="blKw" placeholder="域名或 IP 片段" onkeydown="if(event.key==='Enter'){blPage=1;loadBlacklist()}"></div>
-            <button class="btn btn-emphasized btn-compact" onclick="blPage=1;loadBlacklist()">查询</button>
-            <span class="count-note" id="blCount"></span>
+
+        <!-- 黑名单 Tab -->
+        <div id="blPanel" style="display:none">
+          <div class="card">
+            <div class="card-head">
+              <div class="card-title">🔴 黑名单</div>
+              <span class="tag tag-error">命中即拦截 · 不公网解析</span>
+              <div class="toolbar" style="margin-left:auto">
+                <button class="btn btn-normal btn-compact" onclick="importList('blacklist')">⬆ 导入 CSV</button>
+                <button class="btn btn-normal btn-compact" onclick="exportList('blacklist')">⬇ 导出</button>
+                <button class="btn btn-emphasized btn-compact" onclick="openListDialog('blacklist')">＋ 新建黑名单条目</button>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="filter-bar">
+                <div class="f-item"><label>目标类型</label><select id="blTarget" onchange="blPage=1;loadBlacklist()"><option value="">全部</option><option value="domain">域名</option><option value="ip">IP / CIDR</option></select></div>
+                <div class="f-item"><label>关键字</label><input id="blKw" placeholder="域名或 IP 片段" onkeydown="if(event.key==='Enter'){blPage=1;loadBlacklist()}"></div>
+                <button class="btn btn-emphasized btn-compact" onclick="blPage=1;loadBlacklist()">查询</button>
+                <span class="count-note" id="blCount"></span>
+              </div>
+              <div class="table-wrap">
+                <table class="sap"><thead><tr><th>值</th><th>类型</th><th>状态</th><th>备注</th><th>创建人</th><th>更新时间</th><th>操作</th></tr></thead>
+                <tbody id="blRows"><tr><td colspan="7"><div class="loading">加载中…</div></td></tr></tbody></table>
+              </div>
+              <div class="pager" id="blPager"></div>
+            </div>
           </div>
-          <div class="table-wrap">
-            <table class="sap"><thead><tr><th>值</th><th>类型</th><th>状态</th><th>备注</th><th>创建人</th><th>更新时间</th><th>操作</th></tr></thead>
-            <tbody id="blRows"><tr><td colspan="7"><div class="loading">加载中…</div></td></tr></tbody></table>
-          </div>
-          <div class="pager" id="blPager"></div>
         </div>
       </div>
 
       <!-- ========== 测试中心 ========== -->
       <div class="page" id="page-testcenter">
         <div class="page-head">
-          <div><div class="page-title">测试中心</div><div class="page-sub">人工验证自定名单规则与情报源命中情况 · 只读探测，不影响运行与日志</div></div>
+          <div><div class="page-title">测试中心</div><div class="page-sub">人工验证人工情报名单规则与情报源命中情况 · 只读探测，不影响运行与日志</div></div>
         </div>
         <div class="card">
           <div class="card-head">
@@ -248,7 +271,7 @@
               <label class="radio-inline-item" data-v="majority"><input type="radio" name="fusion"><div><div class="ri-title">majority</div><div class="ri-desc">多数源判定恶意才拦截。</div></div></label>
               <label class="radio-inline-item" data-v="all"><input type="radio" name="fusion"><div><div class="ri-title">all</div><div class="ri-desc">全部源一致判定恶意才拦截（最保守）。</div></div></label>
             </div>
-            <div class="form-hint" style="margin-top:12px">注：全部启用源均超时/异常时，按安全优先原则默认拦截（fail-safe）。融合策略仅作用于在线情报源之间的结果汇总，离线情报源与自定名单命中不受影响。</div>
+            <div class="form-hint" style="margin-top:12px">注：全部启用源均超时/异常时，按安全优先原则默认拦截（fail-safe）。融合策略仅作用于在线情报源之间的结果汇总，离线情报源与人工白/黑名单命中不受影响。</div>
           </div>
         </div>
       </div>
@@ -266,7 +289,7 @@
             <div class="info-item"><b>零 API / 零 Key</b>与在线情报源不同，匹配全程在本地完成，不产生外部查询，不依赖公网可达。</div>
             <div class="info-item"><b>匹配方式</b>域名精确 + 逐级父域匹配（evil.example.com 可命中 example.com 条目）。</div>
             <div class="info-item"><b>自动更新</b>实际周期取「全局间隔」与「源内置周期」的较小值，urlhaus 保持 30 分钟高时效；单源失败不影响其他来源与服务。</div>
-            <div class="info-item"><b>优先级</b>低于自定白/黑名单，高于在线情报源。</div>
+            <div class="info-item"><b>优先级</b>低于人工白/黑名单，高于在线情报源。</div>
           </div>
         </div>
         <div class="card">
@@ -335,7 +358,7 @@
         <div class="card">
           <div class="filter-bar">
             <div class="f-item"><label>操作人</label><input id="auOp" placeholder="admin"></div>
-            <div class="f-item"><label>动作</label><select id="auAction"><option value="">全部</option><option value="list_create">新增名单条目</option><option value="list_update">修改名单条目</option><option value="list_delete">删除名单条目</option><option value="list_import">批量导入名单</option><option value="threatintel_create">新增情报源</option><option value="threatintel_update">修改情报源</option><option value="threatintel_delete">删除情报源</option><option value="threatlist_import">导入离线情报源</option><option value="threatlist_enable">启停离线情报源</option><option value="threatlist_delete">清空离线情报源</option><option value="fusion_strategy_change">切换融合策略</option><option value="detection_toggle">切换检测开关</option><option value="config_update">修改系统配置</option></select></div>
+            <div class="f-item"><label>动作</label><select id="auAction"><option value="">全部</option><option value="list_create">新增人工情报条目</option><option value="list_update">修改人工情报条目</option><option value="list_delete">删除人工情报条目</option><option value="list_import">批量导入人工情报</option><option value="threatintel_create">新增情报源</option><option value="threatintel_update">修改情报源</option><option value="threatintel_delete">删除情报源</option><option value="threatlist_import">导入离线情报源</option><option value="threatlist_enable">启停离线情报源</option><option value="threatlist_delete">清空离线情报源</option><option value="fusion_strategy_change">切换融合策略</option><option value="detection_toggle">切换检测开关</option><option value="config_update">修改系统配置</option></select></div>
             <button class="btn btn-emphasized btn-compact" onclick="auditPage=1;loadAudit()">查询</button>
             <span class="count-note" id="auCount"></span>
           </div>
@@ -383,12 +406,12 @@
   </div>
 </div>
 
-<!-- ==================== CSV 导入弹窗 ==================== -->
+<!-- ==================== CSV 导入弹窗（人工情报源批量导入） ==================== -->
 <div class="modal-mask" id="importModal">
   <div class="modal">
-    <div class="modal-head"><span>导入名单 CSV</span><button class="icon-btn" onclick="closeModal('importModal')">✕</button></div>
+    <div class="modal-head"><span>批量导入人工情报源 CSV</span><button class="icon-btn" onclick="closeModal('importModal')">✕</button></div>
     <div class="modal-body">
-      <div class="form-hint" style="margin-bottom:10px">列：list_type,target,value,enabled,remark（首行表头自动跳过）</div>
+      <div class="form-hint" style="margin-bottom:10px">列：list_type,target,value,enabled,remark（首行表头自动跳过）；list_type 填 <b>whitelist</b>（白名单·放行）或 <b>blacklist</b>（黑名单·拦截），支持混合导入</div>
       <textarea id="mCsv" rows="10" style="width:100%;font-family:var(--mono);font-size:12px;padding:10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-soft);color:var(--text)" placeholder="blacklist,domain,*.bad.com,1,备注&#10;blacklist,ip,10.0.0.0/8,,整段"></textarea>
       <div id="importResult" class="form-hint" style="margin-top:8px"></div>
     </div>

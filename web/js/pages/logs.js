@@ -24,7 +24,7 @@ async function loadLogs(page){
       var reason = l.action === 'allow'
         ? '<span class="tag tag-neutral">allow</span>'
         : (l.filter_reason === 'local_blacklist'
-          ? '<span class="tag tag-neutral">自定黑名单</span>'
+          ? '<span class="tag tag-neutral">人工黑名单</span>'
           : (l.filter_reason === 'ip_filter'
             ? '<span class="tag tag-warning">IP过滤</span>'
             : '<span class="tag tag-error">' + esc(l.filter_reason) + '</span>'));
