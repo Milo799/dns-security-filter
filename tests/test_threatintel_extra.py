@@ -212,10 +212,35 @@ def test_urlhaus_hit(monkeypatch):
     a = UrlhausAdapter(api_key="k")
     monkeypatch.setattr(httpx, "post", lambda *a_, **k:
         FakeResp(payload={"query_status": "ok",
-                          "urls": [{"url_id": 1}, {"url_id": 2}]}))
+                          "urls": [{"url_id": 1, "url_status": "online"},
+                                   {"url_id": 2, "url_status": "online"}]}))
     r = a.query_domain("evil.example.com")
     assert r is not None and r.is_malicious
     assert "2" in r.detail
+
+
+def test_urlhaus_only_offline_is_miss(monkeypatch):
+    """全部记录已离线（如 baidu.com 的 2021 死链）→ 明确未命中，不误拦。"""
+    a = UrlhausAdapter(api_key="k")
+    monkeypatch.setattr(httpx, "post", lambda *a_, **k:
+        FakeResp(payload={"query_status": "ok",
+                          "urls": [{"url_id": 1, "url_status": "offline"},
+                                   {"url_id": 2, "url_status": "unknown"}]}))
+    r = a.query_domain("www.baidu.com")
+    assert r is not None and not r.is_malicious
+    assert "历史记录" in r.detail
+
+
+def test_urlhaus_mixed_online_offline_is_hit(monkeypatch):
+    """只要存在当前在线恶意 URL 即命中（离线历史不影响判定）。"""
+    a = UrlhausAdapter(api_key="k")
+    monkeypatch.setattr(httpx, "post", lambda *a_, **k:
+        FakeResp(payload={"query_status": "ok",
+                          "urls": [{"url_id": 1, "url_status": "offline"},
+                                   {"url_id": 2, "url_status": "online"}]}))
+    r = a.query_domain("evil.example.com")
+    assert r is not None and r.is_malicious
+    assert "1 条当前在线" in r.detail
 
 
 def test_urlhaus_miss(monkeypatch):
