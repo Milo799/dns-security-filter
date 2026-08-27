@@ -76,21 +76,32 @@ async function loadDashboard(){
   }catch(e){ toast(e.message, true); }
 }
 
-/* ---------- 五层检测链路可视化 ---------- */
+/* ---------- 五层检测链路可视化（纵向流水线） ---------- */
 function renderChain(smap){
-  function node(step, icon, name, countHtml, extra){
-    return '<div class="chain-node ' + (extra || '') + '"><span class="cn-step">' + step + '</span>' +
-           '<span class="cn-name">' + icon + ' ' + name + '</span><span class="cn-count">' + countHtml + '</span></div>';
-  }
-  function arrow(){ return '<div class="chain-arrow">➜</div>'; }
-  var chain =
-    node('Step 1', '🛡', '白名单', '优先放行') + arrow() +
-    node('Step 2', '🚫', '本地黑名单', (smap.local_blacklist || 0) + ' 次', smap.local_blacklist ? 'hit' : '') + arrow() +
-    node('Step 3', '📋', '离线大名单', (smap.threat_list || 0) + ' 次', smap.threat_list ? 'hit' : '') + arrow() +
-    node('Step 4', '🌐', '在线情报', (smap.threatintel || 0) + ' 次', smap.threatintel ? 'hit' : '') + arrow() +
-    node('Step 5', '🔍', 'IP 后置', (smap.ip_filter || 0) + ' 次', smap.ip_filter ? 'hit' : '') + arrow() +
-    node('Reply', '📡', '应答', '放行/告警');
-  document.getElementById('chainViz').innerHTML = chain;
+  var rows = [
+    { step: '1', icon: '🛡', name: '白名单', desc: '命中即放行', state: 'ok', badge: '✓ 放行' },
+    { step: '2', icon: '🚫', name: '本地黑名单', desc: '域名精确 + 父域匹配',
+      state: smap.local_blacklist ? 'hit' : 'idle', badge: smap.local_blacklist ? '⚡ 命中 ' + smap.local_blacklist.toLocaleString() + ' 次' : '未命中' },
+    { step: '3', icon: '📋', name: '离线大名单', desc: '本地离线域名库匹配',
+      state: smap.threat_list ? 'hit' : 'idle', badge: smap.threat_list ? '⚡ 命中 ' + smap.threat_list.toLocaleString() + ' 次' : '未命中' },
+    { step: '4', icon: '🌐', name: '在线情报', desc: '16 路威胁源实时查询',
+      state: smap.threatintel ? 'hit' : 'idle', badge: smap.threatintel ? '⚡ 命中 ' + smap.threatintel.toLocaleString() + ' 次' : '未命中' },
+    { step: '5', icon: '🔍', name: 'IP 后置', desc: '应答前源 IP 校验',
+      state: smap.ip_filter ? 'hit' : 'idle', badge: smap.ip_filter ? '⚡ 命中 ' + smap.ip_filter.toLocaleString() + ' 次' : '未命中' },
+    { step: '终', icon: '📡', name: '应答', desc: '放行 / 阻断告警', state: 'end', badge: '终点' }
+  ];
+  var html = '';
+  rows.forEach(function(r, i){
+    if (i > 0){
+      html += '<div class="cf-line' + (r.state === 'hit' ? ' to-hit' : '') + '"></div>';
+    }
+    html += '<div class="cf-row ' + r.state + '">' +
+            '<span class="cf-step">' + r.step + '</span>' +
+            '<span class="cf-body"><span class="cf-name">' + r.icon + ' ' + r.name + '</span>' +
+            '<span class="cf-desc">' + r.desc + '</span></span>' +
+            '<span class="cf-badge ' + r.state + '">' + r.badge + '</span></div>';
+  });
+  document.getElementById('chainViz').innerHTML = html;
 }
 
 PAGE_LOADERS.dashboard = loadDashboard;

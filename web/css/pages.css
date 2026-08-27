@@ -30,27 +30,49 @@
 .toplist .tl-bar i{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,var(--danger),var(--warning));opacity:.85;transition:width .6s ease}
 .toplist .tl-count{font-family:var(--mono);font-size:12px;color:var(--text-sec);min-width:34px;text-align:right}
 
-/* ================= 五层检测链路 ================= */
-.chain{display:flex;align-items:stretch;gap:0;padding:10px 0 6px;flex-wrap:wrap}
-.chain-node{
-  flex:1;min-width:96px;background:var(--bg-soft);border:1px solid var(--border);
-  border-radius:9px;padding:9px 8px 8px;text-align:center;position:relative;
-  transition:all .25s;
+/* ================= 五层检测链路（纵向流水线） ================= */
+.chain-flow{display:flex;flex-direction:column;padding:4px 0 2px}
+.cf-row{
+  display:flex;align-items:center;gap:10px;padding:8px 11px;
+  background:var(--bg-soft);border:1px solid var(--border);border-radius:10px;
+  transition:all .25s;position:relative;
 }
-.chain-node .cn-step{
-  font-size:10px;font-weight:800;color:var(--text-dim);letter-spacing:.08em;
-  text-transform:uppercase;display:block;margin-bottom:3px;
+.cf-step{
+  flex-shrink:0;width:26px;height:26px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:12px;font-weight:800;font-family:var(--mono);
+  background:var(--bg-soft);border:1px solid var(--border);color:var(--text-sec);
 }
-.chain-node .cn-name{font-size:12.5px;font-weight:700;display:block}
-.chain-node .cn-count{font-size:11px;color:var(--text-dim);display:block;margin-top:4px;font-family:var(--mono)}
-.chain-node.hit{border-color:rgba(244,63,94,.55);background:var(--danger-bg);box-shadow:var(--glow-red)}
-.chain-node.hit .cn-count{color:var(--danger);font-weight:700}
-.chain-node.hot{border-color:rgba(251,191,36,.55);background:var(--warning-bg)}
-.chain-node.hot .cn-count{color:var(--warning);font-weight:700}
-.chain-node.ok{border-color:rgba(52,211,153,.4)}
-.chain-node .cn-live{display:block;margin-top:5px}
-.chain-arrow{display:flex;align-items:center;color:var(--text-dim);padding:0 4px;font-size:14px;flex-shrink:0}
-@media(max-width:760px){.chain-arrow{display:none}}
+.cf-row.ok .cf-step{background:var(--success-bg);border-color:rgba(52,211,153,.55);color:var(--success)}
+.cf-row.hit .cf-step{background:var(--danger-bg);border-color:var(--danger);color:var(--danger);box-shadow:var(--glow-red)}
+.cf-row.end .cf-step{background:var(--accent-bg);border-color:rgba(56,189,248,.55);color:var(--accent)}
+.cf-body{flex:1;min-width:0;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.cf-name{font-size:13px;font-weight:700;white-space:nowrap}
+.cf-desc{font-size:11px;color:var(--text-dim)}
+.cf-badge{
+  flex-shrink:0;font-size:11.5px;font-weight:700;font-family:var(--mono);
+  padding:3px 10px;border-radius:99px;white-space:nowrap;
+}
+.cf-badge.ok{color:var(--success);background:var(--success-bg);border:1px solid rgba(52,211,153,.45)}
+.cf-badge.hit{color:var(--danger);background:var(--danger-bg);border:1px solid var(--danger);box-shadow:var(--glow-red)}
+.cf-badge.idle{color:var(--text-dim);background:var(--bg-soft);border:1px solid var(--border)}
+.cf-badge.end{color:var(--accent);background:var(--accent-bg);border:1px solid rgba(56,189,248,.45)}
+.cf-row.hit{border-color:var(--danger);background:var(--danger-bg);box-shadow:var(--glow-red)}
+.cf-row.hit .cf-desc{color:var(--text-sec)}
+.cf-row.ok{border-color:rgba(52,211,153,.35)}
+.cf-row.end{border-color:rgba(56,189,248,.3)}
+.cf-line{
+  width:2px;height:13px;margin-left:22px;
+  background:repeating-linear-gradient(180deg,var(--text-dim) 0 3px,transparent 3px 6px);
+  position:relative;
+}
+.cf-line::after{
+  content:'';position:absolute;left:50%;bottom:-1px;transform:translateX(-50%);
+  border:3px solid transparent;border-top-color:var(--text-dim);
+}
+.cf-line.to-hit{background:repeating-linear-gradient(180deg,var(--danger) 0 3px,transparent 3px 6px)}
+.cf-line.to-hit::after{border-top-color:var(--danger)}
+@media(max-width:420px){.cf-desc{display:none}}
 
 /* ================= 测试中心 ================= */
 .t-tabs{display:flex;gap:6px;border-bottom:1px solid var(--border);margin-bottom:6px}
