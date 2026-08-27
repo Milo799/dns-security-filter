@@ -1,10 +1,10 @@
 # DNS 安全过滤中间件 - Harness 工程 Makefile
-# 验收基准：make dev 一键启动 → make verify 验证链路 → make test 全绿
+# 验收基准：make dev 一键启动 → make verify 验证链路 → make test 全绿 → make docker-up 容器化部署
 
 PYTHON ?= python3
 GO     ?= go
 
-.PHONY: dev proxy platform web verify test init clean
+.PHONY: dev proxy platform verify test init init-db clean docker-up docker-down docker-logs
 
 ## 一键启动本地开发环境（代理 + 平台），前台运行
 dev:
@@ -24,7 +24,7 @@ platform:
 verify:
 	@bash scripts/verify.sh
 
-## 运行单元测试锚点
+## 运行全部测试（205 项锚点 + 业务测试）
 test:
 	cd platform && $(PYTHON) -m pytest ../tests -v
 
@@ -32,6 +32,18 @@ test:
 init:
 	cd platform && pip install -r requirements.txt
 
-## 初始化数据库（建表 + 默认管理员 + 默认配置）
+## 初始化数据库（建表 + 默认管理员 + 默认配置 + 内置情报源）
 init-db:
 	cd platform && $(PYTHON) -m seed
+
+## Docker 一键构建启动（平台 DNS:53 + Web:8080，代理:53）
+docker-up:
+	docker compose -f deploy/docker/docker-compose.yml up -d --build
+
+## 停止并移除容器
+docker-down:
+	docker compose -f deploy/docker/docker-compose.yml down
+
+## 查看容器日志
+docker-logs:
+	docker compose -f deploy/docker/docker-compose.yml logs -f
