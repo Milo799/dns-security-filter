@@ -181,6 +181,51 @@ def test_list_import_dedup(client, token):
     assert data["dup_in_db"] == 1
 
 
+def test_list_import_cross_conflict(client, token):
+    """跨名单冲突：导入条目已存在于另一份名单（白↔黑），导入照常但提示明细。"""
+    # 预置黑名单条目
+    r = client.post("/api/list", json={
+        "list_type": "blacklist", "target": "domain", "value": "conflict.test",
+    }, headers=_h(token))
+    assert r.status_code == 200
+
+    # 导入白名单，含与黑名单同值的域名（大小写不同也要命中冲突）
+    csv_text = ("list_type,target,value,enabled,remark\n"
+                "whitelist,domain,CONFLICT.test,1,与黑名单冲突\n"
+                "whitelist,domain,safe.test,1,无冲突\n")
+    r = client.post("/api/list/import", content=csv_text,
+                    headers={**_h(token), "Content-Type": "text/csv"})
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert data["imported"] == 2              # 冲突不拦截，照常导入
+    assert data["deduped"] == 0               # 白名单内无重复
+    assert len(data["conflicts"]) == 1        # 冲突明细 1 条
+    assert "conflict.test" in data["conflicts"][0].lower()
+    assert "黑名单" in data["conflicts"][0]
+
+    # 反向：导入黑名单时命中已有白名单（跨名单冲突，照常导入并提示）
+    r = client.post("/api/list/import",
+                    content="blacklist,domain,safe.test,1,与白名单冲突",
+                    headers={**_h(token), "Content-Type": "text/csv"})
+    data = r.json()["data"]
+    assert data["imported"] == 1              # 跨名单是不同键 → 导入
+    assert data["deduped"] == 0
+    assert len(data["conflicts"]) == 1
+    assert "白名单" in data["conflicts"][0]
+
+    # 大小写变体命中白名单冲突
+    r = client.post("/api/list", json={
+        "list_type": "whitelist", "target": "domain", "value": "wl-first.test",
+    }, headers=_h(token))
+    r = client.post("/api/list/import",
+                    content="blacklist,domain,WL-FIRST.test,1,与白名单冲突",
+                    headers={**_h(token), "Content-Type": "text/csv"})
+    data = r.json()["data"]
+    assert data["imported"] == 1
+    assert len(data["conflicts"]) == 1
+    assert "白名单" in data["conflicts"][0]
+
+
 # ---------------- 过滤日志 ----------------
 
 def test_logs_query_filters(client, token):

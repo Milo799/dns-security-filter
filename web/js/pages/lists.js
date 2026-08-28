@@ -121,11 +121,19 @@ async function doImportList(){
     if (d.errors && d.errors.length){ msg += '。错误：' + d.errors.join('；'); }
     var el = document.getElementById('importResult');
     el.textContent = msg;
-    el.style.color = (d.imported > 0 || d.deduped > 0) ? 'var(--success)' : 'var(--warning)';
+    el.style.color = 'var(--text-sec)';
     if (d.duplicates && d.duplicates.length){
-      el.textContent = msg + '。重复条目：' + d.duplicates.join('、');
+      el.textContent += '。重复条目：' + d.duplicates.join('、');
     }
-    toast('导入完成：新增 ' + d.imported + ' 条' + (d.deduped > 0 ? '，消重 ' + d.deduped + ' 条' : ''));
+    /* 跨名单冲突：导入条目已存在于另一份名单，安全提醒 */
+    if (d.conflicts && d.conflicts.length){
+      el.textContent += '。⚠ 跨名单冲突 ' + d.conflicts.length + ' 条（已导入，注意：白名单命中优先放行）：' +
+                         d.conflicts.join('、');
+      el.style.color = 'var(--warning)';
+      toast('⚠ 有 ' + d.conflicts.length + ' 条与另一名单冲突，请查看明细', true);
+    } else {
+      toast('导入完成：新增 ' + d.imported + ' 条' + (d.deduped > 0 ? '，消重 ' + d.deduped + ' 条' : ''));
+    }
     if (d.imported > 0){ refreshListTab(); }
   }catch(e){ toast(e.message, true); }
 }

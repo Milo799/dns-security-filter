@@ -138,6 +138,8 @@ async def import_items(request: Request, user: str = Depends(get_current_user)):
     首行可为表头（自动识别）。逐行校验，非法行跳过并汇总原因。
     自动消重：同一 (list_type, target, value) 视为重复（域名键不区分大小写）——
     ① 文件内部重复只保留首条；② 与库中已有条目重复的跳过；结果返回消重数量。
+    跨名单冲突：导入的条目已存在于另一份名单（白↔黑）时不拦截导入，
+    但返回 conflicts 明细（白名单命中优先放行，属安全提醒）。
     """
     raw = (await request.body()).decode("utf-8-sig", errors="replace")
     if not raw.strip():
@@ -182,24 +184,39 @@ async def import_items(request: Request, user: str = Depends(get_current_user)):
         seen.add(key)
         parsed.append((list_type, target, value, int(enabled), remark))
 
-    # ---- 阶段二：与库中已有条目比对消重 ----
+    # ---- 阶段二：与库中已有条目比对（消重 + 跨名单冲突） ----
     dup_in_db = 0
+    conflicts: list[str] = []        # 跨名单冲突明细（前 20 个）
+    other_list = {"blacklist": "whitelist", "whitelist": "blacklist"}
+    to_insert: list[tuple] = []
     if parsed:
         with db_cursor() as cur:
             cur.execute("SELECT list_type, target, value FROM filter_list")
-            existing = {(r["list_type"], r["target"], (r["value"] or "").strip().lower())
-                        for r in cur.fetchall()}
-        to_insert = []
+            all_rows = cur.fetchall()
+        existing = {(r["list_type"], r["target"], (r["value"] or "").strip().lower())
+                    for r in all_rows}
+        # 跨名单索引：(target, value.lower()) -> 已存在的名单类型集合
+        by_value: dict[tuple, set] = {}
+        for r in all_rows:
+            by_value.setdefault((r["target"], (r["value"] or "").strip().lower()), set()) \
+                    .add(r["list_type"])
         for item in parsed:
-            key = _key(item[0], item[1], item[2])
+            list_type, target, value = item[0], item[1], item[2]
+            key = _key(list_type, target, value)
             if key in existing:
                 dup_in_db += 1
                 if len(dup_examples) < 20:
-                    dup_examples.append(f"{item[2]}（已存在于名单中）")
+                    dup_examples.append(f"{value}（已存在于名单中）")
                 continue
+            # 跨名单冲突：同值已存在于另一份名单
+            opposite = other_list[list_type]
+            vkey = (target, value.strip().lower())
+            if opposite in by_value.get(vkey, set()):
+                if len(conflicts) < 20:
+                    conflicts.append(
+                        f"{value}（已存在于{'白' if opposite == 'whitelist' else '黑'}名单中"
+                        f"{'，白名单命中优先放行' if list_type == 'whitelist' else ''}）")
             to_insert.append(item)
-    else:
-        to_insert = []
 
     imported = 0
     if to_insert:
@@ -218,12 +235,14 @@ async def import_items(request: Request, user: str = Depends(get_current_user)):
             "imported": imported, "skipped": len(errors),
             "deduped": deduped,
             "dup_in_file": dup_in_file, "dup_in_db": dup_in_db,
+            "conflicts": len(conflicts),
         })
     return {"code": 0, "message": "ok",
             "data": {"imported": imported, "skipped": len(errors),
                      "deduped": deduped,
                      "dup_in_file": dup_in_file, "dup_in_db": dup_in_db,
                      "duplicates": dup_examples,
+                     "conflicts": conflicts,
                      "errors": errors[:50]}}
 
 
