@@ -111,9 +111,21 @@ async function doImportList(){
   if (!csv.trim()){ toast('请粘贴 CSV 内容', true); return; }
   try{
     var d = (await api('POST', '/api/list/import', csv, true)).data;
-    document.getElementById('importResult').textContent =
-      '导入 ' + d.imported + ' 条，跳过 ' + d.skipped + ' 条' +
-      (d.errors && d.errors.length ? ('：' + d.errors.join('；')) : '');
+    var msg = '导入 ' + d.imported + ' 条，跳过 ' + d.skipped + ' 条';
+    if (d.deduped > 0){
+      msg += '，自动消重 ' + d.deduped + ' 条' +
+             '（文件内重复 ' + (d.dup_in_file || 0) + ' / 名单中已存在 ' + (d.dup_in_db || 0) + '）';
+    } else {
+      msg += '，无重复条目';
+    }
+    if (d.errors && d.errors.length){ msg += '。错误：' + d.errors.join('；'); }
+    var el = document.getElementById('importResult');
+    el.textContent = msg;
+    el.style.color = (d.imported > 0 || d.deduped > 0) ? 'var(--success)' : 'var(--warning)';
+    if (d.duplicates && d.duplicates.length){
+      el.textContent = msg + '。重复条目：' + d.duplicates.join('、');
+    }
+    toast('导入完成：新增 ' + d.imported + ' 条' + (d.deduped > 0 ? '，消重 ' + d.deduped + ' 条' : ''));
     if (d.imported > 0){ refreshListTab(); }
   }catch(e){ toast(e.message, true); }
 }

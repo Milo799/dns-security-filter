@@ -136,6 +136,8 @@ def delete_item(item_id: int, user: str = Depends(get_current_user)):
 async def import_items(request: Request, user: str = Depends(get_current_user)):
     """CSV 批量导入。请求体为 CSV 文本，列：list_type,target,value,enabled,remark。
     首行可为表头（自动识别）。逐行校验，非法行跳过并汇总原因。
+    自动消重：同一 (list_type, target, value) 视为重复（域名键不区分大小写）——
+    ① 文件内部重复只保留首条；② 与库中已有条目重复的跳过；结果返回消重数量。
     """
     raw = (await request.body()).decode("utf-8-sig", errors="replace")
     if not raw.strip():
@@ -150,7 +152,15 @@ async def import_items(request: Request, user: str = Depends(get_current_user)):
     if "list_type" in header:  # 首行是表头则跳过
         rows = rows[1:]
 
-    imported, errors = 0, []
+    def _key(list_type: str, target: str, value: str) -> tuple:
+        """消重键：域名不区分大小写（*.Bad.COM 与 *.bad.com 同条）。"""
+        return (list_type, target, value.strip().lower())
+
+    # ---- 阶段一：解析 + 校验 + 文件内部消重（保留首条） ----
+    parsed, errors = [], []          # parsed: 待入库行
+    seen: set[tuple] = set()         # 文件内已出现键
+    dup_in_file = 0                  # 文件内部重复数
+    dup_examples: list[str] = []     # 重复示例（前 20 个，供展示）
     for lineno, row in enumerate(rows, start=1):
         if not row or not any(c.strip() for c in row):
             continue
@@ -163,20 +173,58 @@ async def import_items(request: Request, user: str = Depends(get_current_user)):
             _validate(list_type, target, value)
         except HTTPException as e:
             errors.append(f"第 {lineno} 行（{value or '空'}）：{e.detail}"); continue
+        key = _key(list_type, target, value)
+        if key in seen:
+            dup_in_file += 1
+            if len(dup_examples) < 20:
+                dup_examples.append(f"{value}（第 {lineno} 行，文件内重复）")
+            continue
+        seen.add(key)
+        parsed.append((list_type, target, value, int(enabled), remark))
+
+    # ---- 阶段二：与库中已有条目比对消重 ----
+    dup_in_db = 0
+    if parsed:
         with db_cursor() as cur:
-            cur.execute(
+            cur.execute("SELECT list_type, target, value FROM filter_list")
+            existing = {(r["list_type"], r["target"], (r["value"] or "").strip().lower())
+                        for r in cur.fetchall()}
+        to_insert = []
+        for item in parsed:
+            key = _key(item[0], item[1], item[2])
+            if key in existing:
+                dup_in_db += 1
+                if len(dup_examples) < 20:
+                    dup_examples.append(f"{item[2]}（已存在于名单中）")
+                continue
+            to_insert.append(item)
+    else:
+        to_insert = []
+
+    imported = 0
+    if to_insert:
+        with db_cursor() as cur:
+            cur.executemany(
                 """INSERT INTO filter_list
                    (list_type, target, value, enabled, remark, created_by)
                    VALUES (?, ?, ?, ?, ?, ?)""",
-                (list_type, target, value, int(enabled), remark, user),
+                [(t, g, v, e, m, user) for (t, g, v, e, m) in to_insert],
             )
-        imported += 1
+            imported = cur.rowcount if cur.rowcount and cur.rowcount > 0 else len(to_insert)
+    deduped = dup_in_file + dup_in_db
 
     if imported:
-        write_audit(user, "list_import",
-                    {"imported": imported, "skipped": len(errors)})
+        write_audit(user, "list_import", {
+            "imported": imported, "skipped": len(errors),
+            "deduped": deduped,
+            "dup_in_file": dup_in_file, "dup_in_db": dup_in_db,
+        })
     return {"code": 0, "message": "ok",
-            "data": {"imported": imported, "skipped": len(errors), "errors": errors[:50]}}
+            "data": {"imported": imported, "skipped": len(errors),
+                     "deduped": deduped,
+                     "dup_in_file": dup_in_file, "dup_in_db": dup_in_db,
+                     "duplicates": dup_examples,
+                     "errors": errors[:50]}}
 
 
 @router.get("/export")

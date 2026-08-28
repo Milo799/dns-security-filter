@@ -444,7 +444,7 @@
   <div class="modal">
     <div class="modal-head"><span>批量导入人工情报源 CSV</span><button class="icon-btn" onclick="closeModal('importModal')">✕</button></div>
     <div class="modal-body">
-      <div class="form-hint" style="margin-bottom:10px">列：list_type,target,value,enabled,remark（首行表头自动跳过）；list_type 填 <b>whitelist</b>（白名单·放行）或 <b>blacklist</b>（黑名单·拦截），支持混合导入</div>
+      <div class="form-hint" style="margin-bottom:10px">列：list_type,target,value,enabled,remark（首行表头自动跳过）；list_type 填 <b>whitelist</b>（白名单·放行）或 <b>blacklist</b>（黑名单·拦截），支持混合导入。<b>自动消重</b>：文件内重复及与名单中已有条目重复（域名不区分大小写）的行自动跳过，导入结果会提示消重数量</div>
       <textarea id="mCsv" rows="10" style="width:100%;font-family:var(--mono);font-size:12px;padding:10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-soft);color:var(--text)" placeholder="blacklist,domain,*.bad.com,1,备注&#10;blacklist,ip,10.0.0.0/8,,整段"></textarea>
       <div id="importResult" class="form-hint" style="margin-top:8px"></div>
     </div>

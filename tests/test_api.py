@@ -133,6 +133,54 @@ def test_list_import_and_export(client, token):
     assert "10.99.0.0/16" in values
 
 
+def test_list_import_dedup(client, token):
+    """导入自动消重：文件内重复 + 与库中已有重复（含大小写不敏感）。"""
+    # 预置一条已有黑名单
+    r = client.post("/api/list", json={
+        "list_type": "blacklist", "target": "domain", "value": "exists.test",
+    }, headers=_h(token))
+    assert r.status_code == 200
+
+    csv_text = (
+        "list_type,target,value,enabled,remark\n"
+        "blacklist,domain,EXISTS.test,1,与库中大小写不同\n"   # 库中已有（大小写不敏感）→ 消重
+        "blacklist,domain,new-a.test,1,新增A\n"               # 新增
+        "blacklist,domain,new-a.test,1,文件内重复\n"          # 文件内重复 → 消重（保留首条）
+        "blacklist,domain,NEW-A.TEST,,再次大小写不同\n"       # 文件内重复（大小写）→ 消重
+        "blacklist,ip,10.77.0.0/16,,新增IP段\n"               # 新增
+        "whitelist,domain,new-a.test,1,白名单同值不算重复\n"  # 白名单同名域名 → 新增（键含 list_type）
+    )
+    r = client.post("/api/list/import", content=csv_text,
+                    headers={**_h(token), "Content-Type": "text/csv"})
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert data["imported"] == 3          # new-a.test + 10.77.0.0/16 + 白名单 new-a.test
+    assert data["skipped"] == 0           # 无非法行
+    assert data["deduped"] == 3           # 1 库中已有 + 2 文件内重复
+    assert data["dup_in_file"] == 2
+    assert data["dup_in_db"] == 1
+
+    # 名单中最终只有一条 blacklist 的 new-a.test（重复未入库）
+    r = client.get("/api/list", params={"list_type": "blacklist",
+                                        "keyword": "new-a.test"},
+                   headers=_h(token))
+    assert r.json()["data"]["total"] == 1
+    # exists.test 未被再次插入
+    r = client.get("/api/list", params={"list_type": "blacklist",
+                                        "keyword": "exists.test"},
+                   headers=_h(token))
+    assert r.json()["data"]["total"] == 1
+
+    # 全部重复（无新增）：imported=0 不报错，仍返回消重数
+    r = client.post("/api/list/import",
+                    content="blacklist,domain,new-a.test,1,x",
+                    headers={**_h(token), "Content-Type": "text/csv"})
+    data = r.json()["data"]
+    assert data["imported"] == 0
+    assert data["deduped"] == 1
+    assert data["dup_in_db"] == 1
+
+
 # ---------------- 过滤日志 ----------------
 
 def test_logs_query_filters(client, token):
