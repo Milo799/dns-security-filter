@@ -442,6 +442,8 @@ def test_process_query_intercepts_threat_list(monkeypatch):
         assert reply.header.rcode == 0
         answers = [rr for rr in reply.rr if rr.rtype == QTYPE.A]
         assert answers and str(answers[0].rdata) == CONFIG.alert_ip
+        import log_writer
+        log_writer._flush_once()   # 异步日志落库后再查（前置项5）
         with db_cursor() as cur:
             cur.execute(
                 "SELECT filter_reason FROM filter_log "

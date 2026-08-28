@@ -24,6 +24,10 @@ class ConfigBody(BaseModel):
     fusion_strategy: str | None = None
     log_retention_days: int | None = None
     allow_log_enabled: bool | None = None
+    allow_log_sample_rate: int | None = None
+    log_async_enabled: bool | None = None
+    log_flush_interval_s: int | None = None
+    log_batch_size: int | None = None
     threatlist_auto_update: bool | None = None
     threatlist_auto_interval_hours: int | None = None
     domain_cache_ttl_s: int | None = None
@@ -61,6 +65,18 @@ def update_config(body: ConfigBody, user: str = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="alert_ttl 须在 1~86400 之间")
     if "log_retention_days" in data and not (1 <= data["log_retention_days"] <= 3650):
         raise HTTPException(status_code=400, detail="log_retention_days 须在 1~3650 之间")
+    if "allow_log_sample_rate" in data and not (
+            0 <= data["allow_log_sample_rate"] <= 100):
+        raise HTTPException(
+            status_code=400, detail="allow_log_sample_rate 须在 0~100 之间（百分比，0=不记录）")
+    if "log_flush_interval_s" in data and not (
+            1 <= data["log_flush_interval_s"] <= 60):
+        raise HTTPException(
+            status_code=400, detail="log_flush_interval_s 须在 1~60 之间（秒）")
+    if "log_batch_size" in data and not (
+            100 <= data["log_batch_size"] <= 50000):
+        raise HTTPException(
+            status_code=400, detail="log_batch_size 须在 100~50000 之间（条）")
     if "threatlist_auto_interval_hours" in data and not (
             1 <= data["threatlist_auto_interval_hours"] <= 720):
         raise HTTPException(
@@ -251,6 +267,17 @@ def domain_cache_stats(_: str = Depends(get_current_user)):
     """
     import domain_cache
     return {"code": 0, "message": "ok", "data": domain_cache.stats()}
+
+
+@router.get("/log-writer/stats")
+def log_writer_stats(_: str = Depends(get_current_user)):
+    """异步日志写入状态：入队/落库/丢弃计数、当前队列深度。
+
+    dropped>0 或 queue_size 持续增长说明写入跟不上（需调大批量/缩短
+    间隔，或检查 DB 磁盘 IO）；运维巡检与压测观测用。
+    """
+    import log_writer
+    return {"code": 0, "message": "ok", "data": log_writer.stats()}
 
 
 @router.get("/circuit-breaker/stats")

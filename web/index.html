@@ -400,8 +400,24 @@
               <label class="switch"><input id="cfgDetection" type="checkbox"><span class="slider"></span></label>
             </div>
             <div class="switch-row">
-              <div><div class="switch-label">放行日志</div><div class="switch-desc">记录所有放行请求，日志量会显著增大</div></div>
+              <div><div class="switch-label">放行日志</div><div class="switch-desc">记录放行请求（拦截/剔除日志始终必录）</div></div>
               <label class="switch"><input id="cfgAllowLog" type="checkbox"><span class="slider"></span></label>
+            </div>
+            <div class="form-grid" style="margin-top:8px">
+              <div class="form-row"><label>放行日志采样率（%）</label><input id="cfgAllowSampleRate" type="number" min="0" max="100"><div class="form-hint">0~100：100=全量记录，0=不记录，中间值按比例采样；大终端规模建议 ≤10 控制日志量。</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="card"><div class="card-head"><div class="card-title">日志写入（SQLite 削峰）</div></div>
+          <div class="card-body">
+            <div class="switch-row">
+              <div><div class="switch-label">异步批量写入</div><div class="switch-desc">开启后日志先进内存队列、后台线程批量落库，避免高并发写锁拖慢检测线程；关闭则回退同步直写（排障用）</div></div>
+              <label class="switch"><input id="cfgLogAsync" type="checkbox"><span class="slider"></span></label>
+            </div>
+            <div class="form-grid" style="margin-top:8px">
+              <div class="form-row"><label>批量落库间隔（秒）</label><input id="cfgLogFlushInterval" type="number" min="1" max="60"><div class="form-hint">后台线程 flush 间隔，默认 2。</div></div>
+              <div class="form-row"><label>单批上限（条）</label><input id="cfgLogBatchSize" type="number" min="100" max="50000"><div class="form-hint">单批 executemany 上限，默认 500。</div></div>
+              <div class="form-row"><label>写入状态</label><div class="form-hint" id="cfgLogWriterStats">加载中…</div></div>
             </div>
           </div>
         </div>

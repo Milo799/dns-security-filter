@@ -30,6 +30,10 @@ async def on_startup():
     init_all()   # 建表 + 默认管理员 + 默认配置
     sync_config_from_db()   # DB 配置 → 内存 CONFIG（热配置基准）
     get_conn()
+    # 异步日志写入线程（前置项5：SQLite 写入削峰）——
+    # 检测线程只入队，后台线程批量 flush；atexit 兜底 flush 残留。
+    import log_writer
+    log_writer.start()
     # 后台预热离线大名单内存缓存（全量 enabled 条目约数秒）：
     # 避免服务重启后首条 DNS 查询懒加载阻塞；daemon 线程不拖慢启动。
     threading.Thread(target=threat_list.warm_cache, daemon=True,
@@ -41,6 +45,9 @@ async def on_startup():
 
 @app.on_event("shutdown")
 async def on_shutdown():
+    # 异步日志优雅关闭：flush 队列残留，防退出丢尾批
+    import log_writer
+    log_writer.stop(flush=True)
     task = getattr(app.state, "threatlist_auto_task", None)
     if task:
         task.cancel()

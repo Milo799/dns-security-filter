@@ -36,6 +36,10 @@ class PlatformConfig:
     fusion_strategy: str = "any"           # 威胁情报融合策略：any / majority / all
     log_retention_days: int = 90           # 过滤日志保留天数
     allow_log_enabled: bool = False        # 放行日志开关
+    allow_log_sample_rate: int = 100       # 放行日志采样率（%，0~100；前置项4）
+    log_async_enabled: bool = True         # 日志异步批量写入开关（前置项5，排障可关）
+    log_flush_interval_s: int = 2          # 异步日志 flush 间隔（秒，1~60）
+    log_batch_size: int = 500              # 异步日志单批上限（条，100~50000）
     detection_enabled: bool = True         # 检测总开关
     api_timeout_ms: int = 2000             # 威胁情报源单次调用超时（毫秒）
     domain_cache_ttl_s: int = 300          # 域名检测结论缓存 TTL（秒，1~86400）

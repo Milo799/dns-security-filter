@@ -77,6 +77,8 @@ def create_item(body: ListBody, user: str = Depends(get_current_user)):
              int(body.enabled), body.remark, user),
         )
         item_id = cur.lastrowid
+    from app.db import invalidate_list_cache
+    invalidate_list_cache()
     write_audit(user, "list_create", {
         "id": item_id, "list_type": body.list_type, "target": body.target,
         "value": body.value.strip(),
@@ -117,6 +119,8 @@ def update_item(item_id: int, body: dict, user: str = Depends(get_current_user))
                 list(fields.values()) + [item_id],
             )
         write_audit(user, "list_update", {"id": item_id, **changes})
+    from app.db import invalidate_list_cache
+    invalidate_list_cache()
     return {"code": 0, "message": "ok", "data": {"id": item_id}}
 
 
@@ -128,6 +132,8 @@ def delete_item(item_id: int, user: str = Depends(get_current_user)):
         if row is None:
             raise HTTPException(status_code=404, detail="条目不存在")
         cur.execute("DELETE FROM filter_list WHERE id=?", (item_id,))
+    from app.db import invalidate_list_cache
+    invalidate_list_cache()
     write_audit(user, "list_delete", {"id": item_id, "value": row["value"]})
     return {"code": 0, "message": "ok", "data": {}}
 
@@ -228,6 +234,8 @@ async def import_items(request: Request, user: str = Depends(get_current_user)):
                 [(t, g, v, e, m, user) for (t, g, v, e, m) in to_insert],
             )
             imported = cur.rowcount if cur.rowcount and cur.rowcount > 0 else len(to_insert)
+        from app.db import invalidate_list_cache
+        invalidate_list_cache()
     deduped = dup_in_file + dup_in_db
 
     if imported:

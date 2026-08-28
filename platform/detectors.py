@@ -19,12 +19,14 @@
 
 import ipaddress
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
 from dnslib import DNSRecord, QTYPE, RR, A, AAAA, RCODE
 
 import domain_cache
 import circuit_breaker
+import log_writer
 from config import CONFIG
 from app.db import db_cursor, get_enabled_list
 from app.threat_list import check_domain, check_ip
@@ -373,28 +375,48 @@ def build_remaining_reply(request: DNSRecord, qtype: int,
 def write_filter_log(client_ip: str, domain: str, qtype: int,
                      reason: str, action: str, malicious_ips: list[str],
                      final_result: str, source_api: str = "") -> None:
-    """写过滤日志（被拦截/被剔除的记录，PRD 5.5 必录字段）。"""
-    with db_cursor() as cur:
-        cur.execute(
-            """INSERT INTO filter_log
-               (client_ip, domain, query_type, filter_reason, action,
-                malicious_ips, final_result, source_api)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (client_ip, domain, _qtype_name(qtype), reason, action,
-             ",".join(malicious_ips), final_result, source_api),
-        )
+    """写过滤日志（被拦截/被剔除的记录，PRD 5.5 必录字段）。
+
+    前置项 5（写入削峰）：经 log_writer 异步入队，检测线程不与
+    SQLite 写锁竞争（log_async_enabled=0 时回退同步直写）。
+    """
+    log_writer.enqueue(client_ip, domain, _qtype_name(qtype), reason,
+                       action, ",".join(malicious_ips), final_result,
+                       source_api)
+
+
+_ALLOW_LOG_SEQ = [0]
+_ALLOW_LOG_SEQ_LOCK = threading.Lock()
+
+
+def _allow_log_sampled() -> bool:
+    """放行日志是否被本次采样命中（前置项 4）。
+
+    rate=100 全录；rate=0 等价关闭；0<rate<100 按百分比采样。
+    计数取模实现确定性采样（无 random 线程安全开销），
+    任意连续 100 次调用命中数恰为 rate。
+    """
+    rate = CONFIG.allow_log_sample_rate
+    if rate >= 100:
+        return True
+    if rate <= 0:
+        return False
+    with _ALLOW_LOG_SEQ_LOCK:
+        _ALLOW_LOG_SEQ[0] = (_ALLOW_LOG_SEQ[0] + 1) % 100
+        seq = _ALLOW_LOG_SEQ[0]
+    return seq < rate
 
 
 def write_allow_log(client_ip: str, domain: str, qtype: int) -> None:
-    """写放行日志（可选，CONFIG.allow_log_enabled 开启时调用）。"""
-    with db_cursor() as cur:
-        cur.execute(
-            """INSERT INTO filter_log
-               (client_ip, domain, query_type, filter_reason, action,
-                malicious_ips, final_result, source_api)
-               VALUES (?, ?, ?, 'allow', 'allow', '', 'forwarded', '')""",
-            (client_ip, domain, _qtype_name(qtype)),
-        )
+    """写放行日志（可选：allow_log_enabled 开启且采样命中时记录）。
+
+    10 万终端全量放行日志每日数百万行——采样率把量压到可运维水平；
+    拦截/剔除日志属安全事件，永远必录不采样（write_filter_log）。
+    """
+    if not _allow_log_sampled():
+        return
+    log_writer.enqueue(client_ip, domain, _qtype_name(qtype),
+                       "allow", "allow", "", "forwarded", "")
 
 
 # ---------------------------------------------------------------------------

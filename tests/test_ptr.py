@@ -107,6 +107,8 @@ def _ptr_query(ptr_name: str) -> DNSRecord:
 
 
 def _last_log(ptr_name: str):
+    import log_writer
+    log_writer._flush_once()   # 异步日志落库后再查（前置项5）
     with db_cursor() as cur:
         cur.execute("SELECT * FROM filter_log WHERE domain=? ORDER BY id DESC LIMIT 1",
                     (ptr_name,))

@@ -11,6 +11,10 @@ async function loadConfig(){
     document.getElementById('cfgRetention').value = v('log_retention_days', '90');
     document.getElementById('cfgDetection').checked = v('detection_enabled', '1') === '1';
     document.getElementById('cfgAllowLog').checked = v('allow_log_enabled', '0') === '1';
+    document.getElementById('cfgAllowSampleRate').value = v('allow_log_sample_rate', '100');
+    document.getElementById('cfgLogAsync').checked = v('log_async_enabled', '1') === '1';
+    document.getElementById('cfgLogFlushInterval').value = v('log_flush_interval_s', '2');
+    document.getElementById('cfgLogBatchSize').value = v('log_batch_size', '500');
     document.getElementById('cfgCacheTtl').value = v('domain_cache_ttl_s', '300');
     document.getElementById('cfgCacheSize').value = v('domain_cache_size', '1000000');
     document.getElementById('cfgDegradeMode').checked = v('failsafe_mode', 'intercept') === 'degrade';
@@ -20,7 +24,22 @@ async function loadConfig(){
     document.getElementById('cfgDegradeWindow').value = v('degrade_window_s', '300');
     loadCacheStats();
     loadCbStats();
+    loadLogWriterStats();
   }catch(e){ toast(e.message, true); }
+}
+
+async function loadLogWriterStats(){
+  try{
+    var s = (await api('GET', '/api/log-writer/stats')).data;
+    var txt = (s.async_enabled ? '异步' : '同步') +
+      '：入队 ' + (s.enqueued || 0).toLocaleString() +
+      '，落库 ' + (s.flushed || 0).toLocaleString() +
+      '，队列 ' + (s.queue_size || 0).toLocaleString();
+    if (s.dropped > 0) txt += '，⚠️ 丢弃 ' + s.dropped.toLocaleString() + '（写入跟不上）';
+    document.getElementById('cfgLogWriterStats').textContent = txt;
+  }catch(e){
+    document.getElementById('cfgLogWriterStats').textContent = '写入状态不可用';
+  }
 }
 
 async function loadCbStats(){
@@ -77,10 +96,17 @@ async function saveConfig(){
     var detection = document.getElementById('cfgDetection').checked;
     await api('POST', '/api/detection/toggle', {enabled: detection});
     await api('PUT', '/api/config', {allow_log_enabled: document.getElementById('cfgAllowLog').checked});
+    await api('PUT', '/api/config', {
+      allow_log_sample_rate: parseInt(document.getElementById('cfgAllowSampleRate').value) || 0,
+      log_async_enabled: document.getElementById('cfgLogAsync').checked,
+      log_flush_interval_s: parseInt(document.getElementById('cfgLogFlushInterval').value) || 2,
+      log_batch_size: parseInt(document.getElementById('cfgLogBatchSize').value) || 500
+    });
     toast('配置已保存，立即生效');
     loadDashboard();
     loadCacheStats();
     loadCbStats();
+    loadLogWriterStats();
   }catch(e){ toast(e.message, true); }
 }
 

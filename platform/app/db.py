@@ -83,14 +83,41 @@ def db_cursor():
 
 # ---- 查询辅助（AI 开发指引：检测主流程可直接复用） ----
 
+# 人工黑白名单内存缓存（10 万终端性能项）：
+# get_enabled_list 原为每查询两次全表 SELECT，高 QPS 下 20 检测线程
+# 全部挤在 SQLite 读锁上（py-spy 实证 2026-08-28）。名单变更频率极低
+# （人工操作），检测读取频率极高——内存缓存 + 变更点失效是最优结构。
+# 缓存值为 list（_match_domain/_match_ip 直接线性遍历，语义不变）。
+_LIST_CACHE: dict[tuple[str, str], list[str]] = {}
+_LIST_CACHE_LOCK = threading.Lock()
+
+
+def invalidate_list_cache() -> None:
+    """名单数据变更后调用：清空缓存（下次查询重建）。"""
+    with _LIST_CACHE_LOCK:
+        _LIST_CACHE.clear()
+
+
 def get_enabled_list(list_type: str, target: str) -> list[str]:
-    """读取启用的名单条目（detectors.match_list 用）。"""
+    """读取启用的名单条目（detectors.match_list 用，带内存缓存）。
+
+    返回的 list 是缓存内部对象——调用方只读不修改（检测主流程
+    仅遍历匹配，无修改场景）。
+    """
+    key = (list_type, target)
+    with _LIST_CACHE_LOCK:
+        cached = _LIST_CACHE.get(key)
+    if cached is not None:
+        return cached
     with db_cursor() as cur:
         cur.execute(
             "SELECT value FROM filter_list WHERE list_type=? AND target=? AND enabled=1",
             (list_type, target),
         )
-        return [row["value"] for row in cur.fetchall()]
+        values = [row["value"] for row in cur.fetchall()]
+    with _LIST_CACHE_LOCK:
+        _LIST_CACHE[key] = values
+    return values
 
 
 def get_system_config(key: str, default: str = "") -> str:

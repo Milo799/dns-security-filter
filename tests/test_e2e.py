@@ -142,6 +142,8 @@ def test_ip_cidr_blacklist_removes_ip(upstream, clean_domain):
 def test_intercept_writes_filter_log(upstream, clean_domain):
     _add_list("blacklist", "domain", clean_domain)
     _query(clean_domain)
+    import log_writer
+    log_writer._flush_once()   # 异步日志落库后再查（前置项5）
     with db_cursor() as cur:
         cur.execute(
             "SELECT * FROM filter_log WHERE domain=? AND action='intercept'",

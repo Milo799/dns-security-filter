@@ -179,6 +179,13 @@ async def handle_tcp(reader: asyncio.StreamReader, writer: asyncio.StreamWriter)
 
 async def run_dns_server():
     """启动 UDP/TCP 双栈 DNS 服务。"""
+    # 运行时配置同步（DB → CONFIG）+ 异步日志写入线程
+    # （前置项5：SQLite 写入削峰，检测线程只入队不写库）
+    from app.runtime import sync_config_from_db
+    sync_config_from_db()
+    import log_writer
+    log_writer.start()
+
     addr = (CONFIG.dns.listen_addr, CONFIG.dns.listen_port)
 
     loop = asyncio.get_running_loop()
