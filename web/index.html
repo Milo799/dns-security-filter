@@ -371,6 +371,13 @@
             <div class="form-row"><label>日志保留天数</label><input id="cfgRetention" type="number"></div>
           </div></div>
         </div>
+        <div class="card"><div class="card-head"><div class="card-title">检测性能（域名结论缓存）</div></div>
+          <div class="card-body"><div class="form-grid">
+            <div class="form-row"><label>缓存 TTL（秒）</label><input id="cfgCacheTtl" type="number"><div class="form-hint">在线情报域名结论的缓存时长，默认 300。</div></div>
+            <div class="form-row"><label>缓存容量（条）</label><input id="cfgCacheSize" type="number"><div class="form-hint">LRU 上限，默认 1000000（约 200MB 内存）。</div></div>
+            <div class="form-row"><label>缓存状态</label><div class="form-hint" id="cfgCacheStats">加载中…</div></div>
+          </div></div>
+        </div>
         <div class="card"><div class="card-head"><div class="card-title">检测与放行日志</div></div>
           <div class="card-body">
             <div class="switch-row">

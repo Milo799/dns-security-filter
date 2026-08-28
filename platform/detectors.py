@@ -23,6 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from dnslib import DNSRecord, QTYPE, RR, A, AAAA, RCODE
 
+import domain_cache
 from config import CONFIG
 from app.db import db_cursor, get_enabled_list
 from app.threat_list import check_domain, check_ip
@@ -138,7 +139,18 @@ def query_threatintel_domain(domain: str) -> tuple[bool, str]:
 
     并发实现：线程池并发查询（适配器为同步阻塞 IO），
     总耗时 ≈ 最慢源的单源耗时（api_timeout_ms），而非逐源累加。
+
+    结论缓存（10 万终端前置开发项 1）：TTL+LRU（domain_cache 模块）。
+    重复查询同一域名直接回缓存结论，跳过全部在线查询；
+    情报源配置/融合策略变更时由路由层清空（threatintel_invalidate）。
+    **fail-safe 默认拦截不写缓存**（reason 以 "threatintel:" 前缀且来自
+    全源无结论的路径）——缓存瞬时故障会放大为持续误拦。
     """
+    # 命中缓存：直接返回结论（含恶意与放行两类）
+    cached = domain_cache.get(domain)
+    if cached is not None:
+        return cached
+
     adapters = [a for a in get_enabled_adapters() if a.supports_domain]
     if not adapters:
         return False, ""  # 无支持域名查询的情报源：跳过威胁情报检测
@@ -156,12 +168,14 @@ def query_threatintel_domain(domain: str) -> tuple[bool, str]:
 
     srcs = ",".join(a.name for a in adapters)
     if not results:
-        # 全部源超时/故障（无任何结论）→ 默认拦截
+        # 全部源超时/故障（无任何结论）→ 默认拦截（fail-safe，不写缓存）
         return True, f"threatintel:{CONFIG.fusion_strategy}:{srcs}"
 
     malicious = run_fusion(results, CONFIG.fusion_strategy)
     srcs = ",".join(r.source for r in results)
-    return malicious, f"threatintel:{CONFIG.fusion_strategy}:{srcs}"
+    reason = f"threatintel:{CONFIG.fusion_strategy}:{srcs}"
+    domain_cache.put(domain, malicious, reason)   # 有结论（含放行）→ 写缓存
+    return malicious, reason
 
 
 def query_threatintel_ip(ip: str) -> tuple[bool, str]:

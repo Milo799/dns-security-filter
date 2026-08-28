@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from adapters import ADAPTER_REGISTRY, build_adapter
+import domain_cache
 from app.auth import get_current_user
 from app.audit import write_audit
 from app.db import db_cursor
@@ -42,6 +43,7 @@ def set_fusion_strategy(body: FusionBody, user: str = Depends(get_current_user))
         cur.execute("SELECT value FROM system_config WHERE key='fusion_strategy'")
         old = cur.fetchone()["value"]
     set_config("fusion_strategy", body.strategy)
+    domain_cache.threatintel_invalidate()   # 结论缓存依赖融合策略，切换即全清
     write_audit(user, "fusion_strategy_change",
                 {"from": old, "to": body.strategy})
     return {"code": 0, "message": "ok",
@@ -121,6 +123,7 @@ def create_threatintel(body: ThreatIntelBody, user: str = Depends(get_current_us
         "base_url": body.base_url, "enabled": body.enabled,
         "timeout_ms": body.timeout_ms,
     })
+    domain_cache.threatintel_invalidate()   # 情报源集合变化，清结论缓存
     return {"code": 0, "message": "ok", "data": {"id": item_id}}
 
 
@@ -169,6 +172,7 @@ def update_threatintel(item_id: int, body: ThreatIntelBody,
         )
     if changes:
         write_audit(user, "threatintel_update", {"id": item_id, **changes})
+        domain_cache.threatintel_invalidate()   # 启停/参数变化影响结论，清缓存
     return {"code": 0, "message": "ok", "data": {"id": item_id}}
 
 
@@ -185,6 +189,7 @@ def delete_threatintel(item_id: int, user: str = Depends(get_current_user)):
                                 detail="内置开源情报源不可删除，停用即可")
         cur.execute("DELETE FROM threatintel_api WHERE id=?", (item_id,))
     write_audit(user, "threatintel_delete", {"id": item_id, "name": row["name"]})
+    domain_cache.threatintel_invalidate()   # 情报源集合变化，清结论缓存
     return {"code": 0, "message": "ok", "data": {}}
 
 

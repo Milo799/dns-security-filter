@@ -26,6 +26,8 @@ class ConfigBody(BaseModel):
     allow_log_enabled: bool | None = None
     threatlist_auto_update: bool | None = None
     threatlist_auto_interval_hours: int | None = None
+    domain_cache_ttl_s: int | None = None
+    domain_cache_size: int | None = None
 
 
 @router.get("/config")
@@ -59,6 +61,13 @@ def update_config(body: ConfigBody, user: str = Depends(get_current_user)):
         raise HTTPException(
             status_code=400,
             detail="threatlist_auto_interval_hours 须在 1~720 之间（1 小时~30 天）")
+    if "domain_cache_ttl_s" in data and not (1 <= data["domain_cache_ttl_s"] <= 86400):
+        raise HTTPException(
+            status_code=400, detail="domain_cache_ttl_s 须在 1~86400 之间（秒）")
+    if "domain_cache_size" in data and not (1024 <= data["domain_cache_size"] <= 10_000_000):
+        raise HTTPException(
+            status_code=400,
+            detail="domain_cache_size 须在 1024~10000000 之间（条）")
 
     changes = {}
     for key, value in data.items():
@@ -212,6 +221,16 @@ def status_breakdown(days: int = 7, top: int = 10,
             "data": {"days": days, "sources": sources,
                      "top_domains": top_domains,
                      "top_clients": top_clients}}
+
+
+@router.get("/domain-cache/stats")
+def domain_cache_stats(_: str = Depends(get_current_user)):
+    """域名检测结论缓存状态：条目数/容量/命中数/命中率。
+
+    压测观测与运维巡检用；进程内累计，重启归零。
+    """
+    import domain_cache
+    return {"code": 0, "message": "ok", "data": domain_cache.stats()}
 
 
 @router.post("/detection/toggle")

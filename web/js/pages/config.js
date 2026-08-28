@@ -11,7 +11,24 @@ async function loadConfig(){
     document.getElementById('cfgRetention').value = v('log_retention_days', '90');
     document.getElementById('cfgDetection').checked = v('detection_enabled', '1') === '1';
     document.getElementById('cfgAllowLog').checked = v('allow_log_enabled', '0') === '1';
+    document.getElementById('cfgCacheTtl').value = v('domain_cache_ttl_s', '300');
+    document.getElementById('cfgCacheSize').value = v('domain_cache_size', '1000000');
+    loadCacheStats();
   }catch(e){ toast(e.message, true); }
+}
+
+async function loadCacheStats(){
+  try{
+    var s = (await api('GET', '/api/domain-cache/stats')).data;
+    var rate = s.hit_rate === null || s.hit_rate === undefined ? '—'
+             : (s.hit_rate * 100).toFixed(1) + '%';
+    document.getElementById('cfgCacheStats').textContent =
+      '当前 ' + s.size.toLocaleString() + ' / ' + s.max_size.toLocaleString() +
+      ' 条，命中 ' + s.hits.toLocaleString() + ' 次，命中率 ' + rate +
+      '（进程内累计，重启归零）';
+  }catch(e){
+    document.getElementById('cfgCacheStats').textContent = '缓存状态不可用';
+  }
 }
 
 async function saveConfig(){
@@ -19,7 +36,9 @@ async function saveConfig(){
     alert_ip: document.getElementById('cfgAlertIp').value.trim(),
     alert_ttl: parseInt(document.getElementById('cfgAlertTtl').value) || 60,
     upstream_dns: document.getElementById('cfgUpstream').value.trim(),
-    log_retention_days: parseInt(document.getElementById('cfgRetention').value) || 90
+    log_retention_days: parseInt(document.getElementById('cfgRetention').value) || 90,
+    domain_cache_ttl_s: parseInt(document.getElementById('cfgCacheTtl').value) || 300,
+    domain_cache_size: parseInt(document.getElementById('cfgCacheSize').value) || 1000000
   };
   if (!body.alert_ip || !body.upstream_dns){ toast('告警 IP 与上游 DNS 不能为空', true); return; }
   try{
@@ -29,6 +48,7 @@ async function saveConfig(){
     await api('PUT', '/api/config', {allow_log_enabled: document.getElementById('cfgAllowLog').checked});
     toast('配置已保存，立即生效');
     loadDashboard();
+    loadCacheStats();
   }catch(e){ toast(e.message, true); }
 }
 

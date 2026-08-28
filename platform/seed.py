@@ -18,6 +18,8 @@ DEFAULT_SYSTEM_CONFIG = {
     "log_retention_days": str(CONFIG.log_retention_days),
     "allow_log_enabled": str(int(CONFIG.allow_log_enabled)),
     "detection_enabled": str(int(CONFIG.detection_enabled)),
+    "domain_cache_ttl_s": str(CONFIG.domain_cache_ttl_s),
+    "domain_cache_size": str(CONFIG.domain_cache_size),
     "threatlist_auto_update": str(int(CONFIG.threatlist_auto_update)),
     "threatlist_auto_interval_hours": str(CONFIG.threatlist_auto_interval_hours),
 }
