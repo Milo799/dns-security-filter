@@ -19,6 +19,7 @@
 
 import ipaddress
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 from dnslib import DNSRecord, QTYPE, RR, A, AAAA, RCODE
 
@@ -123,7 +124,7 @@ def is_ip_blacklisted(ip: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def query_threatintel_domain(domain: str) -> tuple[bool, str]:
-    """并行调用启用的威胁情报适配器查询域名，按 fusion_strategy 判定恶意。
+    """并发调用启用的威胁情报适配器查询域名，按 fusion_strategy 判定恶意。
 
     返回 (is_malicious, reason)：
       reason 形如 "threatintel:any:virustotal,abuseipdb"。
@@ -134,20 +135,24 @@ def query_threatintel_domain(domain: str) -> tuple[bool, str]:
       - 超时/异常（None）的源不参与统计；
       - any（默认）/ majority / all 三种融合策略；
       - 有支持源但全部无结论时**默认拦截**，不自动放行（fail-safe）。
-    TODO(AI): 当前为串行调用，QPS 高时可改为 asyncio 并发。
+
+    并发实现：线程池并发查询（适配器为同步阻塞 IO），
+    总耗时 ≈ 最慢源的单源耗时（api_timeout_ms），而非逐源累加。
     """
     adapters = [a for a in get_enabled_adapters() if a.supports_domain]
     if not adapters:
         return False, ""  # 无支持域名查询的情报源：跳过威胁情报检测
 
-    results = []
-    for adapter in adapters:
+    def _safe_query(adapter):
         try:
-            r = adapter.query_domain(domain)
-            if r is not None:
-                results.append(r)
+            return adapter.query_domain(domain)
         except Exception as e:
             logger.warning("情报源 %s 查询域名异常: %s", adapter.name, e)
+            return None
+
+    with ThreadPoolExecutor(max_workers=min(len(adapters), 12)) as pool:
+        raw = list(pool.map(_safe_query, adapters))
+    results = [r for r in raw if r is not None]
 
     srcs = ",".join(a.name for a in adapters)
     if not results:
@@ -162,20 +167,22 @@ def query_threatintel_domain(domain: str) -> tuple[bool, str]:
 def query_threatintel_ip(ip: str) -> tuple[bool, str]:
     """对单个 IP（IPv4/IPv6）执行威胁情报融合判断，返回 (is_malicious, reason)。
 
-    逻辑与 query_threatintel_domain 一致，仅调用声明 supports_ip 的适配器。
+    逻辑与 query_threatintel_domain 一致（线程池并发），仅调用声明 supports_ip 的适配器。
     """
     adapters = [a for a in get_enabled_adapters() if a.supports_ip]
     if not adapters:
         return False, ""
 
-    results = []
-    for adapter in adapters:
+    def _safe_query(adapter):
         try:
-            r = adapter.query_ip(ip)
-            if r is not None:
-                results.append(r)
+            return adapter.query_ip(ip)
         except Exception as e:
             logger.warning("情报源 %s 查询 IP 异常: %s", adapter.name, e)
+            return None
+
+    with ThreadPoolExecutor(max_workers=min(len(adapters), 12)) as pool:
+        raw = list(pool.map(_safe_query, adapters))
+    results = [r for r in raw if r is not None]
 
     srcs = ",".join(a.name for a in adapters)
     if not results:

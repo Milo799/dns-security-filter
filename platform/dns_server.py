@@ -113,17 +113,31 @@ def extract_client_ip(data: bytes) -> str | None:
 
 
 async def handle_request(data: bytes, transport, addr: tuple) -> None:
-    """处理单个 DNS 查询报文，构造应答并发送。"""
+    """处理单个 DNS 查询报文，构造应答并发送。
+
+    process_query 含同步阻塞 IO（在线情报源逐源查询、公网解析），
+    用 to_thread 放线程池执行，避免阻塞事件循环导致其他查询无响应。
+    """
     try:
         request = DNSRecord.parse(data)
     except Exception as e:
         logger.warning("报文解析失败 from %s: %s", addr, e)
         return
 
-    client_ip = extract_client_ip(data)
+    client_ip = await asyncio.get_running_loop().run_in_executor(
+        None, extract_client_ip, data)
 
-    # 检测主流程（骨架）：返回 dnslib.DNSRecord 应答
-    reply = process_query(request, client_ip=client_ip)
+    def _process():
+        try:
+            return process_query(request, client_ip=client_ip)
+        except Exception:
+            # 检测主流程异常：回 SERVFAIL（不吞异常静默丢包）
+            logger.exception("检测主流程异常 from %s: %s", addr, request.q.qname)
+            reply = request.reply()
+            reply.header.rcode = RCODE.SERVFAIL
+            return reply
+
+    reply = await asyncio.get_running_loop().run_in_executor(None, _process)
 
     try:
         transport.sendto(reply.pack(), addr)
@@ -149,7 +163,9 @@ async def handle_tcp(reader: asyncio.StreamReader, writer: asyncio.StreamWriter)
             data = await reader.readexactly(length)
             request = DNSRecord.parse(data)
             client_ip = extract_client_ip(data)
-            reply = process_query(request, client_ip=client_ip)
+            # 检测主流程含同步阻塞 IO，放线程池执行避免阻塞事件循环
+            reply = await asyncio.get_running_loop().run_in_executor(
+                None, process_query, request, client_ip)
             packed = reply.pack()
             writer.write(len(packed).to_bytes(2, "big") + packed)
             await writer.drain()
