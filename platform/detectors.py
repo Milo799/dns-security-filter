@@ -24,6 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dnslib import DNSRecord, QTYPE, RR, A, AAAA, RCODE
 
 import domain_cache
+import circuit_breaker
 from config import CONFIG
 from app.db import db_cursor, get_enabled_list
 from app.threat_list import check_domain, check_ip
@@ -145,15 +146,34 @@ def query_threatintel_domain(domain: str) -> tuple[bool, str]:
     情报源配置/融合策略变更时由路由层清空（threatintel_invalidate）。
     **fail-safe 默认拦截不写缓存**（reason 以 "threatintel:" 前缀且来自
     全源无结论的路径）——缓存瞬时故障会放大为持续误拦。
+
+    熔断降级（10 万终端前置开发项 2，circuit_breaker 模块）：
+    - 源级熔断：连续失败 N 次的源跳过调用（open），冷却后半开探测恢复；
+    - 路径级降级：failsafe_mode=degrade 时，连续 fail-safe 达阈值开
+      降级窗口——窗口内本函数直接返回 (False, "degraded")，本地名单/
+      离线大名单/IP 后置仍正常执行（安全底线不破）；
+      failsafe_mode=intercept（默认）保持原 fail-safe 拦截语义。
     """
-    # 命中缓存：直接返回结论（含恶意与放行两类）
+    # 命中缓存：直接返回结论（含恶意与放行两类；缓存结论来自源健康期，
+    # 降级窗口内仍然有效——恶意域名不因降级而放过）
     cached = domain_cache.get(domain)
     if cached is not None:
         return cached
 
+    # 降级窗口：在线情报整体跳过（本地黑名单/大名单已在主流程前置执行）
+    if circuit_breaker.is_degraded():
+        return False, "degraded"
+
     adapters = [a for a in get_enabled_adapters() if a.supports_domain]
     if not adapters:
         return False, ""  # 无支持域名查询的情报源：跳过威胁情报检测
+
+    # 源级熔断：跳过 open 态故障源（冷却到期的转 half-open 放行探测）
+    adapters = [a for a in adapters if circuit_breaker.allows_source(a.name)]
+    if not adapters:
+        # 全部源都被熔断：等价全源无结论 → 走 fail-safe 语义（含降级判断）
+        circuit_breaker.record_failsafe()
+        return _failsafe_verdict([])
 
     def _safe_query(adapter):
         try:
@@ -164,18 +184,39 @@ def query_threatintel_domain(domain: str) -> tuple[bool, str]:
 
     with ThreadPoolExecutor(max_workers=min(len(adapters), 12)) as pool:
         raw = list(pool.map(_safe_query, adapters))
+    # 熔断计数：None（无结论/异常）计失败，有结论（含未命中）计成功
+    for adapter, r in zip(adapters, raw):
+        if r is None:
+            circuit_breaker.record_failure(adapter.name)
+        else:
+            circuit_breaker.record_success(adapter.name)
     results = [r for r in raw if r is not None]
 
     srcs = ",".join(a.name for a in adapters)
     if not results:
-        # 全部源超时/故障（无任何结论）→ 默认拦截（fail-safe，不写缓存）
-        return True, f"threatintel:{CONFIG.fusion_strategy}:{srcs}"
+        # 全部源超时/故障（无任何结论）→ fail-safe（拦截或降级，均不写缓存）
+        circuit_breaker.record_failsafe()
+        return _failsafe_verdict(adapters)
 
+    circuit_breaker.record_verdict()
     malicious = run_fusion(results, CONFIG.fusion_strategy)
     srcs = ",".join(r.source for r in results)
     reason = f"threatintel:{CONFIG.fusion_strategy}:{srcs}"
     domain_cache.put(domain, malicious, reason)   # 有结论（含放行）→ 写缓存
     return malicious, reason
+
+
+def _failsafe_verdict(adapters) -> tuple[bool, str]:
+    """fail-safe 分支统一出口：按 failsafe_mode 决定拦截或降级放行。
+
+    intercept（默认）: (True, "threatintel:<strategy>:<srcs>")——默认拦截；
+    degrade          : (False, "degraded:failsafe")——降级放行（不写缓存）。
+    adapters 仅供 reason 组装（可为空列表，如全源熔断场景）。
+    """
+    if circuit_breaker.failsafe_mode() == "degrade":
+        return False, "degraded:failsafe"
+    srcs = ",".join(a.name for a in adapters)
+    return True, f"threatintel:{CONFIG.fusion_strategy}:{srcs}"
 
 
 def query_threatintel_ip(ip: str) -> tuple[bool, str]:

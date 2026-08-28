@@ -28,6 +28,11 @@ class ConfigBody(BaseModel):
     threatlist_auto_interval_hours: int | None = None
     domain_cache_ttl_s: int | None = None
     domain_cache_size: int | None = None
+    failsafe_mode: str | None = None
+    cb_failure_threshold: int | None = None
+    cb_open_timeout_s: int | None = None
+    degrade_threshold: int | None = None
+    degrade_window_s: int | None = None
 
 
 @router.get("/config")
@@ -68,6 +73,21 @@ def update_config(body: ConfigBody, user: str = Depends(get_current_user)):
         raise HTTPException(
             status_code=400,
             detail="domain_cache_size 须在 1024~10000000 之间（条）")
+    if "failsafe_mode" in data and data["failsafe_mode"] not in ("intercept", "degrade"):
+        raise HTTPException(
+            status_code=400, detail="failsafe_mode 必须为 intercept/degrade")
+    if "cb_failure_threshold" in data and not (0 <= data["cb_failure_threshold"] <= 1000):
+        raise HTTPException(
+            status_code=400, detail="cb_failure_threshold 须在 0~1000 之间（0=禁用熔断）")
+    if "cb_open_timeout_s" in data and not (5 <= data["cb_open_timeout_s"] <= 86400):
+        raise HTTPException(
+            status_code=400, detail="cb_open_timeout_s 须在 5~86400 之间（秒）")
+    if "degrade_threshold" in data and not (0 <= data["degrade_threshold"] <= 1000):
+        raise HTTPException(
+            status_code=400, detail="degrade_threshold 须在 0~1000 之间（0=禁用降级）")
+    if "degrade_window_s" in data and not (10 <= data["degrade_window_s"] <= 86400):
+        raise HTTPException(
+            status_code=400, detail="degrade_window_s 须在 10~86400 之间（秒）")
 
     changes = {}
     for key, value in data.items():
@@ -231,6 +251,25 @@ def domain_cache_stats(_: str = Depends(get_current_user)):
     """
     import domain_cache
     return {"code": 0, "message": "ok", "data": domain_cache.stats()}
+
+
+@router.get("/circuit-breaker/stats")
+def circuit_breaker_stats(_: str = Depends(get_current_user)):
+    """熔断降级状态：各情报源熔断器 + 路径级降级窗口（运维巡检用）。"""
+    import circuit_breaker
+    return {"code": 0, "message": "ok", "data": {
+        "sources": circuit_breaker.source_states(),
+        "degrade": circuit_breaker.degrade_state(),
+    }}
+
+
+@router.post("/circuit-breaker/reset")
+def circuit_breaker_reset(user: str = Depends(get_current_user)):
+    """手动复位全部熔断器与降级状态（源恢复后强制清除用）。"""
+    import circuit_breaker
+    circuit_breaker.reset_all()
+    write_audit(user, "circuit_breaker_reset", {})
+    return {"code": 0, "message": "ok", "data": {}}
 
 
 @router.post("/detection/toggle")

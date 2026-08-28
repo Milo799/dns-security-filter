@@ -13,8 +13,34 @@ async function loadConfig(){
     document.getElementById('cfgAllowLog').checked = v('allow_log_enabled', '0') === '1';
     document.getElementById('cfgCacheTtl').value = v('domain_cache_ttl_s', '300');
     document.getElementById('cfgCacheSize').value = v('domain_cache_size', '1000000');
+    document.getElementById('cfgDegradeMode').checked = v('failsafe_mode', 'intercept') === 'degrade';
+    document.getElementById('cfgCbThreshold').value = v('cb_failure_threshold', '5');
+    document.getElementById('cfgCbTimeout').value = v('cb_open_timeout_s', '60');
+    document.getElementById('cfgDegradeThreshold').value = v('degrade_threshold', '3');
+    document.getElementById('cfgDegradeWindow').value = v('degrade_window_s', '300');
     loadCacheStats();
+    loadCbStats();
   }catch(e){ toast(e.message, true); }
+}
+
+async function loadCbStats(){
+  try{
+    var d = (await api('GET', '/api/circuit-breaker/stats')).data;
+    var srcs = Object.keys(d.sources || {});
+    var srcTxt = srcs.length
+      ? srcs.map(function(k){
+          var s = d.sources[k];
+          return k + '：' + (s.state === 'closed' ? '正常' : s.state === 'open' ? '已熔断' : '半开探测')
+                 + (s.failures ? '（连续失败 ' + s.failures + '）' : '');
+        }).join('；')
+      : '暂无情报源活动记录';
+    var dg = d.degrade || {};
+    var dgTxt = dg.mode === 'degrade' ? '降级模式' : '拦截模式';
+    if (dg.degraded) dgTxt += ' · 降级中（剩余 ' + dg.degrade_remaining_s + 's）';
+    document.getElementById('cfgCbStats').textContent = dgTxt + '；' + srcTxt;
+  }catch(e){
+    document.getElementById('cfgCbStats').textContent = '状态不可用';
+  }
 }
 
 async function loadCacheStats(){
@@ -38,7 +64,12 @@ async function saveConfig(){
     upstream_dns: document.getElementById('cfgUpstream').value.trim(),
     log_retention_days: parseInt(document.getElementById('cfgRetention').value) || 90,
     domain_cache_ttl_s: parseInt(document.getElementById('cfgCacheTtl').value) || 300,
-    domain_cache_size: parseInt(document.getElementById('cfgCacheSize').value) || 1000000
+    domain_cache_size: parseInt(document.getElementById('cfgCacheSize').value) || 1000000,
+    failsafe_mode: document.getElementById('cfgDegradeMode').checked ? 'degrade' : 'intercept',
+    cb_failure_threshold: parseInt(document.getElementById('cfgCbThreshold').value),
+    cb_open_timeout_s: parseInt(document.getElementById('cfgCbTimeout').value) || 60,
+    degrade_threshold: parseInt(document.getElementById('cfgDegradeThreshold').value),
+    degrade_window_s: parseInt(document.getElementById('cfgDegradeWindow').value) || 300
   };
   if (!body.alert_ip || !body.upstream_dns){ toast('告警 IP 与上游 DNS 不能为空', true); return; }
   try{
@@ -49,6 +80,7 @@ async function saveConfig(){
     toast('配置已保存，立即生效');
     loadDashboard();
     loadCacheStats();
+    loadCbStats();
   }catch(e){ toast(e.message, true); }
 }
 

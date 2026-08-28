@@ -20,6 +20,11 @@ DEFAULT_SYSTEM_CONFIG = {
     "detection_enabled": str(int(CONFIG.detection_enabled)),
     "domain_cache_ttl_s": str(CONFIG.domain_cache_ttl_s),
     "domain_cache_size": str(CONFIG.domain_cache_size),
+    "failsafe_mode": CONFIG.failsafe_mode,
+    "cb_failure_threshold": str(CONFIG.cb_failure_threshold),
+    "cb_open_timeout_s": str(CONFIG.cb_open_timeout_s),
+    "degrade_threshold": str(CONFIG.degrade_threshold),
+    "degrade_window_s": str(CONFIG.degrade_window_s),
     "threatlist_auto_update": str(int(CONFIG.threatlist_auto_update)),
     "threatlist_auto_interval_hours": str(CONFIG.threatlist_auto_interval_hours),
 }

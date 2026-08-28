@@ -378,6 +378,21 @@
             <div class="form-row"><label>缓存状态</label><div class="form-hint" id="cfgCacheStats">加载中…</div></div>
           </div></div>
         </div>
+        <div class="card"><div class="card-head"><div class="card-title">熔断与降级（情报源故障防护）</div></div>
+          <div class="card-body">
+            <div class="switch-row">
+              <div><div class="switch-label">降级模式</div><div class="switch-desc">开启后：情报源连续无结论达阈值时进入降级窗口，在线检测跳过、放行（本地名单与大名单仍拦截）；关闭则维持 fail-safe 默认拦截</div></div>
+              <label class="switch"><input id="cfgDegradeMode" type="checkbox"><span class="slider"></span></label>
+            </div>
+            <div class="form-grid" style="margin-top:8px">
+              <div class="form-row"><label>源熔断阈值（次）</label><input id="cfgCbThreshold" type="number"><div class="form-hint">单源连续失败次数，默认 5（0=禁用）。</div></div>
+              <div class="form-row"><label>源熔断冷却（秒）</label><input id="cfgCbTimeout" type="number"><div class="form-hint">熔断后跳过该源的时长，默认 60。</div></div>
+              <div class="form-row"><label>降级触发阈值（次）</label><input id="cfgDegradeThreshold" type="number"><div class="form-hint">连续 fail-safe 次数，默认 3（0=禁用）。</div></div>
+              <div class="form-row"><label>降级窗口（秒）</label><input id="cfgDegradeWindow" type="number"><div class="form-hint">窗口内跳过在线检测，默认 300。</div></div>
+              <div class="form-row"><label>熔断/降级状态</label><div class="form-hint" id="cfgCbStats">加载中…</div></div>
+            </div>
+          </div>
+        </div>
         <div class="card"><div class="card-head"><div class="card-title">检测与放行日志</div></div>
           <div class="card-body">
             <div class="switch-row">
