@@ -198,4 +198,13 @@ async def run_dns_server():
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
+    # Windows ProactorEventLoop 的 UDP transport 存在致命缺陷：
+    # 客户端先关闭 socket 后，积压应答发往已关端口触发 ICMP port
+    # unreachable，Proactor 会终止 UDP transport 的接收（connection_lost），
+    # 服务从此静默失聪（进程存活、端口监听、但不再处理任何查询）。
+    # SelectorEventLoop 无此问题（OSError 经 error_received 吞掉继续收包）。
+    # Linux（生产部署）用 epoll，不受影响。
+    import sys
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     asyncio.run(run_dns_server())

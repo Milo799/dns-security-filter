@@ -121,11 +121,45 @@ echo 'dnsfilter soft nofile 65536' | sudo tee -a /etc/security/limits.conf
 |---|--------|------|--------|-----------|
 | 1 | **域名检测结论缓存** | process_query 增加内存缓存：`域名+qtype → (结论, 应答, 时间戳)`；放行结论 TTL 5~15 分钟、拦截结论 TTL 1 小时；容量上限 LRU 淘汰（如 100 万条）；名单变更时 invalidate | 中（含并发安全与失效逻辑，约 150 行 + 测试） | 平台吞吐上限约 100 QPS，10 万终端直接雪崩 |
 | 2 | **fail-safe 在限流场景下的降级策略** | 在线情报源连续 N 次限流/超时 → 该源自动熔断（标记不可用，TTL 后探活恢复），无结论源不再触发"默认拦截"兜底，改为**放行并记日志**（或至少提供该开关） | 小（约 60 行） | 上线即全网断网（API 限流→全部无结论→全拦） |
-| 3 | **压测脚本与容量报告** | dnsperf/flamethrower 对代理+平台打目标 QPS（先 1 千再 1 万再 3 万），出具 P95 延迟/丢包率/CPU/内存曲线，验证缓存命中率 ≥95% | 小（脚本+执行） | 配置拍脑袋，上线赌运气 |
+| 3 | **压测脚本与容量报告** | 自研 `tools/loadtest.py`（零依赖、异步 UDP、阶梯加压）对代理+平台打目标 QPS（先 1 千再 1 万再 3 万），出具 P95 延迟/丢包率/RCODE 分布报告，验证缓存命中率 ≥95% | 小（脚本+执行） | 配置拍脑袋，上线赌运气 |
 | 4 | 匿名化客户端 IP 采集策略 | 10 万终端全量 client_ip 入日志，日志表每日百万行级——决定是否只记拦截+白名单（默认）或加采样 | 小（配置项） | 日志库膨胀、SQLite 写放大 |
 | 5 | SQLite 写入削峰 | 拦截日志异步批量写（内存队列 + 定期 flush），避免高 QPS 下写锁竞争拖慢检测线程 | 中 | 峰值期日志写入拖慢应答 |
 
 > 第 1、2 项完成后，稳态查询 95%+ 走缓存纯内存路径（<10ms），剩余 5% 走完整检测；第 2 项保证即便外部 API 全挂也不会误伤全网。**这三项是本方案与百人级方案的本质区别。**
+
+### 4.1 压测脚本用法（tools/loadtest.py，前置项 3 已交付）
+
+零第三方依赖（Python 3.10+ 标准库），对 DNS 入口施加可控 QPS 的 UDP 压力，产出容量报告全部指标。
+
+**核心设计**：
+- 域名池带 zipf 热度分布（头 10% 域名承担 ~55% 流量），模拟真实终端访问局部性——均匀分布会显著低估缓存命中率；固定随机种子，报告可复现
+- 发送/回收分离：发送协程严格按节拍发包不等应答（批量补发模型，Windows sleep 精度 15ms 下仍能维持目标速率），应答由独立回调按 QID 匹配
+- 阶梯加压：`--qps` 逗号分隔多级，逐级找容量拐点
+- 冷/热缓存对比：`--report-cache-warmup` 先 30s 低强度预热再正式压测
+
+**标准容量验证流程**（对应第七节验证项 7/8）：
+
+```bash
+# 阶梯加压：1 千 → 1 万 → 3 万 QPS，每级 10 分钟
+python tools/loadtest.py --target 127.0.0.1:15353 --qps 1000,10000,30000 \
+    --duration 600 --domains 2000
+
+# 冷/热缓存对比（验证前置项 1 的缓存收益）
+python tools/loadtest.py --target 127.0.0.1:15353 --qps 500 --duration 30 \
+    --report-cache-warmup
+
+# 风暴演练：峰值 1.5 倍 × 3 分钟
+python tools/loadtest.py --target 127.0.0.1:15353 --qps 45000 --duration 180
+```
+
+输出：控制台报告（实测 QPS、P50/P90/P95/P99/Max 延迟、超时率、丢包率、RCODE 分布、验收判定）+ `loadtest-report-<时间戳>.json` 留存基线。
+
+**验收口径**：P95 <100ms 且丢包率 <0.1%（脚本自动判定）。
+
+**本机（Windows 沙箱）验证结论**（2026-08-28，域名池 500 黑名单命中路径）：
+- 500 QPS × 10s：5000/5000 全收、P95 75.7ms、零丢包，**脚本统计口径正确**
+- 1000 QPS 以上：平台处理能力饱和在 ~400 QPS（瓶颈：`get_enabled_list` 每查询全表 SELECT + `write_filter_log` 同步 SQLite INSERT，20 线程池打满），超出部分积压超时——**这正是部署方案预言的瓶颈形态**，生产环境需靠前置项 1 缓存吸收 95%+ 流量 + 前置项 5 异步写日志解决
+- 附带发现并修复：Windows ProactorEventLoop 的 UDP transport 在客户端先行关闭触发 ICMP port unreachable 后永久失聪（dns_server.py 已加 SelectorEventLoopPolicy 保护，Linux epoll 不受影响）
 
 ## 五、安装步骤
 
@@ -232,7 +266,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now platform-dns platfor
 | 4 | 缓存命中率 | 平台日志/统计（开发项 3 的产物） | 稳态 ≥95% |
 | 5 | 黑名单拦截 | 加 `test-block.example.com` 后 dig | 告警 IP，0s |
 | 6 | 拦截日志与终端 IP | Web → 过滤日志 | client_ip 为终端真实 IP |
-| 7 | **压测基准** | dnsperf 打 1 万 QPS × 10 分钟 | P95 延迟 <100ms、无丢包、CPU <70%、内存稳定 |
+| 7 | **压测基准** | `python tools/loadtest.py --target 机B:15353 --qps 10000 --duration 600`（直打平台；打全链路改 `--target 机A:53`） | P95 延迟 <100ms、无丢包、CPU <70%、内存稳定 |
 | 8 | **风暴演练** | 打峰值 1.5 倍 × 3 分钟 | 服务不崩，超限部分排队或快速失败 |
 | 9 | 容灾演练 | 停 platform-dns → 终端查询 | SERVFAIL 约 8s，无静默挂起；改回转发器立即恢复 |
 | 10 | 误拦截应急 | Web 加白名单 | 秒级生效 |
