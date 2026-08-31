@@ -29,7 +29,7 @@ DNS 安全过滤平台（Python，监听 53）
 | `proxy/` | Go 代理中间件（main/config/forward + 配置模板） | ✅ 已实现，待 Go 环境编译验证 |
 | `platform/` | 平台：dns_server（ECS/PTR）、detectors 五层检测、adapters（16 适配器）、threat_list（离线大名单）、app(FastAPI+SQLite)、seed | ✅ 已实现 |
 | `web/` | 管理前端（单文件 SPA，SAP Fiori 风格：拆页黑白名单/情报源表格/测试中心/调度可视化） | ✅ 已实现 |
-| `deploy/` | systemd unit ×3 + install.sh；**`deploy/docker/`** 镜像编排 + 网络白名单 | ✅ 已实现 |
+| `deploy/` | systemd unit ×3 + **一键安装脚本 install-proxy.sh / install-platform.sh**；**`deploy/docker/`** 镜像编排 + 网络白名单 | ✅ 已实现 |
 | `scripts/` | dev.sh（一键启动）、verify.sh（dig 验证）、fake_upstream.py | ✅ 已实现 |
 | `tests/` | pytest 205 项（融合/拦截/ECS/PTR/大名单/情报源/调度/性能） | ✅ 全绿 |
 | `docs/` | 需求说明书 V2.1（需求基线）、开发 PRD V2.0（实现基线） | ✅ |
@@ -45,7 +45,19 @@ docker compose -f deploy/docker/docker-compose.yml up -d --build
 # 网络出站白名单清单见 deploy/docker/README.md（四类：构建期/大名单/在线情报/上游 DNS）
 ```
 
-### 方式二：裸机 / 开发调试（Linux）
+### 方式二：一键脚本（Linux 生产，systemd）
+
+```bash
+# 机 B（检测平台）：自动 venv+依赖、生成随机密钥与全注释配置、装 systemd 并自检
+sudo ./deploy/install-platform.sh --upstream-dns 223.5.5.5 --alert-ip <告警页IP>
+
+# 机 A（代理）：需先交叉编译 bin/dns-proxy（见 5.0 节）
+sudo ./deploy/install-proxy.sh --upstream <机B内网IP>
+
+# 参数与脚本行为详见 docs/生产环境部署方案（Linux 双机）.md 第五节
+```
+
+### 方式三：裸机 / 开发调试（Linux）
 
 ```bash
 # 1. 平台依赖
@@ -54,7 +66,7 @@ cd platform && pip install -r requirements.txt
 # 2. 初始化数据库（建表 + 默认管理员 admin/admin123 + 内置情报源 seed）
 python -m seed
 
-# 3. 启动平台（DNS :53 + Web :8080）—— 生产用 systemd（deploy/install.sh），开发可改端口调试
+# 3. 启动平台（DNS :53 + Web :8080）—— 生产用一键脚本（见上），开发可改端口调试
 python dns_server.py &                                              # DNS 服务
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8080 &         # Web
 

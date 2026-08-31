@@ -1,14 +1,28 @@
 [Unit]
-Description=DNS 安全过滤平台 Web 管理
-After=network.target platform-dns.service
+Description=DNS 安全过滤平台 - Web 管理服务
+Documentation=https://github.com/Milo799/dns-security-filter
+After=network-online.target platform-dns.service
+Wants=network-online.target
+# 平台 DNS 先起（共享同一 SQLite，避免首启建库竞争），Web 随后
+Requires=platform-dns.service
 
 [Service]
 Type=simple
 User=dnsfilter
+Group=dnsfilter
 WorkingDirectory=/opt/dns-security-filter/platform
-ExecStart=/usr/bin/python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8080
+# venv 内的 uvicorn；host/port 与 platform.yaml 的 web 段一致时以本命令行为准
+ExecStart=/opt/dns-security-filter/platform/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8080
 Restart=on-failure
 RestartSec=5
+
+# ---- 资源上限 ----
+LimitNOFILE=65536
+
+# ---- 安全加固 ----
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
 
 [Install]
 WantedBy=multi-user.target

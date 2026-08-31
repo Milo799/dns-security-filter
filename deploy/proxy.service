@@ -1,16 +1,28 @@
 [Unit]
-Description=DNS 安全过滤代理中间件
-After=network.target
+Description=DNS 安全过滤代理中间件（纯转发层）
+Documentation=https://github.com/Milo799/dns-security-filter
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-# 建议用普通用户运行并授权绑定 53 端口：
-#   sudo setcap 'cap_net_bind_service=+ep' /opt/dns-security-filter/bin/dns-proxy
+# 以专用非特权用户运行；绑定 53 端口的授权由安装脚本 setcap 完成
 User=dnsfilter
+Group=dnsfilter
 WorkingDirectory=/opt/dns-security-filter
 ExecStart=/opt/dns-security-filter/bin/dns-proxy -config /opt/dns-security-filter/proxy/config.yaml
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5
+
+# ---- 资源与安全加固（代理轻量，从紧）----
+# 静态 Go 二进制无需动态库之外的任何文件权限
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+# 10 万终端并发下的 FD 消耗（UDP/TCP 双栈 + 每查询 socket）
+LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target

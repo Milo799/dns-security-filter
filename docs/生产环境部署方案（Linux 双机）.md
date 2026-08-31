@@ -91,25 +91,30 @@
 
 ### 3.3 系统参数
 
+> 以下三项（setcap 端口授权 / sysctl 收发缓冲 / nofile 句柄）**安装脚本均已自动完成**
+> （见 5.1/5.2 节），此处仅供脚本不可用时的手工兜底与核对：
+
 ```bash
-# 机 A：端口授权（dnsfilter 用户绑 53）
+# 机 A：端口授权（dnsfilter 用户绑 53）——脚本用 setcap 完成
 sudo setcap 'cap_net_bind_service=+ep' /opt/dns-security-filter/bin/dns-proxy
 
 # 机 B：若直接监听 53 需同样授权 python；监听 15353 无需
-# 两机：DNS 高并发内核参数
-cat >> /etc/sysctl.conf <<EOF
+# 两机：DNS 高并发内核参数——脚本写入 /etc/sysctl.d/99-dnsfilter.conf
+cat >> /etc/sysctl.d/99-dnsfilter.conf <<EOF
 net.core.rmem_max=16777216
 net.core.wmem_max=16777216
 net.core.netdev_max_backlog=10000
 EOF
-sysctl -p
-# 两机：文件句柄（SQLite/日志/线程）
+sysctl --system
+# 两机：文件句柄（SQLite/日志/线程）——脚本追加 limits.conf
 echo 'dnsfilter soft nofile 65536' | sudo tee -a /etc/security/limits.conf
 ```
 
 ### 3.4 软件依赖
 
-同前版：机 A 零依赖（静态单二进制）；机 B Python ≥3.10 + venv（requirements.txt 九个包，国内 pip 源）。离线部署选项同前（pip download 拷贝安装 + 手工灌名单）。
+机 A 零依赖（静态单二进制，仅需 systemd）；机 B Python ≥3.10 + venv
+（requirements.txt 九个包，安装脚本自动装国内镜像）。离线部署选项：
+pip download 拷贝安装 + 手工灌名单（见 5.5 手工步骤）。
 
 ---
 
@@ -186,84 +191,141 @@ Python asyncio 固有开销而非 SQLite（flusher 仅占 9.5% 且完全跟得�
 - `log_async_enabled` / `log_flush_interval_s` / `log_batch_size`：异步写入开关/间隔/批量（前置项 5；`log_async_enabled=0` 回退同步直写，排障用）
 - `GET /api/log-writer/stats`：入队/落库/丢弃/队列深度观测（dropped>0 说明写入跟不上，需调大批量或检查磁盘 IO）
 
-## 五、安装步骤
+## 五、安装步骤（一键脚本部署）
 
-### 5.0 构建代理二进制（任意有 Go ≥1.21 的机器）
+> 部署产物已脚本化：`deploy/install-proxy.sh`（机 A）+ `deploy/install-platform.sh`（机 B），
+> 配置模板 `proxy/proxy.example.yaml` + `platform/platform.example.yaml` 均为**全量中文注释版**
+> （每项含取值范围、生产建议、生效方式），脚本自动从模板生成实际配置并替换关键键值。
+> 不想用脚本的手工步骤见 5.5 节（内容与脚本一致）。
+
+### 5.0 准备（两机通用）
 
 ```bash
+# ① 拉代码（或 git clone 后 scp 整个目录到目标机）
 git clone https://github.com/Milo799/dns-security-filter.git
-cd dns-security-filter/proxy
-export GOPROXY=https://goproxy.cn,direct
-GOOS=linux GOARCH=amd64 go build -o ../bin/dns-proxy .
-scp bin/dns-proxy user@机A:/tmp/
+cd dns-security-filter
+
+# ② 交叉编译 Linux 代理二进制（任意有 Go>=1.21 的机器，含开发机）
+cd proxy && GOPROXY=https://goproxy.cn,direct GOOS=linux GOARCH=amd64 go build -o ../bin/dns-proxy . && cd ..
+# 编译产物 bin/dns-proxy 随代码目录一起带到机 A
+
+# ③ 确认机器满足第二节配置要求；两机 NTP 对时（强制）
 ```
 
-### 5.1 机 A（代理）
+### 5.1 机 B（检测平台）——一条命令
+
+```bash
+sudo ./deploy/install-platform.sh --upstream-dns 223.5.5.5 --alert-ip 10.0.0.99
+```
+
+脚本自动完成 9 件事（幂等可重跑）：环境检测（Python>=3.10/内存预警）→ 建 dnsfilter
+用户与目录 → 代码落位 → venv+pip 依赖（清华镜像）→ **自动生成随机 jwt_secret 与
+管理员初始密码**并从全注释模板生成 platform.yaml → 装 systemd 双服务并启动 →
+内核参数调优 → 句柄上限 → 自检（服务/端口/健康接口）。
+
+**参数表**（全部可选，默认值适合双机标准拓扑）：
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `--dns-port` | 15353 | 平台 DNS 监听端口（代理转发到这里） |
+| `--web-port` | 8080 | Web 管理端口 |
+| `--upstream-dns` | 223.5.5.5 | 公网递归 DNS（⚠️ 严禁指向本系统） |
+| `--alert-ip` | 127.0.0.1 | 拦截引导页 IP（生产建议内网告警页） |
+| `--memory-max` | 24G | systemd 内存上限（16G 机器设 10G） |
+| `--pip-mirror` | 清华源 | 无外网时换本地源 |
+| `--install-dir` | /opt/dns-security-filter | 安装目录 |
+| `--skip-tuning` | - | 跳过 sysctl/limits 调优 |
+
+装完屏幕会打印**管理员初始密码**（仅首次生成配置时）——登录
+`http://机B:8080` 后立即改密，再导入离线大名单（威胁情报→离线情报源，
+hagezi_mini 起步）。
+
+### 5.2 机 A（代理）——一条命令
+
+```bash
+sudo ./deploy/install-proxy.sh --upstream 192.168.10.21 --upstream-port 15353
+```
+
+脚本自动完成 8 件事（幂等可重跑）：环境检测（53 占用自动提示 systemd-resolved
+让端口方法）→ 用户与目录 → 二进制安装 + setcap 53 授权 → 从全注释模板生成
+config.yaml → systemd 服务并启动 → 内核参数 → 句柄上限 → 自检。
+
+**参数表**：
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `--upstream` | 127.0.0.1 | ★ 机 B 内网 IP |
+| `--upstream-port` | 15353 | 与机 B 的 `--dns-port` 一致 |
+| `--listen-port` | 53 | 本机监听端口（域控转发器指向它） |
+| `--forward-timeout` | 8 | 转发超时秒（生产 ≥8） |
+| `--binary` | bin/dns-proxy | 预编译二进制路径 |
+| `--install-dir` | /opt/dns-security-filter | 安装目录 |
+| `--skip-tuning` | - | 跳过 sysctl/limits 调优 |
+
+### 5.3 脚本透明化清单（变更点审计用）
+
+| 变更点 | 内容 | 回滚方式 |
+|--------|------|---------|
+| 系统用户 | `dnsfilter`（nologin 系统账号） | `userdel dnsfilter` |
+| 文件 | `/opt/dns-security-filter/`（bin/proxy/platform/web/data） | 删目录 |
+| venv | `platform/venv`（9 个 pip 包） | 删 venv 目录 |
+| systemd | proxy / platform-dns / platform-web 三服务（enable+start） | `systemctl disable --now <svc>` 后删 unit 文件 |
+| 内核参数 | `/etc/sysctl.d/99-dnsfilter.conf`（rmem/wmem 16MB、backlog 10000） | 删该文件后 `sysctl --system` |
+| 句柄上限 | `/etc/security/limits.conf` 追加 dnsfilter nofile 65536 | 删追加行 |
+| 配置 | 从 example 生成（**已存在则永不覆盖**） | 删配置文件重跑脚本 |
+
+### 5.4 改配置的正确姿势
+
+两个 example 模板里每一项都有中文注释（含义/取值/生产建议），照注释改即可：
+
+```bash
+# 机 A 代理（改后生效）：
+sudo vi /opt/dns-security-filter/proxy/config.yaml && sudo systemctl restart proxy
+
+# 机 B 平台（dns/web/database 三段改后须重启；检测/日志/缓存类多支持 Web 在线热调）：
+sudo vi /opt/dns-security-filter/platform/platform.yaml
+sudo systemctl restart platform-dns platform-web
+```
+
+Web 配置页（系统→系统配置）可在线调整的项存 SQLite，**优先级高于 yaml**
+（运行时覆盖）：放行日志采样率、异步写入三参数、缓存 TTL/容量、熔断降级、
+自动更新周期、fail-safe 模式等。
+
+### 5.5 手工部署（脚本不可用时的兜底，内容与脚本等价）
+
+<details>
+<summary>展开手工步骤（机 A / 机 B）</summary>
+
+**机 A（代理）：**
 
 ```bash
 sudo useradd -r -s /usr/sbin/nologin dnsfilter
 sudo mkdir -p /opt/dns-security-filter/{bin,proxy}
-sudo cp /tmp/dns-proxy /opt/dns-security-filter/bin/
+sudo install -m 0755 bin/dns-proxy /opt/dns-security-filter/bin/
 sudo setcap 'cap_net_bind_service=+ep' /opt/dns-security-filter/bin/dns-proxy
-
-sudo tee /opt/dns-security-filter/proxy/config.yaml > /dev/null <<'EOF'
-listen_addr: 0.0.0.0
-listen_port: 53
-upstream_addr: 192.168.10.21     # ★ 机B 内网 IP
-upstream_port: 15353              # ★ 与机B platform.yaml dns.listen_port 一致
-forward_timeout: 8               # ★ ≥8s（平台完整检测路径耗时上限余量）
-log_enabled: false               # ★ 10万终端下代理逐查询日志量大，关闭（排障时临时开）
-EOF
-sudo chown -R dnsfilter:dnsfilter /opt/dns-security-filter
-
+sudo cp proxy/proxy.example.yaml /opt/dns-security-filter/proxy/config.yaml
+# 编辑 config.yaml：upstream_addr=机B IP、upstream_port=15353、forward_timeout=8
 sudo cp deploy/proxy.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now proxy
 ```
 
-### 5.2 机 B（平台）
+**机 B（平台）：**
 
 ```bash
 sudo useradd -r -s /usr/sbin/nologin dnsfilter 2>/dev/null || true
 sudo mkdir -p /opt/dns-security-filter
 sudo cp -r platform web /opt/dns-security-filter/
-cd /opt/dns-security-filter/platform
-sudo python3 -m venv venv
+cd /opt/dns-security-filter/platform && sudo python3 -m venv venv
 sudo ./venv/bin/pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-
-sudo tee /opt/dns-security-filter/platform/platform.yaml > /dev/null <<'EOF'
-dns:
-  listen_addr: 0.0.0.0
-  listen_port: 15353
-web:
-  listen_addr: 0.0.0.0
-  listen_port: 8080
-  jwt_secret: ★32位以上随机串★
-database: ./data/platform.db
-upstream_dns: 223.5.5.5          # ★ 公网递归；严禁指向本系统（成环）
-alert_ip: ★建议内网告警引导页IP★
-alert_ttl: 60
-fusion_strategy: any
-log_retention_days: 90
-allow_log_enabled: false          # ★ 10万终端默认关（见第九节）
-detection_enabled: true
-api_timeout_ms: 2000
-admin_initial_password: ★首启即改★
-EOF
-mkdir -p data && sudo chown -R dnsfilter:dnsfilter /opt/dns-security-filter
-
-# systemd：service 模板需修订（ExecStart 改 venv python + 资源上限）
-# platform-dns.service 增加：
-#   MemoryMax=24G
-#   LimitNOFILE=65536
+sudo cp platform.example.yaml platform.yaml
+# 编辑 platform.yaml：jwt_secret（openssl rand -hex 32）、admin_initial_password、
+#   dns.listen_port=15353、upstream_dns、alert_ip（模板内有逐项注释）
+mkdir -p data
 sudo cp deploy/platform-dns.service deploy/platform-web.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now platform-dns platform-web
 ```
 
-### 5.3 systemd service 修订要点（部署时逐项核对）
-
-1. 两个平台 service 的 `ExecStart` python 路径改为 `/opt/dns-security-filter/platform/venv/bin/python`
-2. `platform-dns.service` 加 `MemoryMax=24G`（防缓存把机器打爆，留 8G 系统余量）+ `LimitNOFILE=65536`
-3. 保留 `Restart=on-failure`/`RestartSec=5`（崩溃自动拉起）
+</details>
 
 ## 六、域 DNS（多台 DC）转发器配置
 
