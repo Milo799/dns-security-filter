@@ -76,8 +76,15 @@ for cand in python3 python3.12 python3.11 python3.10 /usr/bin/python3; do
   fi
 done
 [[ $PY_OK -eq 1 ]] || die "未找到 Python >=3.10（平台运行必需）。请先安装：
-  AlmaLinux/RHEL 8: dnf install python3.12 python3.12-pip（需系统>=8.10）或 python3.11（>=8.7）
+  AlmaLinux/RHEL 8: dnf install python3.12 python3.12-pip python3.12-setuptools（需系统>=8.10）
+                    或 python3.11 python3.11-pip（>=8.7）
   Debian/Ubuntu:   apt install python3 python3-venv"
+# RHEL 系坑：只装 python3.12 不装 python3.12-pip 时，venv 的 ensurepip 环节会失败——
+# 提前探测 pip 可用性，把报错拦在最前面（而不是走到 venv 创建才炸）
+if [[ $PY_OK -eq 1 ]] && ! "$PYTHON_BIN" -m pip --version >/dev/null 2>&1; then
+  warn "检测到 $PYTHON_BIN 缺少 pip 模块（RHEL 系单独拆包）——venv 创建将失败"
+  warn "先补装再重跑本脚本：dnf install -y ${PYTHON_BIN}-pip ${PYTHON_BIN}-setuptools"
+fi
 log "Python：$("$PYTHON_BIN" -V 2>&1)"
 log "内存：$(free -h | awk '/^Mem:/{print $2}')；磁盘可用：$(df -h / | awk 'NR==2{print $4}')"
 
@@ -109,8 +116,14 @@ chmod +x "$INSTALL_DIR/tools/"*.sh 2>/dev/null || true
 
 # ---- 4 venv + 依赖 ----------------------------------------------------------
 if [[ ! -x "$INSTALL_DIR/platform/venv/bin/python" ]]; then
-  "$PYTHON_BIN" -m venv "$INSTALL_DIR/platform/venv" || \
-    die "创建 venv 失败（Debian/Ubuntu 需先 apt install python3-venv）"
+  if ! "$PYTHON_BIN" -m venv "$INSTALL_DIR/platform/venv"; then
+    # 失败时清掉半成品 venv（否则下次误判"已存在"跳过重建）
+    rm -rf "$INSTALL_DIR/platform/venv"
+    die "创建 venv 失败（ensurepip 报错）。按发行版补装后重跑：
+  AlmaLinux/RHEL 8: dnf install -y $PYTHON_BIN-pip $PYTHON_BIN-setuptools  # 如 python3.12-pip
+  Debian/Ubuntu:   apt install python3-venv
+  （补装后无需删除任何文件，脚本幂等可重跑）"
+  fi
 fi
 log "安装 Python 依赖（镜像 $PIP_MIRROR，首次约 1~3 分钟）…"
 "$INSTALL_DIR/platform/venv/bin/pip" install -q --upgrade pip -i "$PIP_MIRROR" >/dev/null 2>&1 || true

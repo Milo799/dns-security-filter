@@ -51,19 +51,27 @@ dnf update 到 8.10 后 `dnf install python3.12` 直接可用；若因故停在 
 sudo ./deploy/install-proxy.sh --upstream <机B内网IP> --upstream-port 15353
 ```
 
-## 三、机 B（检测平台）——唯一注意点是 Python 版本
+## 三、机 B（检测平台）——注意 Python 的三个包都要装
 
 ```bash
 # ① 装 Python（本环境采用 3.12；dnf update 到 8.10 后可用）
-sudo dnf install -y python3.12 python3.12-pip
-#    若系统停在 8.7~8.9 装不到 3.12，改装 python3.11 效果等同（脚本都能识别）
+#    ⚠️ RHEL 系把 pip/setuptools 拆成独立包：只装 python3.12 会导致 venv 创建失败
+#    （ensurepip 报错 exit status 1）——三个包一起装
+sudo dnf install -y python3.12 python3.12-pip python3.12-setuptools
+#    若系统停在 8.7~8.9 装不到 3.12，改装 python3.11 + python3.11-pip + python3.11-setuptools 效果等同
 
-# ② 确认版本 ≥3.10（安装脚本也会自检，这里提前确认少走弯路）
-python3.12 -V
+# ② 确认版本与 pip 模块都在（安装脚本也会自检，这里提前确认少走弯路）
+python3.12 -V && python3.12 -m pip --version
 
 # ③ 跑主方案 5.1 节的一键脚本（脚本自动找到 python3.12 建 venv、装 9 个依赖）
 sudo ./deploy/install-platform.sh --upstream-dns 223.5.5.5 --alert-ip <内网告警页IP>
 ```
+
+> **踩坑记录（2026-08-31 实测）**：只装 `python3.12` 不装 `python3.12-pip` 时，
+> 安装脚本在 venv 创建的 ensurepip 环节报
+> `Error: Command '...venv/bin/python3.12 -m ensurepip ...' returned non-zero exit status 1`。
+> 补装 pip 包后直接重跑安装脚本即可（脚本幂等，且失败时会自动清理半成品 venv）。
+> 若 venv 残留导致异常，`rm -rf /opt/dns-security-filter/platform/venv` 后重跑。
 
 **为什么顺畅**：RHEL 8 的 glibc 2.28 对应 manylinux_2_28 轮子标签，requirements.txt 全部
 九个包（fastapi/uvicorn/pydantic 系/pyjwt/bcrypt/pyyaml/requests/cryptography/httpx）
@@ -113,7 +121,7 @@ MemoryMax、OnCalendar + Persistent timer），在 RHEL 8 的 systemd 239 上**�
 [0:10] 开发机：交叉编译代理二进制（仓库已提供 bin/dns-proxy 时跳过）
        cd proxy && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../bin/dns-proxy .
 [0:12] 打包上传：仓库目录（含 bin/dns-proxy）scp 到两机 /root/ 或 /tmp/
-[0:15] 机 B：dnf install python3.12 python3.12-pip
+[0:15] 机 B：dnf install python3.12 python3.12-pip python3.12-setuptools
 [0:18] 机 B：sudo ./deploy/install-platform.sh --upstream-dns 223.5.5.5 --alert-ip x.x.x.x
        （记下屏幕打印的管理员初始密码；登录 http://机B:8080 改密）
 [0:25] 机 A：sudo ./deploy/install-proxy.sh --upstream <机B IP> --upstream-port 15353
@@ -127,9 +135,9 @@ MemoryMax、OnCalendar + Persistent timer），在 RHEL 8 的 systemd 239 上**�
 机房无公网时（大名单靠人工介质同步的场景）：
 
 1. 有公网的跳板机：`python3.12 -m pip download -r requirements.txt -d wheels/ `
-   （AlmaLinux 8 上下载即得 manylinux_2_28 轮子）+ 下载 hagezi 等名单 txt
+   （AlmaLinux 8 上下载即得 manylinux_2_28 轮子；跳板机同样需 python3.12-pip）+ 下载 hagezi 等名单 txt
 2. 打包 `wheels/ + 仓库 + bin/dns-proxy` 一并 scp 到机 B
-3. 机 B：`sudo dnf install python3.12` 后改用脚本参数
+3. 机 B：`sudo dnf install python3.12 python3.12-pip python3.12-setuptools` 后改用脚本参数
    `--pip-mirror file:///root/wheels` 或手工
    `venv/bin/pip install --no-index --find-links=/root/wheels -r requirements.txt`
 4. dnf 无本地源时：`dnf install --disablerepo=* --enablerepo=baseos,appstream` 需内网
@@ -141,6 +149,7 @@ MemoryMax、OnCalendar + Persistent timer），在 RHEL 8 的 systemd 239 上**�
 |------|------|------|
 | `dnf install python3.12` 提示无包 | 系统未升到 8.10（python3.12 从 8.10 起收录） | `dnf update` 升系统；或改装 `python3.11`（8.7 起有，同样满足 ≥3.10） |
 | 脚本自检"未找到 Python >=3.10" | 只装了系统默认 python3（3.6） | `dnf install python3.12`；脚本探测顺序 python3 → python3.12 → python3.11 → python3.10 |
+| venv 创建报 `ensurepip ... non-zero exit status 1` | **只装了 python3.12 没装 pip 包**（RHEL 系单独拆包，最常见坑） | `dnf install -y python3.12-pip python3.12-setuptools` 后重跑安装脚本（幂等）；venv 残留异常时 `rm -rf /opt/dns-security-filter/platform/venv` 再重跑 |
 | 内网机器 dig 机 A 53 不通 | 系统层 firewalld 已关，但上联设备有 ACL | 找网络组核对上联防火墙/交换机 ACL 是否放行来源段（第四节端口表） |
 | `getenforce` 输出 Enforcing | 只 setenforce 0 没改配置文件（重启会复原） | `sed -i 's/^SELINUX=enforcing/SELINUX=disabled/' /etc/selinux/config` 后重启 |
 | chrony 未同步导致 JWT/审计时间漂移 | 虚机模板未配 NTP | `systemctl enable --now chronyd`；主方案第二节 NTP 为强制项 |
