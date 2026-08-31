@@ -1,8 +1,8 @@
-# Windows DNS 安全过滤中间件 开发 PRD（V2.0）
+# Windows DNS 安全过滤中间件 开发 PRD（V2.1）
 
-> 本文档基于《Windows DNS 安全过滤中间件 需求说明书（完整版 V2.1）》（合并 V1.1~V2.1 全部 16 轮迭代需求）编写，
-> 面向开发实现，定义数据模型、接口、配置项与技术方案。V1.2 之后新增内容以「▲」标注。
-> 本 PRD 描述的即系统**当前已实现并验证的规格基线**（205 项测试全绿），可用于二次开发、部署与验收。
+> 本文档基于《Windows DNS 安全过滤中间件 需求说明书（完整版 V2.2）》（合并 V1.1~V2.2 全部 21 轮迭代需求）编写，
+> 面向开发实现，定义数据模型、接口、配置项与技术方案。V2.0 之后新增内容以「★」标注（V1.2~V2.0 的「▲」保留）。
+> 本 PRD 描述的即系统**当前已实现并验证的规格基线**（265 项测试全绿），可用于二次开发、部署与验收。
 
 ## 一、文档说明
 
@@ -10,7 +10,7 @@
 |----|------|
 | 项目 | Windows DNS 安全过滤中间件 |
 | 目标读者 | AI 开发助手 / 开发工程师 |
-| 关联文档 | 《Windows DNS 安全过滤中间件 需求说明书（完整版 V2.1）》 |
+| 关联文档 | 《Windows DNS 安全过滤中间件 需求说明书（完整版 V2.2）》、《生产环境部署方案（Linux 双机）》 |
 | 环境 | 纯 IPv4 内网；Windows Server 原生 DNS；网络不支持 IPv6（但客户端可能发起 AAAA 查询，需同等过滤） |
 | 部署原则 | 代理中间件独立部署，Windows DNS 零安装、仅配转发器；代理与平台均以 **Linux 部署为准**——systemd 原生与 **Docker（推荐）** 两种方式，Windows 部署仅作备用 |
 
@@ -81,12 +81,12 @@ Windows DNS
 
 | 组件 | 方案 | 说明 |
 |------|------|------|
-| 代理中间件 | Go + `miekg/dns` | 单文件二进制部署、性能损耗可忽略 |
+| 代理中间件 | Go + `miekg/dns` | 单文件二进制部署、性能损耗可忽略；★ 已编译验证 + 端到端四场景通过（放行/拦截/SERVFAIL/ECS 透传） |
 | 平台后端 | Python 3.10+ / FastAPI | 同时承担 DNS 服务器与 Web API |
-| 平台 DNS 服务 | Python `dnslib` | 在平台内监听 53，解析/构造 DNS 报文（支持 EDNS0/ECS） |
-| 数据库 | SQLite（WAL） | 单实例足够；名单/日志/配置/大名单 |
-| 前端 | 原生 HTML 单文件 SPA（SAP Fiori 风格） | 随平台静态部署，零构建链 |
-| 部署封装 | Linux systemd + **Docker / docker-compose（推荐）** | `deploy/`（systemd）与 `deploy/docker/`（容器化）两套 |
+| 平台 DNS 服务 | Python `dnslib` | 在平台内监听 53，解析/构造 DNS 报文（支持 EDNS0/ECS）；★ process_query 经 run_in_executor 线程池执行（同步检测 IO 不阻塞事件循环） |
+| 数据库 | SQLite（WAL） | 单实例足够；名单/日志/配置/大名单；★ 连接线程隔离（threading.local）+ 异步批量写日志（log_writer） |
+| 前端 | ★ 多文件 SPA（原生 HTML/CSS/JS，零构建链，SAP Fiori 风格 + SOC 深浅双主题） | web/css/{theme,base,pages}.css + web/js/{app,charts,boot}.js + web/js/pages/*.js；加载顺序固定：app → charts → pages/* → boot |
+| 部署封装 | Linux systemd + **Docker / docker-compose（推荐）** | `deploy/`（systemd + ★ 一键脚本 install-proxy.sh / install-platform.sh）与 `deploy/docker/`（容器化）两套 |
 
 ## 四、DNS 代理中间件规格
 
@@ -119,7 +119,7 @@ Windows DNS
 
 ### 5.1 DNS 请求处理主流程
 
-平台监听 53，收到 DNS 查询报文后按以下顺序处理：
+平台监听 53，收到 DNS 查询报文后按以下顺序处理（★ 5~6 步为解析速度优化后形态——单次上游往返 + IP 并行后置 + 双结论缓存）：
 
 ```
 1. 解析 DNS 查询报文 → 提取 查询域名 + QTYPE + EDNS0 Client Subnet(客户端 IP)
@@ -128,18 +128,27 @@ Windows DNS
 4. 域名前置检测（A 与 AAAA 同等处理；PTR 解析出目标 IP 后走 IP 维度 ▲）：
    a. 命中本地域名黑名单 → 构造拦截应答返回（写拦截日志）→ 结束
    b. 命中离线大名单（内存 O(1) 匹配）▲ → 构造拦截应答返回（写日志）→ 结束
-   c. 并行调用启用的威胁情报适配器查询域名 → 按融合策略判定恶意
+   c. ★ 域名结论缓存命中 → 按缓存结论放行/拦截（跳过在线源实查）
+   d. 并行调用启用的威胁情报适配器查询域名 → 按融合策略判定恶意
       → 判定恶意 → 构造拦截应答返回（写日志）→ 结束
-5. 请求公网 DNS 解析 → 得到记录 IP 列表（A 得 IPv4 列表 / AAAA 得 IPv6 列表）
-6. IP 后置过滤（对返回的每个 IP 逐条校验）：
-   a. 命中本地 IP 黑名单（支持 CIDR）→ 剔除
-   b. 命中离线大名单 IP 条目 ▲ → 剔除
-   c. 对剩余 IP 并行调用威胁情报适配器 → 按融合策略判定恶意的剔除
+      → ★ 明确无风险 → 结论写入 domain_cache（fail-safe 无结论不写缓存）
+5. ★ 单次公网解析：query_upstream_reply 取上游原始应答
+   → SERVFAIL/NXDOMAIN 原样透传；AAAA 空应答原样透传
+   → _extract_ips() 从应答提取记录 IP 列表
+6. ★ IP 后置过滤（并行）：
+   a. 逐 IP 查本地 IP 黑名单（含 CIDR）与离线大名单内存缓存 → 恶意剔除
+   b. 剩余 IP 查 ip_cache 结论缓存 → 命中按缓存结论
+   c. 未命中 IP 线程池并行调在线情报适配器（≤8 worker，单 IP 直查）
+      → 按融合策略判定恶意的剔除；明确结论写 ip_cache（fail-safe 不写）
    d. 剔除后剩余 IP 数 = 0 → 构造拦截应答返回（写日志）
-   e. 剩余 IP > 0 → 用剩余 IP 构造正常应答返回（若发生剔除则写日志）
-   f. 无任何剔除 → 原样返回公网解析结果
+   e. 部分剔除 → 用剩余 IP 构造应答返回（写日志）
+   f. 无任何剔除 → ★ 直接返回上游原始应答（保真上游 TTL/EDNS0，不再二次构造）
 7. 构造 DNS 应答报文（保留请求中的 EDNS0 选项一致性）→ 返回给代理
 ```
+
+**★ 缓存失效联动**：情报源启停/编辑、融合策略切换、名单变更 → `domain_cache.threatintel_invalidate()` + `ip_cache.threatintel_invalidate()`；缓存参数（TTL/容量）经系统配置热调。
+
+**★ 跨进程同步（cross_sync）**：双进程部署（platform-dns + platform-web）下，DNS 进程 daemon 线程每 60 秒轮询四表 `MAX(updated_at)` 基线——system_config 变化 → sync_config_from_db；filter_list 变化 → 名单缓存失效；threatintel_api 变化 → 域名+IP 结论缓存失效；threat_list 变化 → 大名单缓存失效；首次轮询仅建基线不触发。
 
 **▲ 三态语义（威胁情报查询结果）**：
 - 命中 → 参与拦截判定；
@@ -155,8 +164,9 @@ Windows DNS
 - 域名匹配支持精确匹配与通配符（`*.xxx.com`）；IP 黑名单支持精确 IP 与 CIDR（IPv4/IPv6 均适用）。
 
 **功能清单**
-- ▲ Web 界面拆分为**独立的"白名单"与"黑名单"两个页面**，各自独立 CRUD/导入导出/启停；
+- ★ Web 界面为**单页"人工情报源"**（页内 🟢白/🔴黑双 Tab，各自独立工具栏/筛选/表格），术语全局"人工白名单/人工黑名单"；
 - 批量导入（CSV）/ 导出（CSV）；单条启用/禁用；备注字段；
+- ★ CSV 导入自动消重：同名单 (list_type,target,value) 重复自动去重（域名键 lowercase），返回 deduped/dup_in_file/dup_in_db；跨名单同值返回 conflicts 明细警示（白名单命中优先放行）；executemany 批量入库；
 - 变更留痕：操作人、时间、操作类型、变更内容（审计详情可读化展示）。
 
 ### 5.3 ▲ 离线大名单（threat_list，本地导入离线匹配）
@@ -222,6 +232,8 @@ class ThreatIntelAdapter:
 
 > 360 免费版 20 条/天且需商务申请，未内置。seed 对已存在内置源仅同步描述，不覆盖用户自定义 config/api_key/enabled。
 
+- ★ **seed 出厂默认启用集**：`DEFAULT_ENABLED_SOURCES = {spamhaus_zen, spamhaus_dbl, dronebl, spfbl}`（仅 DNSBL 四源——DNS 协议亚毫秒、无 HTTP 配额；HTTP 类源默认停用，仅测试中心人工核验，对齐部署方案 3.1-A）；存量库不覆盖；测试环境 `DNSF_TESTING=1` 时置空（单测不依赖公网）；
+- ★ **单源限流熔断（circuit_breaker）**：适配器连续失败自动熔断（半开试探恢复）；熔断期间该源不发起请求返回无结论；降级开关跳过全部在线查询（性能兜底）；
 - 检测时按适配器**能力声明**分配域名/IP 查询；未配 Key 的 Key 型源不发请求、直接无结论；
 - ▲ 在线源支持**编辑**（超时/描述/API Key/扩展配置，Key 留空保持不变），适配器类型创建后不可改；
 - ▲ "测试连通性"失败返回具体原因（缺 Key / Key 无效 / 请求过于频繁 / 网络错误），适配器维护 `last_error`。
@@ -264,7 +276,9 @@ class ThreatIntelAdapter:
 | `final_result` | varchar | `alert_ip:<IP>` / `empty`（AAAA 拦截）/ `remaining_ips:<IP列表>` |
 | `source_api` | varchar | 命中的威胁情报源名称 |
 
-**可选日志**：放行记录（默认关闭，Web 可开启）。
+**可选日志**：放行记录（默认关闭，Web 可开启）。★ 放行日志采样 `allow_log_sample_rate`（0~100%，默认 100）：计数取模确定性采样——同一请求多次判定采样结果一致；拦截/剔除日志不受采样影响、始终全量。
+
+**★ 写入削峰（log_writer）**：filter_log 写入经内存队列异步批量落库（队列上限保护内存，批量提交 SQLite）；观测接口 `GET /api/log-writer/stats` 返回 queue_len/written/dropped——`dropped > 0` 表示写入跟不上（调大保留周期清理频率或降低采样率）。
 
 **日志管理**：按保留天数自动清理（默认 90 天）；按时间/客户端 IP/域名/过滤原因/动作查询；导出 CSV。
 
@@ -278,18 +292,20 @@ Web"测试中心"页面，输入域名或 IP（含 PTR 模式）进行**只读�
 
 ### 5.8 Web 管理界面
 
-**页面清单**（实现为单文件 SPA，SAP Fiori 风格）
+**★ 页面清单**（实现为多文件 SPA，SAP Fiori 风格 + SOC 深浅双主题；`web/css/{theme,base,pages}.css` + `web/js/{app,charts,boot}.js` + `web/js/pages/*.js`，加载顺序固定：app → charts → pages/* → boot，页面模块经 `PAGE_LOADERS` 注册表挂载）
 
 | 页面 | 功能 |
 |------|------|
 | 登录 | 管理员账号密码登录（JWT），禁止匿名；初始密码首次初始化后必须修改 |
-| 仪表盘 | 检测开关、今日拦截/放行数、趋势、情报源状态 |
-| 白名单 / 黑名单 ▲（拆页） | 名单增删改查、导入导出、启停、备注 |
-| 威胁情报源 ▲（表格化） | 在线源表格：名称/类型/接口/能力/超时/Key/状态/操作（编辑▲/测试/启停/删除），融合策略行内单选；离线大名单表格：条数/状态/最近导入/**下次更新▲（周期+倒计时）**/操作（导入/更新/启停/清空/条目） |
-| 过滤日志 | 日志查询（含客户端 IP）、导出；放行记录开关 |
-| 测试中心 ▲ | 只读探测（见 5.7） |
-| 系统配置 | 告警 IP/TTL、公网 DNS、日志保留、检测总开关、离线大名单自动更新开关与间隔▲——热生效，无需重启 |
-| 操作审计 | 敏感操作留痕（名单增删改、情报源启停/导入、融合策略切换、检测开关、系统配置修改），详情可读化 |
+| 总览·安全态势 ★（SOC 大屏） | 三段式：①威胁总览大数字带（countUp 动效 + 风险等级仪表：拦截率≥15%危/≥5%高/≥1%中/否则低）②分析维度（近 24h 柱线混合图、来源构成环形+Top5、五层链路状态、情报健康面板）③实时事件流（3s 轮询滚动 + 客户端 Top + 24h 热力图）；主数据 10s 自动刷新 |
+| 监控·过滤日志 | 日志查询（含客户端 IP）、导出；放行记录开关 |
+| 策略管理·融合策略 | any/majority/all 切换（变更入审计） |
+| 策略管理·测试中心 ▲ | 只读探测（见 5.7） |
+| 威胁情报·在线情报源 ▲（表格化） | 名称/类型/接口/能力/超时/Key/状态/操作（编辑/测试/启停/删除） |
+| 威胁情报·离线情报源 | 6 内置源表格：条数/状态/最近导入/**下次更新（周期+倒计时）**/操作（导入/更新/启停/清空/条目） |
+| 威胁情报·人工情报源 ★ | 单页白/黑双 Tab（🟢人工白名单/🔴人工黑名单），各自独立工具栏/筛选/表格；CSV 导入消重与跨名单冲突提示 |
+| 系统·系统配置 | 告警 IP/TTL、公网 DNS、日志保留、检测总开关、自动更新开关与间隔、★ 缓存参数（domain/ip TTL 与容量）、★ 放行日志采样率——热生效 |
+| 系统·操作审计 | 敏感操作留痕（名单增删改、情报源启停/导入、融合策略切换、检测开关、系统配置修改），详情可读化 |
 
 ## 六、数据模型
 
@@ -319,6 +335,11 @@ Web"测试中心"页面，输入域名或 IP（含 PTR 模式）进行**只读�
 | `threatlist_auto_update` ▲ | 离线大名单自动更新开关 | `false` |
 | `threatlist_auto_interval_hours` ▲ | 自动更新全局间隔（小时，1~720） | `24` |
 | `api_timeout_ms` | 威胁情报源单次调用超时 | `2000` |
+| `domain_cache_ttl_s` ★ | 域名检测结论缓存 TTL（秒，1~86400） | `300` |
+| `domain_cache_size` ★ | 域名结论缓存容量（条，1024~1000 万） | `1000000` |
+| `ip_cache_ttl_s` ★ | IP 检测结论缓存 TTL（秒，1~86400；IP 情报变化慢可略长） | `900` |
+| `ip_cache_size` ★ | IP 结论缓存容量（条，1024~500 万） | `200000` |
+| `allow_log_sample_rate` ★ | 放行日志采样率（%，0~100，100=全采） | `100` |
 
 ### 6.7 ▲ 离线大名单表 `threat_list`
 
@@ -366,6 +387,10 @@ Web"测试中心"页面，输入域名或 IP（含 PTR 模式）进行**只读�
 
 **系统配置 / 状态**：`GET/PUT /api/config`、`GET /api/status`、`GET /api/status/trend` ▲、`POST /api/detection/toggle`
 
+**★ 仪表盘数据**：`GET /api/status/hourly?hours=24`（小时聚合，柱线图+热力图共用）、`GET /api/status/breakdown?days=7&top=5`（来源构成+Top 域名+Top 客户端）
+
+**★ 观测**：`GET /api/log-writer/stats`（日志写入队列/累计/丢弃——dropped>0 需调采样率或保留周期）
+
 **审计**：`GET /api/audit`
 
 ## 八、部署规格 ▲（systemd 原生 + Docker）
@@ -405,9 +430,10 @@ Web"测试中心"页面，输入域名或 IP（含 PTR 模式）进行**只读�
 
 - **部署环境**：Linux（64 位）为准，systemd 或 Docker；Windows 仅备用；
 - **纯 IPv4 网络**：A/AAAA/PTR 同等过滤；AAAA 拦截返回空应答；
-- **性能参考**：单实例支撑 500 QPS 外网查询，检测路径延迟增量 < 200ms（情报调用为主要耗时，多源并行缓解）；
-- **▲ 平台内存**：启用 hagezi 完整版大名单内存占用较高（291 万条全域约数百 MB），资源受限改选 mini 精简版（约 1/12）；服务启动后台预热线程消除重启后首次查询阻塞（291 万条约 5 秒）；
+- **★ 性能基线（10 万终端，实测）**：检测放行路径缓存命中 **12ms**（DNSBL 四源态，优化前 892~3170ms）；缓存 miss 21~24ms；平台吞吐 1000QPS 全收 P95=1.86ms、拐点约 2200~3000QPS（瓶颈 asyncio 唤醒非 SQLite）；容量模型=代理扛终端全量 + 平台 2200~3000QPS × 缓存命中 95%+；
+- **▲ 平台内存**：启用 hagezi 完整版大名单内存占用较高（291 万条全域约数百 MB），资源受限改选 mini 精简版（约 1/12）；服务启动后台预热线程消除重启后首次查询阻塞（291 万条约 5 秒）；★ 双结论缓存（域名 100 万条约 100MB + IP 20 万条约 30MB）；
 - **▲ 管理界面响应**：源列表等高频接口毫秒级（覆盖索引 + 进程内缓存 + 预热，实测 1.05s → 12~37ms）；
+- **★ 双进程热生效**：Web 改配置/名单/情报源，DNS 进程经 cross_sync 60s 轮询自动感知（最长 60 秒），无需重启服务；
 - **安全**：Web 禁止匿名、密码 bcrypt、API Key 加密存储、管理接口仅限内网；
 - **可回退**：所有配置可恢复默认，转发器配置可一键回退至公网 DNS。
 
@@ -415,21 +441,23 @@ Web"测试中心"页面，输入域名或 IP（含 PTR 模式）进行**只读�
 
 | # | 交付物 | 说明 |
 |---|--------|------|
-| 1 | DNS 代理中间件 | Go 源码 + 配置模板 + systemd/Docker 打包；完整透传 EDNS0 |
+| 1 | DNS 代理中间件 | Go 源码 + 配置模板 + systemd/Docker 打包；完整透传 EDNS0；★ 编译验证 + 端到端四场景通过 |
 | 2 | DNS 安全过滤平台服务 | Python 包 + schema.sql + seed + systemd/Docker 打包 |
-| 3 | Web 管理前端 | 单文件 SPA（`web/index.html`），随平台静态部署 |
-| 4 | 数据库初始化脚本 | 建表 SQL（含 threat_list 与统计覆盖索引）+ 默认管理员 + 默认配置 + 内置情报源 seed |
-| 5 | 威胁情报适配器框架 | 统一接口 + 融合判定 + **16 个内置适配器**（DNSBL 4 / 免 Key 3 / 厂商 5 / URLhaus） |
+| 3 | Web 管理前端 | ★ 多文件 SPA（theme/base/pages CSS + app/charts/pages/boot JS + 9 页面模块，零构建链，SOC 深浅双主题），随平台静态部署 |
+| 4 | 数据库初始化脚本 | 建表 SQL（含 threat_list 与统计覆盖索引）+ 默认管理员 + 默认配置 + 内置情报源 seed（★ 默认启用 DNSBL 四源） |
+| 5 | 威胁情报适配器框架 | 统一接口 + 融合判定 + **16 个内置适配器**（DNSBL 4 / 免 Key 3 / 厂商 5 / URLhaus）+ ★ 单源熔断 |
 | 6 | ▲ 离线大名单模块 | 6 内置源 + 自定义导入 + 自动更新调度 + 镜像降级 + 进度可视化 |
-| 7 | 部署文档 | systemd 安装、Docker 编排、网络白名单、转发器配置、回退步骤 |
-| 8 | ▲ 测试基线 | pytest 205 项（融合/拦截/ECS/PTR/大名单/情报源/调度/性能锚点），`cd platform && python -m pytest ../tests` |
+| 7 | 部署文档 | systemd 安装、★ 一键脚本（install-proxy.sh/install-platform.sh）、Docker 编排、网络白名单、转发器配置、回退步骤 |
+| 8 | ▲ 测试基线 | ★ pytest 265 项（融合/拦截/ECS/PTR/大名单/情报源/调度/性能/★缓存/★并行/★跨进程同步），`cd platform && python -m pytest ../tests`；★ 测试隔离：conftest 设 `DNSF_TESTING=1`（seed 检测后不默认启用在线源，单测不依赖公网） |
+| 9 | ★ 性能与压测工具 | `tools/loadtest.py` DNS 压测（QPS/延迟分位；Windows 须 SelectorEventLoop）；观测接口 /api/log-writer/stats |
 
 ## 十一、补充说明
 
-- 客户端 IP 透传、不缓存 DNS 记录、客户端不应启用 DNSSEC 校验、建议禁用 Root Hints——均同 V1.2；
+- 客户端 IP 透传、不缓存 DNS 记录（检测结论缓存不缓存 DNS 应答）、客户端不应启用 DNSSEC 校验、建议禁用 Root Hints——均同 V1.2；
 - ▲ 离线大名单与在线情报为**分层叠加**关系：离线零依赖零延迟打底，在线实时补充；高及时哨兵（urlhaus 30 分钟）与大名单（每日）按各自周期自动更新；
-- ▲ 待办：Go 代理层编译验证（开发环境无 Go）；真实 API Key 联调（微步/IBM/OTX/GreyNoise/URLhaus Auth-Key 等，需用户提供 Key）。
+- ★ 在线情报源分层策略：**DNSBL（DNS 协议）进实时检测链路**（亚毫秒、无配额），HTTP 类源仅测试中心人工核验（对齐部署方案 3.1-A），避免单源 1~2s 延迟与免费 Key 配额打满；
+- ▲ 待办：真实 API Key 联调（微步/IBM/OTX/GreyNoise/URLhaus Auth-Key 等，需用户提供 Key）。
 
 ---
 
-> 本 PRD 与《需求说明书（完整版 V2.1）》保持同步。开发过程中如需调整技术方案，建议与需求方确认后变更并同步两份文档。
+> 本 PRD 与《需求说明书（完整版 V2.2）》保持同步。开发过程中如需调整技术方案，建议与需求方确认后变更并同步两份文档。

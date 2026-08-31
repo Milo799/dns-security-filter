@@ -4,7 +4,7 @@
 PYTHON ?= python3
 GO     ?= go
 
-.PHONY: dev proxy platform verify test init init-db clean docker-up docker-down docker-logs
+.PHONY: dev proxy platform verify test init init-db clean docker-up docker-down docker-logs loadtest
 
 ## 一键启动本地开发环境（代理 + 平台），前台运行
 dev:
@@ -24,7 +24,7 @@ platform:
 verify:
 	@bash scripts/verify.sh
 
-## 运行全部测试（205 项锚点 + 业务测试）
+## 运行全部测试（265 项锚点 + 业务测试；conftest 已设 DNSF_TESTING=1 隔离公网源）
 test:
 	cd platform && $(PYTHON) -m pytest ../tests -v
 
@@ -47,3 +47,7 @@ docker-down:
 ## 查看容器日志
 docker-logs:
 	docker compose -f deploy/docker/docker-compose.yml logs -f
+
+## DNS 压测（QPS/延迟分位；Windows 须 SelectorEventLoop，脚本已内置）
+loadtest:
+	cd platform && $(PYTHON) ../tools/loadtest.py $(TARGET) --qps $(QPS)
