@@ -15,17 +15,18 @@
 #     --install-dir    DIR   安装目录                          默认 /opt/dns-security-filter
 #     --skip-tuning          跳过 sysctl/limits 内核参数调优
 #
-# 脚本做 9 件事（全部幂等，可重复执行）：
+# 脚本做 10 件事（全部幂等，可重复执行）：
 #   1 环境检测（root / Linux / Python>=3.10 / 内存预警）
 #   2 创建 dnsfilter 系统用户与目录
-#   3 复制平台代码 + Web 前端
+#   3 复制平台代码 + Web 前端 + tools 工具脚本
 #   4 venv + pip 依赖安装（国内镜像）
 #   5 自动生成 jwt_secret 与管理员初始密码，从 platform.example.yaml
 #     生成带全量注释的 platform.yaml（已存在则保留）
 #   6 安装并启动 systemd 服务 platform-dns + platform-web
 #   7 内核参数调优（DNS 高并发收发缓冲）
 #   8 文件句柄上限
-#   9 自检（服务状态 / 端口监听 / 健康接口）
+#   9 数据库每日备份（dnsfilter-backup.timer，02:30 热备 + 保留 14 份）
+#  10 自检（服务状态 / 端口监听 / 健康接口）
 # ============================================================================
 set -euo pipefail
 
@@ -74,7 +75,9 @@ for cand in python3 python3.12 python3.11 python3.10 /usr/bin/python3; do
     fi
   fi
 done
-[[ $PY_OK -eq 1 ]] || die "未找到 Python >=3.10（平台运行必需）。请先安装：apt install python3 python3-venv python3-yaml 或 yum install python3 python3-PyYAML"
+[[ $PY_OK -eq 1 ]] || die "未找到 Python >=3.10（平台运行必需）。请先安装：
+  AlmaLinux/RHEL 8: dnf install python3.12 python3.12-pip（需系统>=8.10）或 python3.11（>=8.7）
+  Debian/Ubuntu:   apt install python3 python3-venv"
 log "Python：$("$PYTHON_BIN" -V 2>&1)"
 log "内存：$(free -h | awk '/^Mem:/{print $2}')；磁盘可用：$(df -h / | awk 'NR==2{print $4}')"
 
@@ -183,7 +186,7 @@ systemctl enable dnsfilter-backup.timer >/dev/null 2>&1
 systemctl start dnsfilter-backup.timer
 log "数据库每日备份已启用（02:30，保留 14 份，目录 $BACKUP_DIR）"
 command -v sqlite3 >/dev/null 2>&1 || \
-  warn "未安装 sqlite3 CLI，备份将降级 cp 拷贝（建议 apt/yum install sqlite3）"
+  warn "未安装 sqlite3 CLI，备份将降级 cp 拷贝（建议安装：AlmaLinux/RHEL 8 用 dnf install sqlite；Debian/Ubuntu 用 apt install sqlite3）"
 
 # ---- 10 自检 ----------------------------------------------------------------
 sleep 2

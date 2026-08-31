@@ -278,6 +278,16 @@ def domain_cache_stats(_: str = Depends(get_current_user)):
     return {"code": 0, "message": "ok", "data": domain_cache.stats()}
 
 
+@router.get("/ip-cache/stats")
+def ip_cache_stats(_: str = Depends(get_current_user)):
+    """IP 检测结论缓存状态：条目数/容量/命中数/命中率（与域名缓存同构）。
+
+    压测观测与运维巡检用；进程内累计，重启归零。
+    """
+    import ip_cache
+    return {"code": 0, "message": "ok", "data": ip_cache.stats()}
+
+
 @router.get("/log-writer/stats")
 def log_writer_stats(_: str = Depends(get_current_user)):
     """异步日志写入状态：入队/落库/丢弃计数、当前队列深度。

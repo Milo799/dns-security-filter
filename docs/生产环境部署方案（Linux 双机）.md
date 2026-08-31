@@ -2,11 +2,13 @@
 
 > 适用场景：约 **10 万终端**（PC/服务器/哑终端混合），Windows 域环境，多台域控 DNS（DC）做转发器指向本系统代理。
 > 目标拓扑：`终端(10万) → 域 DNS 转发器(多台 DC) → Go 代理(机A:53) → 检测平台(机B) → 公网 DNS`
-> 编写基准：commit `e1bcade`（端到端验证通过）+ 本方案第四节的**前置开发项**完成后方可上线。
+> 编写基准：commit `e2a78cc`。第四节前置开发项 **1~5 已全部交付**（0fc774e/5c966bf/c516e8d），
+> 278 项测试全绿；本方案即为可直接执行的上线方案。配套 **《生产部署指引（AlmaLinux 8）》**
+> 为 OS 专项补充。
 
 ---
 
-## ⚠️ 零、先读这一节：当前架构在此规模下不可用，必须先开发再部署
+## ⚠️ 零、先读这一节：规模压力模型与已落地的应对（历史背景）
 
 10 万终端的负载测算（办公混合场景经验值）：
 
@@ -16,16 +18,19 @@
 | 晨启风暴峰值（开机 30 分钟集中解析） | 平均值 × 5 → **约 30,000~60,000 QPS** |
 | DNS 唯一域名集中度（10 万终端环境） | 常态约 200~500 万种域名，但**热点极集中**：Top 1 万域名覆盖 90%+ 查询量（CDN、门户、办公 SaaS、系统服务） |
 
-当前代码的真实瓶颈（实测数据）：
+应对架构（**已全部实现，实测数据见 4.1/4.2 节**）：
 
-| 环节 | 现状 | 在 10 万终端下会发生什么 |
-|------|------|------------------------|
-| 白/黑名单、离线大名单 | 内存 O(1)，<1ms | ✅ 不是瓶颈 |
-| 在线情报源查询 | 每个未命中域名逐次调外部 API（并发 2s 超时） | ❌ **API 全部被限流（429/超时）**；三态语义 fail-safe 会把"无结论"判为**默认拦截** → **全网域名被拦 → 10 万终端断网** |
-| 公网递归解析 | 每次查询都发上游（无缓存） | ❌ 上游 DNS 被打爆 / 出站带宽耗尽 |
-| 平台线程池吞吐 | 单查询 0.4~2.5s × 池线程数 | ❌ 上限约 **20~100 QPS**，与需求差 2~3 个数量级 |
+| 环节 | 现状（已落地） | 应对效果 |
+|------|--------------|---------|
+| 白/黑名单、离线大名单 | 内存 O(1)，<1ms | ✅ 天然不是瓶颈 |
+| 域名/IP 检测结论缓存 | domain_cache + ip_cache 双层 LRU+TTL，命中率稳态 ≥95% | ✅ 热点查询纯内存路径 12ms |
+| 在线情报源限流 | 出厂默认仅启用 DNSBL 四源（DNS 协议无配额）+ 源级熔断 + 路径级降级 | ✅ 不会出现"API 限流→全拦断网" |
+| 公网递归解析 | 缓存命中部分不再出网，仅未命中部分走上游 | ✅ 出站量降 90%+ |
+| 平台线程池吞吐 | 缓存吸收 95%+ 后单进程 ~2200-3000 QPS 已满足模型 | ✅ 若需更高，多代理实例分片 |
+| 日志写入 | log_writer 异步批量 + 采样，1000QPS P95=1.86ms | ✅ 峰值不拖慢应答 |
 
-**结论：直接部署 = 上线即事故。** 必须先完成第四节的前置开发项（核心是**检测结论缓存 + 放行域名短 TTL 缓存**），把稳态查询处理压回"纯内存"路径，才能支撑这个规模。缓存命中后在线情报 API 调用量与公网解析量会下降 90%+（热点域名重复查询），各环节全部回到安全区间。
+**结论：缓存分层 + 削峰 + 熔断降级全部就位，可按本方案部署。**
+灰度节奏（首台 DC 观察 3~7 天）仍为强制要求，见第六/八节。
 
 ---
 
@@ -128,19 +133,20 @@ OS 专项准备与差异细节见 **《生产部署指引（AlmaLinux 8）》**�
 
 ---
 
-## 四、前置开发项（部署前必须完成，当前代码不支持此规模）
+## 四、前置开发项（**已全部交付**，此处为交付记录与验收口径）
 
 按优先级排序，1~3 为**硬性前置**，4~5 强烈建议：
 
-| # | 开发项 | 内容 | 工作量 | 不做的后果 |
-|---|--------|------|--------|-----------|
-| 1 | **域名检测结论缓存** | process_query 增加内存缓存：`域名+qtype → (结论, 应答, 时间戳)`；放行结论 TTL 5~15 分钟、拦截结论 TTL 1 小时；容量上限 LRU 淘汰（如 100 万条）；名单变更时 invalidate | 中（含并发安全与失效逻辑，约 150 行 + 测试） | 平台吞吐上限约 100 QPS，10 万终端直接雪崩 |
-| 2 | **fail-safe 在限流场景下的降级策略** | 在线情报源连续 N 次限流/超时 → 该源自动熔断（标记不可用，TTL 后探活恢复），无结论源不再触发"默认拦截"兜底，改为**放行并记日志**（或至少提供该开关） | 小（约 60 行） | 上线即全网断网（API 限流→全部无结论→全拦） |
-| 3 | **压测脚本与容量报告** | 自研 `tools/loadtest.py`（零依赖、异步 UDP、阶梯加压）对代理+平台打目标 QPS（先 1 千再 1 万再 3 万），出具 P95 延迟/丢包率/RCODE 分布报告，验证缓存命中率 ≥95% | 小（脚本+执行） | 配置拍脑袋，上线赌运气 |
-| 4 | 匿名化客户端 IP 采集策略 | **已交付**：放行日志采样率 `allow_log_sample_rate`（0~100%，计数取模确定性采样，任意连续 100 次命中数恰等于设定值）；拦截/剔除日志必录不采样；配置页可调热生效 | 小（配置项） | 日志库膨胀、SQLite 写放大 |
-| 5 | SQLite 写入削峰 | **已交付**：拦截日志异步批量写（`log_writer.py` 内存队列 + 后台线程 executemany；flush 间隔/批量上限/开关可配；队列满丢弃计数不阻塞检测；atexit 优雅 flush）+ 人工黑白名单内存缓存（变更点失效，消除每查询全表 SELECT）；配套 `GET /api/log-writer/stats` 观测丢弃与积压 | 中 | 峰值期日志写入拖慢应答 |
+| # | 开发项 | 内容 | 状态 |
+|---|--------|------|------|
+| 1 | **域名检测结论缓存** | `domain_cache.py`：`域名+qtype → (结论, 应答, 时间戳)`；放行 TTL/拦截 TTL 分设、LRU 淘汰、名单变更失效联动；另含 IP 结论缓存 `ip_cache.py`（解析速度优化轮追加） | ✅ 已交付（5c966bf/0fc774e） |
+| 2 | **fail-safe 在限流场景下的降级策略** | `circuit_breaker.py`：源级熔断（连续失败标记不可用，TTL 探活恢复）+ 路径级降级窗口；`GET /api/circuit-breaker/stats` 观测 + 手动复位 | ✅ 已交付（5c966bf） |
+| 3 | **压测脚本与容量报告** | `tools/loadtest.py`（零依赖、异步 UDP、阶梯加压、zipf 热度分布） | ✅ 已交付（5c966bf，用法见 4.1） |
+| 4 | 匿名化客户端 IP 采集策略 | 放行日志采样率 `allow_log_sample_rate`（计数取模确定性采样）；拦截/剔除日志必录不采样 | ✅ 已交付（5c966bf） |
+| 5 | SQLite 写入削峰 | `log_writer.py` 异步批量写 + 名单内存缓存 + `GET /api/log-writer/stats` 观测 | ✅ 已交付（5c966bf） |
 
-> 第 1、2 项完成后，稳态查询 95%+ 走缓存纯内存路径（<10ms），剩余 5% 走完整检测；第 2 项保证即便外部 API 全挂也不会误伤全网。**这三项是本方案与百人级方案的本质区别。**
+> 五项全落地后稳态查询 95%+ 走缓存纯内存路径（<10ms），剩余 5% 走完整检测；
+> 第 2 项保证即便外部 API 全挂也不会误伤全网。**这些是本方案与百人级方案的本质区别。**
 
 ### 4.1 压测脚本用法（tools/loadtest.py，前置项 3 已交付）
 
@@ -228,10 +234,10 @@ cd proxy && GOPROXY=https://goproxy.cn,direct GOOS=linux GOARCH=amd64 go build -
 sudo ./deploy/install-platform.sh --upstream-dns 223.5.5.5 --alert-ip 10.0.0.99
 ```
 
-脚本自动完成 9 件事（幂等可重跑）：环境检测（Python>=3.10/内存预警）→ 建 dnsfilter
+脚本自动完成 10 件事（幂等可重跑）：环境检测（Python>=3.10/内存预警）→ 建 dnsfilter
 用户与目录 → 代码落位 → venv+pip 依赖（清华镜像）→ **自动生成随机 jwt_secret 与
 管理员初始密码**并从全注释模板生成 platform.yaml → 装 systemd 双服务并启动 →
-内核参数调优 → 句柄上限 → 自检（服务/端口/健康接口）。
+内核参数调优 → 句柄上限 → 每日备份 timer → 自检（服务/端口/健康接口）。
 
 **参数表**（全部可选，默认值适合双机标准拓扑）：
 
@@ -259,6 +265,7 @@ sudo ./deploy/install-proxy.sh --upstream 192.168.10.21 --upstream-port 15353
 脚本自动完成 8 件事（幂等可重跑）：环境检测（53 占用自动提示 systemd-resolved
 让端口方法）→ 用户与目录 → 二进制安装 + setcap 53 授权 → 从全注释模板生成
 config.yaml → systemd 服务并启动 → 内核参数 → 句柄上限 → 自检。
+（**AlmaLinux 8 注意**：无 systemd-resolved，53 端口占用提示照常工作，命中才提示。）
 
 **参数表**：
 
@@ -330,8 +337,9 @@ sudo systemctl daemon-reload && sudo systemctl enable --now proxy
 ```bash
 sudo useradd -r -s /usr/sbin/nologin dnsfilter 2>/dev/null || true
 sudo mkdir -p /opt/dns-security-filter
-sudo cp -r platform web /opt/dns-security-filter/
-cd /opt/dns-security-filter/platform && sudo python3 -m venv venv
+sudo cp -r platform web tools /opt/dns-security-filter/     # tools 含备份脚本
+sudo chmod +x /opt/dns-security-filter/tools/*.sh
+cd /opt/dns-security-filter/platform && sudo python3.12 -m venv venv   # 或 python3.11
 sudo ./venv/bin/pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 sudo cp platform.example.yaml platform.yaml
 # 编辑 platform.yaml：jwt_secret（openssl rand -hex 32）、admin_initial_password、
@@ -339,6 +347,12 @@ sudo cp platform.example.yaml platform.yaml
 mkdir -p data
 sudo cp deploy/platform-dns.service deploy/platform-web.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now platform-dns platform-web
+# 备份 timer（等价于脚本第 9 步；<INSTALL_DIR> 按实际路径替换 service 内路径）
+sudo sed -e "s|/opt/dns-security-filter|/opt/dns-security-filter|g" \
+    deploy/dnsfilter-backup.service > /etc/systemd/system/dnsfilter-backup.service
+sudo cp deploy/dnsfilter-backup.timer /etc/systemd/system/
+sudo mkdir -p /var/backups/dnsfilter && sudo chown dnsfilter:dnsfilter /var/backups/dnsfilter
+sudo systemctl daemon-reload && sudo systemctl enable --now dnsfilter-backup.timer
 ```
 
 </details>
@@ -366,7 +380,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now platform-dns platfor
 | 1 | 服务三件套 | `systemctl status proxy platform-dns platform-web` | 全部 running + 开机自启 |
 | 2 | 链路连通 | 机A `dig @机B -p 15353 www.baidu.com` | 真实 IP |
 | 3 | 全链路（直打代理） | 内网机 `dig @机A www.baidu.com` | 真实 IP，P95 <50ms（缓存命中） |
-| 4 | 缓存命中率 | 平台日志/统计（开发项 3 的产物） | 稳态 ≥95% |
+| 4 | 缓存命中率 | `GET /api/domain-cache/stats` 与 `GET /api/ip-cache/stats`（需先登录拿 token） | 稳态 ≥95% |
 | 5 | 黑名单拦截 | 加 `test-block.example.com` 后 dig | 告警 IP，0s |
 | 6 | 拦截日志与终端 IP | Web → 过滤日志 | client_ip 为终端真实 IP |
 | 7 | **压测基准** | `python tools/loadtest.py --target 机B:15353 --qps 10000 --duration 600`（直打平台；打全链路改 `--target 机A:53`） | P95 延迟 <100ms、无丢包、CPU <70%、内存稳定 |
@@ -376,6 +390,8 @@ sudo systemctl daemon-reload && sudo systemctl enable --now platform-dns platfor
 | 11 | 日志清理 | 等待 6 小时周期或重启服务后查 `GET /api/log-retention/stats` | `total_runs ≥ 1`；插入超期测试行可即时验证删除 |
 | 12 | 灰度首台 DC 观察 | 3~7 天 | 误报率/资源曲线正常 |
 | 13 | 数据库备份 | `systemctl list-timers dnsfilter-backup.timer`；手工触发 `sudo systemctl start dnsfilter-backup.service` 后 `ls /var/backups/dnsfilter/` | 定时器 active + 备份文件生成且 gzip 压缩 |
+| 14 | 熔断与降级观测 | `GET /api/circuit-breaker/stats` | 各源 closed/正常；灰度期关注是否出现 open |
+| 15 | 异步日志健康 | `GET /api/log-writer/stats`（灰度高峰期查） | `dropped=0` 且 queue_size 不持续增长 |
 
 ## 八、容灾与回退
 
@@ -395,7 +411,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now platform-dns platfor
 
 - **日志策略**：10 万终端下 `allow_log_enabled` 必须为 false（全量放行日志 = 每日数百万行、SQLite 写放大拖垮检测）；拦截/剔除日志保留 90 天，预计每日 1~50 万行（取决于拦截率），**每周关注 platform.db 体积**
 - **日志自动清理（已内置）**：`log_retention_days`（默认 90，配置页热生效）驱动后台清理线程——每 6 小时对 filter_log / audit_log 分批删除过期行（单批 1 万行防长事务锁库）；观测接口 `GET /api/log-retention/stats`（最近/累计删除行数、执行轮数；`total_deleted` 长期为 0 且库体积持续增长时检查天数配置）
-- **缓存监控**：命中率、缓存条目数、LRU 淘汰率（开发项 1 的统计接口）
+- **缓存监控（已内置）**：`GET /api/domain-cache/stats`（域名结论缓存）与 `GET /api/ip-cache/stats`（IP 结论缓存）——条目数/容量/命中数/命中率；另有熔断 `GET /api/circuit-breaker/stats`、日志写入 `GET /api/log-writer/stats`。均需 JWT（curl 先 `/api/auth/login` 换 token）
 - **备份（已内置）**：安装脚本自动部署 `dnsfilter-backup.timer`——每日 02:30 调 `tools/backup_db.sh` 对 platform.db 做 SQLite `.backup` 在线热备（与检测写入并发安全），gzip 压缩后默认保留 14 份于 `/var/backups/dnsfilter`（`BACKUP_KEEP` 环境变量可调）；手工备份同命令随时可跑；两份 yaml 变更留副本
 - **升级窗口**：凌晨低峰；先平台后代理；升级前必跑测试套件
 - **监控告警建议**：平台 SERVFAIL 率（代理日志 rcode 统计）、缓存命中率、磁盘水位、三进程存活、备份 timer 最近执行状态（`systemctl list-timers dnsfilter-backup.timer`）
@@ -403,7 +419,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now platform-dns platfor
 
 ## 十、风险与已知边界
 
-1. **前置开发未完成前禁止上线**（第零节+第四节）；跳过压测直接上 10 万终端是重大事故风险
+1. **灰度上线为强制要求**（第六节多 DC 灰度策略）：首台 DC 观察 3~7 天再逐台追加；跳过压测（第七节 7/8 项）直接全量是重大事故风险
 2. **单点无 HA**：代理、平台均单实例。此规模建议中期演进：代理前置负载均衡（多代理 + DC 多转发器轮询）+ 平台主备（SQLite → PostgreSQL）。当前版本先靠快速回退兜底
 3. **SQLite 写入是天花板之一**：拦截日志高峰写入与检测线程争锁——前置开发项 5（异步批量写）缓解；若日均日志 >500 万行考虑关停部分日志维度
 4. **公网 DNS 依赖**：平台递归全部出公网（无本地递归缓存组件）；缓存上线后量可控，但公网链路抖动直接影响未命中查询

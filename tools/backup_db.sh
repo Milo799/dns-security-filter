@@ -15,7 +15,7 @@
 #   3 按保留份数（默认 14 份）轮转删除最旧备份
 #   4 输出结果（供 journalctl 审计）；失败非零退出（触发 timer 告警语义）
 #
-# 依赖：sqlite3 CLI（apt install sqlite3 / yum install sqlite）。
+# 依赖：sqlite3 CLI（AlmaLinux/RHEL 8: dnf install sqlite；Debian/Ubuntu: apt install sqlite3）。
 # 无 sqlite3 CLI 时降级 cp（仅适合低峰窗口，会有短暂不一致风险），
 # 脚本会明确打印降级提示。
 # ============================================================================

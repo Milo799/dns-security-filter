@@ -118,7 +118,7 @@ MemoryMax、OnCalendar + Persistent timer），在 RHEL 8 的 systemd 239 上**�
        （记下屏幕打印的管理员初始密码；登录 http://机B:8080 改密）
 [0:25] 机 A：sudo ./deploy/install-proxy.sh --upstream <机B IP> --upstream-port 15353
 [0:28] 上联防火墙按第四节端口表放行（系统层已无 firewalld）
-       → 主方案第七节 13 项验证清单逐项过
+       → 主方案第七节 15 项验证清单逐项过
 [后续] Web 导入离线大名单（hagezi_mini 起步）→ 灰度首台 DC（主方案第六/八节）
 ```
 
