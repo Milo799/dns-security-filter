@@ -91,6 +91,11 @@
 | 机 B | 15353/UDP+TCP | **仅机 A IP** |
 | 机 B | 8080/TCP | 仅运维网段/堡垒机 |
 
+> 本环境的运维策略：**系统层 firewalld 与 SELinux 关闭**（见《生产部署指引（AlmaLinux 8）》
+> 第四节），上述来源限制**在上联防火墙/核心交换机 ACL 实施**——端口与来源要求不变，
+> 只是实施位置从主机防火墙上移到网络边界。systemd 单元内的进程级加固
+> （NoNewPrivileges/ProtectHome/PrivateTmp）不受影响照常生效。
+
 ### 3.3 系统参数
 
 > 以下三项（setcap 端口授权 / sysctl 收发缓冲 / nofile 句柄）**安装脚本均已自动完成**

@@ -25,9 +25,10 @@ sudo dnf install -y rsync curl sqlite iproute bind-utils
 timedatectl status | grep -E 'NTP|synchronized'
 # 若未同步：sudo dnf install -y chrony && sudo systemctl enable --now chronyd
 
-# ④ SELinux：保持默认 Enforcing 即可（服务不开端口例外不涉及策略；如遇个别环境报
-#    AVC 拒绝且无暇排障，可临时 setenforce 0 验证，正式上线前恢复）
-getenforce
+# ④ 关闭 SELinux（本环境策略，与 ① 的 reboot 合并一次完成）
+sudo sed -i 's/^SELINUX=enforcing/SELINUX=disabled/' /etc/selinux/config
+sudo setenforce 0 2>/dev/null || true   # 立即生效（免重启临时态）
+getenforce   # 预期输出 Disabled
 ```
 
 **版本红线**：`dnf update` 后用 `cat /etc/almalinux-release` 确认 ≥ 8.7；
@@ -60,32 +61,33 @@ sudo ./deploy/install-platform.sh --upstream-dns 223.5.5.5 --alert-ip <内网告
 九个包（fastapi/uvicorn/pydantic 系/pyjwt/bcrypt/pyyaml/requests/cryptography/httpx）
 均有官方预编译轮子，清华 pip 镜像直连下载，无需任何编译工具链。
 
-## 四、防火墙（firewalld）
+## 四、防火墙与 SELinux（本环境策略：系统层全关，边界防护上移）
 
-AlmaLinux 8 默认启用 firewalld。安装脚本不开端口（自检走本机回环不受影响），
-上线前必须手工放行（与主方案 3.2 节的来源限制对应）：
+**运维策略声明**：本环境 firewalld 与 SELinux **均关闭**，访问控制由上联防火墙/网络设备
+统一实施（见下方补偿要求）。系统层不再单独维护 zone/rule，减少一层排障变量。
 
 ```bash
-# 机 A：53 仅对域控网段开放（示例 10.0.0.0/24 为 DC 所在段，按实际改）
-sudo firewall-cmd --permanent --new-zone=dnsclients
-sudo firewall-cmd --permanent --zone=dnsclients --add-source=10.0.0.0/24
-sudo firewall-cmd --permanent --zone=dnsclients --add-port=53/udp
-sudo firewall-cmd --permanent --zone=dnsclients --add-port=53/tcp
-sudo firewall-cmd --reload
-
-# 机 B：15353 仅对机 A 开放；8080 仅对运维网段（示例 10.0.255.0/24）
-sudo firewall-cmd --permanent --new-zone=fromproxy
-sudo firewall-cmd --permanent --zone=fromproxy --add-source=<机A内网IP>/32
-sudo firewall-cmd --permanent --zone=fromproxy --add-port=15353/udp
-sudo firewall-cmd --permanent --zone=fromproxy --add-port=15353/tcp
-sudo firewall-cmd --permanent --new-zone=ops
-sudo firewall-cmd --permanent --zone=ops --add-source=10.0.255.0/24
-sudo firewall-cmd --permanent --zone=ops --add-port=8080/tcp
-sudo firewall-cmd --reload
+# 两机执行（关机重启后保持关闭状态）
+sudo systemctl disable --now firewalld
+# SELinux 已在第一节 ④ 关闭（配置文件 disabled + setenforce 0）
 ```
 
-> 机 B 还需**出站**白名单（大名单下载/在线情报 API/公网递归 DNS），完整清单见主方案 3.1 节。
-> 出站防火墙用 rich rule 或由网络团队在上联防火墙实施，本文不展开。
+**关闭系统防火墙后的边界补偿（必须落实，对应主方案 3.2 节来源限制）**：
+
+| 端口 | 服务 | 只允许的来源 | 实施位置 |
+|------|------|-------------|---------|
+| 机 A `53/UDP+TCP` | dns-proxy | 各域控（DC）网段 | 上联防火墙/核心交换机 ACL |
+| 机 B `15353/UDP+TCP` | platform-dns | 仅机 A 内网 IP | 上联防火墙/交换机 ACL 或 VLAN 隔离 |
+| 机 B `8080/TCP` | platform-web | 仅运维网段/堡垒机 | 上联防火墙/交换机 ACL |
+
+> 机 B 还需**出站**白名单（大名单下载/在线情报 API/公网递归 DNS），完整清单见主方案 3.1 节，
+> 同样在上联防火墙实施。
+>
+> **若上联防护暂不具备**，临时可先依赖交换机端口隔离或管理 VLAN（8080 不暴露到办公网），
+> 但 53/15353 的来源限制属于安全底线（防止非 DC 设备直打过滤链路），上线前必须到位。
+
+systemd 单元内的加固指令（NoNewPrivileges / ProtectHome / PrivateTmp 等）不受本策略影响，
+仍然生效——它们是进程级约束，与系统防火墙/SELinux 无关。
 
 ## 五、systemd 单元与 AlmaLinux 8 的适配说明
 
@@ -98,7 +100,8 @@ MemoryMax、OnCalendar + Persistent timer），在 RHEL 8 的 systemd 239 上**�
 ## 六、30 分钟全流程速查（贴墙版）
 
 ```
-[0:00] 两机：dnf update → reboot → 装 rsync/curl/sqlite/chronyd 对时
+[0:00] 两机：dnf update → 关 SELinux（改 config + setenforce 0）→ reboot
+       装 rsync/curl/sqlite；关 firewalld；确认 chronyd 对时
 [0:10] 开发机：交叉编译代理二进制（仓库已提供 bin/dns-proxy 时跳过）
        cd proxy && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../bin/dns-proxy .
 [0:12] 打包上传：仓库目录（含 bin/dns-proxy）scp 到两机 /root/ 或 /tmp/
@@ -106,7 +109,8 @@ MemoryMax、OnCalendar + Persistent timer），在 RHEL 8 的 systemd 239 上**�
 [0:18] 机 B：sudo ./deploy/install-platform.sh --upstream-dns 223.5.5.5 --alert-ip x.x.x.x
        （记下屏幕打印的管理员初始密码；登录 http://机B:8080 改密）
 [0:25] 机 A：sudo ./deploy/install-proxy.sh --upstream <机B IP> --upstream-port 15353
-[0:28] 两机防火墙放行（第四节命令）→ 主方案第七节 13 项验证清单逐项过
+[0:28] 上联防火墙按第四节端口表放行（系统层已无 firewalld）
+       → 主方案第七节 13 项验证清单逐项过
 [后续] Web 导入离线大名单（hagezi_mini 起步）→ 灰度首台 DC（主方案第六/八节）
 ```
 
@@ -129,6 +133,6 @@ MemoryMax、OnCalendar + Persistent timer），在 RHEL 8 的 systemd 239 上**�
 |------|------|------|
 | `dnf install python3.11` 提示无包 | 8.5 仓库尚未收录（8.7 起有） | `dnf update` 升系统；或临时用 `dnf module enable python39` 不满足要求，须升级 |
 | 脚本自检"未找到 Python >=3.10" | 只装了系统默认 python3（3.6） | `dnf install python3.11`；脚本按 python3.11 → python3.12 → python3.10 顺序探测 |
-| firewalld rich rule 生效但 dig 不通 | zone source 网段写错（DC 网段 vs 本机网段） | `firewall-cmd --zone=dnsclients --list-all` 核对 add-source |
-| SELinux AVC 拒绝（journalctl 有 denied） | 个别加固环境策略严格 | `ausearch -m avc -ts recent` 定位；通常平台写 /opt 与 /var/backups 在默认策略内 |
+| 内网机器 dig 机 A 53 不通 | 系统层 firewalld 已关，但上联设备有 ACL | 找网络组核对上联防火墙/交换机 ACL 是否放行来源段（第四节端口表） |
+| `getenforce` 输出 Enforcing | 只 setenforce 0 没改配置文件（重启会复原） | `sed -i 's/^SELINUX=enforcing/SELINUX=disabled/' /etc/selinux/config` 后重启 |
 | chrony 未同步导致 JWT/审计时间漂移 | 虚机模板未配 NTP | `systemctl enable --now chronyd`；主方案第二节 NTP 为强制项 |
