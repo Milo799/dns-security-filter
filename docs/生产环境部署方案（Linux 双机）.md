@@ -59,7 +59,7 @@
 | 系统盘 | 20 GB | **200 GB SSD** | 过滤日志 90 天 + 允许日志（10万终端建议默认关，见第九节）+ 名单数据；SSD 必须（SQLite 写入+缓存换页） |
 | 网络 | 内网万兆（或 2×千兆 bond） | 内网万兆 | 13,000 QPS × ~100B/包 ≈ 13MB/s 稳态，峰值约 60MB/s；内网转发链路建议万兆或 bond |
 | 公网出站 | 不需要 | **100 Mbps+** | 离线名单下载（hagezi 36MB/日）+ 缓存未命中部分的公网递归 |
-| 操作系统 | 任意主流 Linux x86_64 | 同左 | 内核 ≥4.x；CentOS 7.9+/Ubuntu 20.04+/麒麟/统信均可；**必须 NTP 对时** |
+| 操作系统 | 任意主流 Linux x86_64 | **RHEL 8 系（AlmaLinux 8.5+/RHEL 8.7+）/ Ubuntu 20.04+ / 麒麟 V10 / 统信**；⚠️ **CentOS 7.x 已 EOL 不再支持**（glibc 2.17 过旧 + 需手工编译 Python≥3.10，规避为宜）；**必须 NTP 对时** |
 
 > 代理在 10 万终端下依然轻松（纯转发不检测，Go 单进程几万 QPS 无压力，瓶颈在网络）。
 > 平台配置的弹性项是内存里的缓存规模：32G 可支撑全量缓存 + hagezi_ti；预算受限 16G 起步（mini 名单 + 较小缓存 TTL），压测后扩。
@@ -115,8 +115,11 @@ echo 'dnsfilter soft nofile 65536' | sudo tee -a /etc/security/limits.conf
 ### 3.4 软件依赖
 
 机 A 零依赖（静态单二进制，仅需 systemd）；机 B Python ≥3.10 + venv
-（requirements.txt 九个包，安装脚本自动装国内镜像）。离线部署选项：
-pip download 拷贝安装 + 手工灌名单（见 5.5 手工步骤）。
+（requirements.txt 九个包，安装脚本自动装国内镜像）。
+**AlmaLinux 8 / RHEL 8 系**：AppStream 直接 `dnf install python3.11 python3.11-pip`
+（8.5 仓库可能无 python3.11，先 `dnf update` 到 8.7+，或用模块流 `dnf module enable python39` 过渡）。
+离线部署选项：pip download 拷贝安装 + 手工灌名单（见 5.5 手工步骤）。
+OS 专项准备与差异细节见 **《生产部署指引（AlmaLinux 8）》**。
 
 ---
 
