@@ -14,6 +14,7 @@ import domain_cache
 import ip_cache
 from app.auth import get_current_user
 from app.audit import write_audit
+from app.crypto import encrypt_key, decrypt_key
 from app.db import db_cursor
 from app.runtime import set_config
 
@@ -70,9 +71,12 @@ def _mask_key(api_key: str) -> str:
 
 
 def _decorate(row: dict) -> dict:
-    """补充适配器元信息（脱敏、注册、能力、内置标签）。"""
+    """补充适配器元信息（脱敏、注册、能力、内置标签）。
+
+    api_key 先解密再脱敏：历史明文与新密文展示口径一致（尾 4 位）。
+    """
     name = row["name"]
-    row["api_key_masked"] = _mask_key(row.pop("api_key", ""))
+    row["api_key_masked"] = _mask_key(decrypt_key(row.pop("api_key", "")))
     row["adapter_registered"] = name in ADAPTER_REGISTRY
     cls = ADAPTER_REGISTRY.get(name)
     row["supports_domain"] = cls.supports_domain if cls else False
@@ -114,7 +118,8 @@ def create_threatintel(body: ThreatIntelBody, user: str = Depends(get_current_us
                (name, adapter_type, base_url, api_key, enabled, timeout_ms,
                 config, description)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (name, body.adapter_type, body.base_url, body.api_key,
+            (name, body.adapter_type, body.base_url,
+             encrypt_key(body.api_key),      # 落库加密（P1-2）
              int(body.enabled), body.timeout_ms, body.config,
              body.description or BUILTIN_DESCRIPTIONS.get(name, "")),
         )
@@ -149,7 +154,9 @@ def update_threatintel(item_id: int, body: ThreatIntelBody,
                     raise HTTPException(status_code=409, detail=f"情报源 {name} 已存在")
 
     keep_key = not body.api_key or "●" in body.api_key
-    api_key = row["api_key"] if keep_key else body.api_key
+    # 保留原密钥时维持密文原样（不经历解密再加密的密文轮换）；
+    # 传入新明文时加密落库（P1-2）
+    api_key = row["api_key"] if keep_key else encrypt_key(body.api_key)
     changes = {}
     for k, old, new in (
         ("base_url", row["base_url"], body.base_url),
@@ -206,7 +213,8 @@ def test_threatintel(item_id: int, user: str = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="情报源不存在")
 
     adapter = build_adapter(row["name"], row["base_url"],
-                            row["api_key"], row["timeout_ms"],
+                            decrypt_key(row["api_key"]),   # 解密后传入（P1-2）
+                            row["timeout_ms"],
                             row["config"] or "")
     if adapter is None:
         return {"code": 0, "message": "ok",

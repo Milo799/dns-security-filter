@@ -95,12 +95,14 @@ if command -v rsync >/dev/null 2>&1; then
   rsync -a --delete --exclude 'venv' --exclude 'data' --exclude 'platform.yaml' --exclude '__pycache__' \
         "$REPO_ROOT/platform/" "$INSTALL_DIR/platform/"
   rsync -a --delete "$REPO_ROOT/web/" "$INSTALL_DIR/web/"
+  rsync -a "$REPO_ROOT/tools/" "$INSTALL_DIR/tools/"
 else
   (cd "$REPO_ROOT" && tar cf - --exclude='platform/venv' --exclude='platform/data' \
       --exclude='platform/platform.yaml' --exclude='platform/__pycache__' \
-      --exclude='*/__pycache__' platform web) | (cd "$INSTALL_DIR" && tar xf -)
+      --exclude='*/__pycache__' platform web tools) | (cd "$INSTALL_DIR" && tar xf -)
 fi
 mkdir -p "$INSTALL_DIR/platform/data"
+chmod +x "$INSTALL_DIR/tools/"*.sh 2>/dev/null || true
 
 # ---- 4 venv + 依赖 ----------------------------------------------------------
 if [[ ! -x "$INSTALL_DIR/platform/venv/bin/python" ]]; then
@@ -166,7 +168,24 @@ if [[ $SKIP_TUNING -eq 0 ]]; then
   log "内核参数（收发缓冲/backlog）与句柄上限已就绪"
 fi
 
-# ---- 9 自检 -----------------------------------------------------------------
+# ---- 9 数据库每日备份（P1-3：.backup 热备 + 保留份数轮转）--------------------
+BACKUP_DIR="/var/backups/dnsfilter"
+mkdir -p "$BACKUP_DIR"
+chown "$APP_USER:$APP_USER" "$BACKUP_DIR"
+chmod 0750 "$BACKUP_DIR"
+for unit in dnsfilter-backup; do
+  sed -e "s|/opt/dns-security-filter|$INSTALL_DIR|g" \
+      "$REPO_ROOT/deploy/$unit.service" > "/etc/systemd/system/$unit.service"
+done
+cp "$REPO_ROOT/deploy/dnsfilter-backup.timer" /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable dnsfilter-backup.timer >/dev/null 2>&1
+systemctl start dnsfilter-backup.timer
+log "数据库每日备份已启用（02:30，保留 14 份，目录 $BACKUP_DIR）"
+command -v sqlite3 >/dev/null 2>&1 || \
+  warn "未安装 sqlite3 CLI，备份将降级 cp 拷贝（建议 apt/yum install sqlite3）"
+
+# ---- 10 自检 ----------------------------------------------------------------
 sleep 2
 for unit in platform-dns platform-web; do
   systemctl is-active --quiet "$unit" || { journalctl -u "$unit" -n 20 --no-pager; die "$unit 未正常运行，上方为最近日志"; }

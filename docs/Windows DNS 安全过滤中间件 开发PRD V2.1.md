@@ -280,7 +280,11 @@ class ThreatIntelAdapter:
 
 **★ 写入削峰（log_writer）**：filter_log 写入经内存队列异步批量落库（队列上限保护内存，批量提交 SQLite）；观测接口 `GET /api/log-writer/stats` 返回 queue_len/written/dropped——`dropped > 0` 表示写入跟不上（调大保留周期清理频率或降低采样率）。
 
+**★ 日志保留期清理（log_retention）**：按 `log_retention_days`（默认 90，热生效）后台线程每 6 小时分批删除 filter_log/audit_log 过期行（单批 1 万行 + 批间 0.5s 让出写窗口，防长事务锁库）；观测接口 `GET /api/log-retention/stats`。
+
 **日志管理**：按保留天数自动清理（默认 90 天）；按时间/客户端 IP/域名/过滤原因/动作查询；导出 CSV。
+
+**★ api_key 落库加密（app/crypto.py）**：情报源密钥 Fernet 对称加密存储（密钥由 platform.yaml 的 `web.jwt_secret` 经 SHA-256 派生）；Web 启动时自动迁移存量明文（幂等）；读取点（检测链路 get_enabled_adapters、连通性测试、列表脱敏回显）统一解密；更换 jwt_secret 后旧密文按"未配 Key"处理（不发请求、三态无结论），界面重新保存即恢复。
 
 ### 5.7 ▲ 测试中心（人工验证）
 

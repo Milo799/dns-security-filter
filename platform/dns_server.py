@@ -185,6 +185,11 @@ async def run_dns_server():
     sync_config_from_db()
     import log_writer
     log_writer.start()
+    # 日志保留期自动清理（P1-1）：双进程部署时与 Web 进程各起一个
+    # 清理线程无害（DELETE 幂等，SQLite 单写者串行），保证单进程
+    # 形态（仅 platform-dns）也有清理能力
+    import log_retention
+    log_retention.start()
     # 跨进程状态轮询：感知 Web 进程的配置修改与名单导入
     # （双进程部署下 system_config 热生效 + 三类名单缓存失效，最长 60s）
     import cross_sync

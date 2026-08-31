@@ -19,10 +19,10 @@ class AbuseIPDBAdapter(HttpThreatIntelAdapter):
     supports_ip = True
 
     def __init__(self, base_url: str = "", api_key: str = "",
-                 timeout_ms: int = 2000):
+                 timeout_ms: int = 2000, config: str = ""):
         if not base_url:
             base_url = "https://api.abuseipdb.com/api/v2"
-        super().__init__(base_url, api_key, timeout_ms)
+        super().__init__(base_url, api_key, timeout_ms, config)
 
     def _auth_headers(self) -> dict:
         return {"Key": self.api_key, "Accept": "application/json"}

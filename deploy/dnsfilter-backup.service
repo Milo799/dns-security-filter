@@ -1,0 +1,16 @@
+[Unit]
+Description=DNS 安全过滤 · platform.db 每日热备份
+Documentation=https://github.com/Milo799/dns-security-filter
+
+[Service]
+Type=oneshot
+# 数据库路径与备份目录按实际部署调整（默认对应 install-platform.sh 安装位）
+ExecStart=/opt/dns-security-filter/tools/backup_db.sh /opt/dns-security-filter/platform/data/platform.db /var/backups/dnsfilter
+# 备份保留份数可用环境变量覆盖（默认 14 份）
+# Environment=BACKUP_KEEP=30
+User=dnsfilter
+Group=dnsfilter
+# 备份目录需可写：安装脚本已创建并授权
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true

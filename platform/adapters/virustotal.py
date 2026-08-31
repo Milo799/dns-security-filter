@@ -17,10 +17,10 @@ class VirusTotalAdapter(HttpThreatIntelAdapter):
     supports_ip = True
 
     def __init__(self, base_url: str = "", api_key: str = "",
-                 timeout_ms: int = 2000):
+                 timeout_ms: int = 2000, config: str = ""):
         if not base_url:
             base_url = "https://www.virustotal.com/api/v3"
-        super().__init__(base_url, api_key, timeout_ms)
+        super().__init__(base_url, api_key, timeout_ms, config)
 
     def _auth_headers(self) -> dict:
         return {"x-apikey": self.api_key}

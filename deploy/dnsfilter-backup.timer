@@ -1,0 +1,13 @@
+[Unit]
+Description=DNS 安全过滤 · platform.db 每日热备份定时器
+Documentation=https://github.com/Milo799/dns-security-filter
+
+[Timer]
+# 每日凌晨 02:30 执行（低峰窗口；Persistent=auth 补跑错过的周期）
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+# 防与清理线程/自动更新撞车的最小间隔保护（可选调大）
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

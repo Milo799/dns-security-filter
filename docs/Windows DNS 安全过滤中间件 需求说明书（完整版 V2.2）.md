@@ -283,6 +283,7 @@ docker compose -f deploy/docker/docker-compose.yml up -d --build
 | ★ 迭代 19 | **10 万终端前置开发五项**：①域名检测结论缓存（LRU+TTL，fail-safe 不缓存）②单源限流熔断降级 ③DNS 压测脚本 tools/loadtest.py（含 Windows 事件循环修复——两端须 SelectorEventLoop）④放行日志采样（确定性取模）⑤SQLite 写入削峰（异步批量 + 名单内存缓存）；实测 1000QPS P95=1.86ms、拐点约 2200~3000QPS |
 | ★ 迭代 20 | **CSV 导入消重与冲突提示**：同名单自动消重返回三类计数；跨名单同值返回冲突明细警示；一键部署脚本（install-proxy.sh / install-platform.sh，幂等可重跑，配置已存在永不覆盖）+ 全注释配置模板 + systemd 模板加固 |
 | ★ 迭代 21 | **解析速度优化五项**（评估→确认→实施）：①IP 结论缓存（ip_cache，与域名缓存同构）②seed 出厂默认仅启用 DNSBL 四源（HTTP 类源退出实时链路）③IP 后置过滤线程池并行 ④单次上游往返（全正常返回上游原始应答，保真 TTL/EDNS0）⑤跨进程同步 cross_sync（DNS 进程 60s 轮询四表，Web 变更无需重启即生效）；**实测 DNSBL 四源启用态同域名二查 12ms（优化前 hit 路径 892~3170ms，约百倍）** |
+| ★ 迭代 22 | **生产就绪 P1 三项补齐**（代码级就绪度评估发现文档承诺未实现，全部补齐）：①日志保留期自动清理（log_retention 后台线程，每 6 小时分批删除 filter_log/audit_log 过期行，单批 1 万防长事务锁库；`GET /api/log-retention/stats` 观测）②api_key 落库 Fernet 加密（密钥由 jwt_secret 派生；存量明文启动自动迁移；更换 jwt_secret 后旧密文按未配 Key 处理）③数据库每日备份（tools/backup_db.sh SQLite .backup 热备 + dnsfilter-backup.timer 每日 02:30 + 保留 14 份轮转，安装脚本自动部署）；附带修复 virustotal/abuseipdb 适配器构造缺 config 参数的存量缺陷 |
 
 ## 八、待办与后续可选
 

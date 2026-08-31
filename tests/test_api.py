@@ -324,16 +324,19 @@ def test_threatintel_crud(client, token):
     assert item["adapter_registered"] is True
     assert "virustotal" in r.json()["data"]["registered_adapters"]
 
-    # 更新：api_key 传脱敏值时保留原密钥
+    # 更新：api_key 传脱敏值时保留原密钥（P1-2 加密后：密文原样保留）
     r = client.put(f"/api/threatintel/{item_id}", json={
         "name": "virustotal", "base_url": "https://vt2.example/api/v3",
         "api_key": "●●●●●●123", "enabled": True, "timeout_ms": 2000,
     }, headers=_h(token))
     assert r.status_code == 200
     from app.db import db_cursor
+    from app.crypto import decrypt_key
     with db_cursor() as cur:
         cur.execute("SELECT api_key FROM threatintel_api WHERE id=?", (item_id,))
-        assert cur.fetchone()["api_key"] == "secret-key-123"
+        stored = cur.fetchone()["api_key"]
+    assert stored.startswith("enc:")                  # 落库为密文
+    assert decrypt_key(stored) == "secret-key-123"    # 解密还原一致
 
     # 删除
     r = client.delete(f"/api/threatintel/{item_id}", headers=_h(token))

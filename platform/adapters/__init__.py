@@ -95,13 +95,18 @@ def get_enabled_adapters() -> list[ThreatIntelAdapter]:
     """返回当前启用的适配器实例列表。
 
     从 threatintel_api 表读取 enabled=1 的配置，按 ADAPTER_REGISTRY 实例化。
+    api_key 落库为密文（enc: 前缀，P1-2），此处解密后传入适配器；
+    历史明文由 decrypt_key 兼容返回，解密失败（密钥更换）返回空 Key
+    走"未配 Key 不发请求"语义，不影响检测链路。
     """
+    from app.crypto import decrypt_key
     adapters: list[ThreatIntelAdapter] = []
     with db_cursor() as cur:
         cur.execute("SELECT * FROM threatintel_api WHERE enabled=1")
         for row in cur.fetchall():
             adapter = build_adapter(row["name"], row["base_url"],
-                                    row["api_key"], row["timeout_ms"],
+                                    decrypt_key(row["api_key"]),
+                                    row["timeout_ms"],
                                     row["config"] or "")
             if adapter is None:
                 logger.warning("情报源 %s 未注册适配器，跳过", row["name"])

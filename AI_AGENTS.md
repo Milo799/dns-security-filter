@@ -1,7 +1,7 @@
 # AI 开发指引（AI_AGENTS.md）
 
 你是本仓库的 AI 开发助手。**先读《docs/Windows DNS 安全过滤中间件 开发PRD V2.1.md》**，再按本指引工作。
-本工程已实现 21 轮迭代的全部需求（pytest 265 项全绿），你的任务是**维护与增量开发**：
+本工程已实现 22 轮迭代的全部需求（pytest 278 项全绿），你的任务是**维护与增量开发**：
 修 bug、加功能、改需求时同步更新 PRD V2.1 与需求说明书 V2.2，并保证测试持续全绿。
 
 ## 1. 仓库心智模型
@@ -18,9 +18,11 @@ platform/threat_list.py  ← ★离线大名单：SOURCES 定义、导入/自动
 platform/auto_update.py  ← 自动更新后台循环：tick = min(用户配置, 各源最小周期)，下限 60s
 platform/circuit_breaker.py ← 单源限流熔断降级（连续失败熔断/半开恢复）
 platform/log_writer.py   ← 日志异步批量写入（内存队列削峰；/api/log-writer/stats 观测）
+platform/log_retention.py ← 日志保留期清理（每 6h 分批删 filter_log/audit_log 过期行；/api/log-retention/stats）
 platform/cross_sync.py   ← 跨进程同步：DNS 进程 60s 轮询四表 MAX(updated_at)（双进程部署热生效）
 platform/adapters/       ← 16 个威胁情报适配器（DNSBL/免Key/厂商/URLhaus，三态语义 + last_error）
 platform/app/            ← Web 管理：FastAPI 路由（list/threatintel/threatlist/logs/test/config/audit）
+platform/app/crypto.py   ← api_key 落库 Fernet 加密（密钥由 jwt_secret 派生；存量明文启动自动迁移）
 platform/seed.py         ← 初始化：建表 + 默认管理员 + 默认配置 + 内置情报源（默认仅启用 DNSBL 四源；
                             DNSF_TESTING=1 时不启用任何在线源——单测隔离用）
 web/index.html + css/ + js/ ← 多文件 SPA（零构建链）：css/{theme,base,pages} + js/{app,charts,boot}
@@ -28,7 +30,7 @@ web/index.html + css/ + js/ ← 多文件 SPA（零构建链）：css/{theme,bas
                             fusion/config/audit）；加载顺序固定：app → charts → pages/* → boot；
                             页面模块末尾 PAGE_LOADERS.xxx = loadXxx 注册
 tools/loadtest.py        ← DNS 压测（QPS/延迟分位；Windows 须 SelectorEventLoop）
-tests/                   ← 265 项 pytest（跑全部，新增功能必须补测试；conftest 已设 DNSF_TESTING=1）
+tests/                   ← 278 项 pytest（跑全部，新增功能必须补测试；conftest 已设 DNSF_TESTING=1）
 ```
 
 ## 2. 开发约定（增量改动按依赖关系）
@@ -64,18 +66,19 @@ tests/                   ← 265 项 pytest（跑全部，新增功能必须补�
   各源实际更新周期 = min(源内置 update_interval_s, 用户全局配置间隔)，调度可视化口径与此一致；
   下载容错：连接 15s / 读空闲 30s，GitHub raw 失败降级 jsDelivr 镜像（_MIRROR_RULES）
 - 日志：被过滤内容必录（filter_log 全字段）；放行日志受 allow_log_enabled + allow_log_sample_rate 控制；
-  写入必须走 log_writer 异步批量，**严禁在检测线程直写 SQLite**
+  写入必须走 log_writer 异步批量，**严禁在检测线程直写 SQLite**；保留期清理走 log_retention 后台线程
 - **SQLite 连接线程隔离**（db.py threading.local + busy_timeout 30s），严禁模块级单例共享连接
   （多源并发导入会报 "cannot start a transaction within a transaction"）
 - dns_server 的 process_query 必须 run_in_executor（同步检测 IO 严禁直调 asyncio 事件循环，会卡死全部并发查询）
 - 双进程部署：Web 进程改配置 → DNS 进程经 cross_sync 60s 轮询生效；改四表任何写路径必须更新 updated_at
-- api_key 落库加密；密码 bcrypt；接口除 login 外需 Bearer Token
+- **api_key 落库加密**（app/crypto.py Fernet，密钥由 jwt_secret 派生）：写入必须 encrypt_key、
+  读取必须 decrypt_key（勿直接读 threatintel_api.api_key 列）；密码 bcrypt；接口除 login 外需 Bearer Token
 - 数据库结构以 app/schema.sql 为准（新索引用 CREATE IF NOT EXISTS，对已有库自动生效）；扩展需先评审并同步 PRD 第六章
 
 ## 4. 验证方式（每次改动后跑）
 
 ```bash
-cd platform && python -m pytest ../tests -v     # 全部 265 项测试全绿
+cd platform && python -m pytest ../tests -v     # 全部 278 项测试全绿
 bash scripts/verify.sh 127.0.0.1 5300 example.com  # 链路通
 python tools/loadtest.py 127.0.0.1 --qps 1000   # 压测（改动性能路径时）
 ```
@@ -85,7 +88,7 @@ python tools/loadtest.py 127.0.0.1 --qps 1000   # 压测（改动性能路径时
 
 ## 5. 完成标准（当前状态）
 
-- [x] detectors 五层检测主流程全部实现，`make test` 全绿（265 项）
+- [x] detectors 五层检测主流程全部实现，`make test` 全绿（278 项）
 - [x] ECS 客户端 IP 提取验证通过（构造带 ECS 的查询报文测试）
 - [x] 16 个威胁情报适配器 + 连通性测试（含 last_error 诊断）+ 单源熔断
 - [x] Web 全部页面可用（登录 → 大屏 → 人工情报源双 Tab → 情报源管理 → 测试中心 → 日志/审计）

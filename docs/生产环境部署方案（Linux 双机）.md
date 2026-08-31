@@ -272,6 +272,7 @@ config.yaml → systemd 服务并启动 → 内核参数 → 句柄上限 → �
 | 文件 | `/opt/dns-security-filter/`（bin/proxy/platform/web/data） | 删目录 |
 | venv | `platform/venv`（9 个 pip 包） | 删 venv 目录 |
 | systemd | proxy / platform-dns / platform-web 三服务（enable+start） | `systemctl disable --now <svc>` 后删 unit 文件 |
+| 备份 | dnsfilter-backup.timer + .service（每日 02:30）+ /var/backups/dnsfilter/ 备份目录 | `systemctl disable --now dnsfilter-backup.timer` 后删 unit 文件与备份目录 |
 | 内核参数 | `/etc/sysctl.d/99-dnsfilter.conf`（rmem/wmem 16MB、backlog 10000） | 删该文件后 `sysctl --system` |
 | 句柄上限 | `/etc/security/limits.conf` 追加 dnsfilter nofile 65536 | 删追加行 |
 | 配置 | 从 example 生成（**已存在则永不覆盖**） | 删配置文件重跑脚本 |
@@ -364,8 +365,9 @@ sudo systemctl daemon-reload && sudo systemctl enable --now platform-dns platfor
 | 8 | **风暴演练** | 打峰值 1.5 倍 × 3 分钟 | 服务不崩，超限部分排队或快速失败 |
 | 9 | 容灾演练 | 停 platform-dns → 终端查询 | SERVFAIL 约 8s，无静默挂起；改回转发器立即恢复 |
 | 10 | 误拦截应急 | Web 加白名单 | 秒级生效 |
-| 11 | 日志清理 | 检查 90 天自动清理 | 生效 |
+| 11 | 日志清理 | 等待 6 小时周期或重启服务后查 `GET /api/log-retention/stats` | `total_runs ≥ 1`；插入超期测试行可即时验证删除 |
 | 12 | 灰度首台 DC 观察 | 3~7 天 | 误报率/资源曲线正常 |
+| 13 | 数据库备份 | `systemctl list-timers dnsfilter-backup.timer`；手工触发 `sudo systemctl start dnsfilter-backup.service` 后 `ls /var/backups/dnsfilter/` | 定时器 active + 备份文件生成且 gzip 压缩 |
 
 ## 八、容灾与回退
 
@@ -384,10 +386,12 @@ sudo systemctl daemon-reload && sudo systemctl enable --now platform-dns platfor
 ## 九、日常运维
 
 - **日志策略**：10 万终端下 `allow_log_enabled` 必须为 false（全量放行日志 = 每日数百万行、SQLite 写放大拖垮检测）；拦截/剔除日志保留 90 天，预计每日 1~50 万行（取决于拦截率），**每周关注 platform.db 体积**
+- **日志自动清理（已内置）**：`log_retention_days`（默认 90，配置页热生效）驱动后台清理线程——每 6 小时对 filter_log / audit_log 分批删除过期行（单批 1 万行防长事务锁库）；观测接口 `GET /api/log-retention/stats`（最近/累计删除行数、执行轮数；`total_deleted` 长期为 0 且库体积持续增长时检查天数配置）
 - **缓存监控**：命中率、缓存条目数、LRU 淘汰率（开发项 1 的统计接口）
-- **备份**：platform.db 每日备份（SQLite `.backup` 热备）；两份 yaml 变更留副本
+- **备份（已内置）**：安装脚本自动部署 `dnsfilter-backup.timer`——每日 02:30 调 `tools/backup_db.sh` 对 platform.db 做 SQLite `.backup` 在线热备（与检测写入并发安全），gzip 压缩后默认保留 14 份于 `/var/backups/dnsfilter`（`BACKUP_KEEP` 环境变量可调）；手工备份同命令随时可跑；两份 yaml 变更留副本
 - **升级窗口**：凌晨低峰；先平台后代理；升级前必跑测试套件
-- **监控告警建议**：平台 SERVFAIL 率（代理日志 rcode 统计）、缓存命中率、磁盘水位、三进程存活
+- **监控告警建议**：平台 SERVFAIL 率（代理日志 rcode 统计）、缓存命中率、磁盘水位、三进程存活、备份 timer 最近执行状态（`systemctl list-timers dnsfilter-backup.timer`）
+- **api_key 安全**：情报源密钥 Fernet 加密落库（密钥由 platform.yaml 的 jwt_secret 派生）；**更换 jwt_secret 后旧密文解不开**——对应情报源按"未配 Key"处理（不发请求、三态无结论），管理员在界面重新保存一次 Key 即可
 
 ## 十、风险与已知边界
 

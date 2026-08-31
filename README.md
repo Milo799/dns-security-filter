@@ -1,7 +1,7 @@
 # DNS 安全过滤中间件 - Harness 工程
 
 基于《Windows DNS 安全过滤中间件 开发PRD V2.1》与《需求说明书（完整版 V2.2）》开发的项目工程（monorepo）。
-**21 轮迭代需求已全部实现**，pytest 265 项全绿，最小可运行闭环 → 全功能交付 → 10 万终端性能优化。
+**22 轮迭代需求已全部实现**，pytest 278 项全绿，最小可运行闭环 → 全功能交付 → 10 万终端性能优化。
 
 ## 架构（三层 + 离线大名单 + 检测缓存）
 
@@ -30,10 +30,10 @@ DNS 安全过滤平台（Python，监听 53）
 | 目录 | 内容 | 状态 |
 |------|------|------|
 | `proxy/` | Go 代理中间件（main/config/forward + 配置模板） | ✅ 已实现并编译验证（端到端四场景通过） |
-| `platform/` | 平台：dns_server（ECS/PTR）、detectors 五层检测、adapters（16 适配器）、threat_list（离线大名单）、domain_cache/ip_cache（结论缓存）、circuit_breaker（熔断）、log_writer（日志削峰）、cross_sync（跨进程同步）、app(FastAPI+SQLite)、seed | ✅ 已实现 |
+| `platform/` | 平台：dns_server（ECS/PTR）、detectors 五层检测、adapters（16 适配器）、threat_list（离线大名单）、domain_cache/ip_cache（结论缓存）、circuit_breaker（熔断）、log_writer（日志削峰）、log_retention（保留期清理）、cross_sync（跨进程同步）、app(FastAPI+SQLite+crypto)、seed | ✅ 已实现 |
 | `web/` | 管理前端（多文件 SPA：css/{theme,base,pages} + js/{app,charts,boot} + js/pages/×9；SOC 深浅双主题、安全态势大屏、人工情报源双 Tab） | ✅ 已实现 |
-| `deploy/` | systemd unit ×3 + **一键安装脚本 install-proxy.sh / install-platform.sh**；**`deploy/docker/`** 镜像编排 + 网络白名单 | ✅ 已实现 |
-| `tools/` | loadtest.py（DNS 压测：QPS/延迟分位） | ✅ 已实现 |
+| `deploy/` | systemd unit ×3 + backup timer + **一键安装脚本 install-proxy.sh / install-platform.sh**；**`deploy/docker/`** 镜像编排 + 网络白名单 | ✅ 已实现 |
+| `tools/` | loadtest.py（DNS 压测：QPS/延迟分位）、backup_db.sh（DB 每日热备+轮转） | ✅ 已实现 |
 | `scripts/` | dev.sh（一键启动）、verify.sh（dig 验证）、fake_upstream.py | ✅ 已实现 |
 | `tests/` | pytest 265 项（融合/拦截/ECS/PTR/大名单/情报源/调度/性能/缓存/并行/跨进程同步） | ✅ 全绿 |
 | `docs/` | 需求说明书 V2.2（需求基线）、开发 PRD V2.1（实现基线）、生产部署方案（Linux 双机） | ✅ |
@@ -88,7 +88,7 @@ dig @<代理IP> example.com A
 
 | 命令 | 含义 |
 |------|------|
-| `make test` | 全部 265 项测试通过 |
+| `make test` | 全部 278 项测试通过 |
 | `make verify` | dig 经代理查询成功返回 IP（链路通） |
 | `make docker-up` ▲ | Docker compose 一键构建启动 |
 | 拦截验证 | 黑名单/离线大名单/威胁情报配置后，`dig` 恶意域名返回告警 IP（AAAA 为空应答），filter_log 可查 |

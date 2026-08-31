@@ -289,6 +289,17 @@ def log_writer_stats(_: str = Depends(get_current_user)):
     return {"code": 0, "message": "ok", "data": log_writer.stats()}
 
 
+@router.get("/log-retention/stats")
+def log_retention_stats(_: str = Depends(get_current_user)):
+    """日志保留期清理状态：最近/累计删除行数、执行轮数（运维巡检用）。
+
+    last_run_at 为 0 说明清理线程尚未跑过首轮；total_deleted 长期为 0
+    且库体积持续增长时检查 log_retention_days 是否被调得过大。
+    """
+    import log_retention
+    return {"code": 0, "message": "ok", "data": log_retention.stats()}
+
+
 @router.get("/circuit-breaker/stats")
 def circuit_breaker_stats(_: str = Depends(get_current_user)):
     """熔断降级状态：各情报源熔断器 + 路径级降级窗口（运维巡检用）。"""

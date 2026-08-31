@@ -30,10 +30,16 @@ async def on_startup():
     init_all()   # 建表 + 默认管理员 + 默认配置
     sync_config_from_db()   # DB 配置 → 内存 CONFIG（热配置基准）
     get_conn()
+    # 存量明文 api_key 批量加密（P1-2；幂等，只由 Web 进程执行一次）
+    from app.crypto import migrate_plaintext_keys
+    migrate_plaintext_keys()
     # 异步日志写入线程（前置项5：SQLite 写入削峰）——
     # 检测线程只入队，后台线程批量 flush；atexit 兜底 flush 残留。
     import log_writer
     log_writer.start()
+    # 日志保留期自动清理线程（P1-1：filter_log/audit_log 按保留天数删除）
+    import log_retention
+    log_retention.start()
     # 后台预热离线大名单内存缓存（全量 enabled 条目约数秒）：
     # 避免服务重启后首条 DNS 查询懒加载阻塞；daemon 线程不拖慢启动。
     threading.Thread(target=threat_list.warm_cache, daemon=True,
