@@ -121,9 +121,9 @@ echo 'dnsfilter soft nofile 65536' | sudo tee -a /etc/security/limits.conf
 
 机 A 零依赖（静态单二进制，仅需 systemd）；机 B Python ≥3.10 + venv
 （requirements.txt 九个包，安装脚本自动装国内镜像）。
-**AlmaLinux 8 / RHEL 8 系**：AppStream 直接 `dnf install python3.11 python3.11-pip`
-（8.5 仓库可能无 python3.11，先 `dnf update` 到 8.7+，或用模块流 `dnf module enable python39` 过渡）。
-离线部署选项：pip download 拷贝安装 + 手工灌名单（见 5.5 手工步骤）。
+**AlmaLinux 8 / RHEL 8 系**：AppStream 直接安装——`python3.12` 需系统 ≥8.10
+（`dnf install python3.12 python3.12-pip`），`python3.11` 需 ≥8.7；安装脚本两种都能自动
+探测。离线部署选项：pip download 拷贝安装 + 手工灌名单（见 5.5 手工步骤）。
 OS 专项准备与差异细节见 **《生产部署指引（AlmaLinux 8）》**。
 
 ---

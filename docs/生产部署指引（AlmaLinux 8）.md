@@ -8,14 +8,14 @@
 > 导致 FastAPI 生态多个核心依赖（pydantic-core / cryptography / bcrypt 等 Rust/C 扩展包）
 > 需要手工源码编译且要解决 OpenSSL 1.0 vs 1.1 头文件冲突；系统 Python 仅 3.6 距平台要求的
 > 3.10 相差四个大版本。AlmaLinux 8 是 RHEL 8 的 1:1 兼容重建，glibc 2.28 覆盖全部依赖的
-> 预编译轮子（manylinux_2_28），AppStream 仓库直接提供 python3.11，整体只多两三条命令。
+> 预编译轮子（manylinux_2_28），AppStream 仓库直接提供 python3.11/3.12，整体只多两三条命令。
 
 ---
 
 ## 一、两机共同的 OS 准备（AlmaLinux 8.5 出厂态 → 可部署态）
 
 ```bash
-# ① 升级到 8.7+（关键：python3.11 包从 8.7 才进入 AppStream 仓库）
+# ① 升级系统（关键：Python 包的收录版本随系统小版本走，见下方版本红线）
 sudo dnf update -y && sudo reboot
 
 # ② 装基础工具（脚本依赖 rsync/bash；自检与验证需要 curl/ss/dig/sqlite3）
@@ -31,9 +31,16 @@ sudo setenforce 0 2>/dev/null || true   # 立即生效（免重启临时态）
 getenforce   # 预期输出 Disabled
 ```
 
-**版本红线**：`dnf update` 后用 `cat /etc/almalinux-release` 确认 ≥ 8.7；
-若内网环境无法升级到 8.7，`dnf install python39` 可以装 3.9 —— 但平台要求 ≥3.10，
-此时只能源码编译或改用 docker 路线，不建议。
+**版本红线**：`dnf update` 后用 `cat /etc/almalinux-release` 确认版本与 Python 包的对应
+关系（AppStream 收录时间不同）：
+
+| Python 包 | 最低系统版本 |
+|-----------|-------------|
+| `python3.12` | **8.10** |
+| `python3.11` | 8.7 |
+
+dnf update 到 8.10 后 `dnf install python3.12` 直接可用；若因故停在 8.7~8.9，
+改装 `python3.11` 同样满足平台 ≥3.10 要求（安装脚本自动探测，无需改参数）。
 
 ## 二、机 A（代理）——除准备外无额外步骤
 
@@ -44,16 +51,17 @@ getenforce   # 预期输出 Disabled
 sudo ./deploy/install-proxy.sh --upstream <机B内网IP> --upstream-port 15353
 ```
 
-## 三、机 B（检测平台）——唯一注意点是 Python 3.11
+## 三、机 B（检测平台）——唯一注意点是 Python 版本
 
 ```bash
-# ① 装 Python 3.11 + venv 模块（AppStream 提供，无需编译）
-sudo dnf install -y python3.11 python3.11-pip
+# ① 装 Python（本环境采用 3.12；dnf update 到 8.10 后可用）
+sudo dnf install -y python3.12 python3.12-pip
+#    若系统停在 8.7~8.9 装不到 3.12，改装 python3.11 效果等同（脚本都能识别）
 
 # ② 确认版本 ≥3.10（安装脚本也会自检，这里提前确认少走弯路）
-python3.11 -V
+python3.12 -V
 
-# ③ 跑主方案 5.1 节的一键脚本（脚本会自动找到 python3.11 建 venv、装 9 个依赖）
+# ③ 跑主方案 5.1 节的一键脚本（脚本自动找到 python3.12 建 venv、装 9 个依赖）
 sudo ./deploy/install-platform.sh --upstream-dns 223.5.5.5 --alert-ip <内网告警页IP>
 ```
 
@@ -105,7 +113,7 @@ MemoryMax、OnCalendar + Persistent timer），在 RHEL 8 的 systemd 239 上**�
 [0:10] 开发机：交叉编译代理二进制（仓库已提供 bin/dns-proxy 时跳过）
        cd proxy && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../bin/dns-proxy .
 [0:12] 打包上传：仓库目录（含 bin/dns-proxy）scp 到两机 /root/ 或 /tmp/
-[0:15] 机 B：dnf install python3.11 python3.11-pip
+[0:15] 机 B：dnf install python3.12 python3.12-pip
 [0:18] 机 B：sudo ./deploy/install-platform.sh --upstream-dns 223.5.5.5 --alert-ip x.x.x.x
        （记下屏幕打印的管理员初始密码；登录 http://机B:8080 改密）
 [0:25] 机 A：sudo ./deploy/install-proxy.sh --upstream <机B IP> --upstream-port 15353
@@ -118,21 +126,21 @@ MemoryMax、OnCalendar + Persistent timer），在 RHEL 8 的 systemd 239 上**�
 
 机房无公网时（大名单靠人工介质同步的场景）：
 
-1. 有公网的跳板机：`python3.11 -m pip download -r requirements.txt -d wheels/ `
+1. 有公网的跳板机：`python3.12 -m pip download -r requirements.txt -d wheels/ `
    （AlmaLinux 8 上下载即得 manylinux_2_28 轮子）+ 下载 hagezi 等名单 txt
 2. 打包 `wheels/ + 仓库 + bin/dns-proxy` 一并 scp 到机 B
-3. 机 B：`sudo dnf install python3.11` 后改用脚本参数
+3. 机 B：`sudo dnf install python3.12` 后改用脚本参数
    `--pip-mirror file:///root/wheels` 或手工
    `venv/bin/pip install --no-index --find-links=/root/wheels -r requirements.txt`
 4. dnf 无本地源时：`dnf install --disablerepo=* --enablerepo=baseos,appstream` 需内网
-   镜像源（AlmaLinux 官方也提供离线 ISO 挂本地源，python3.11 在 AppStream ISO 内）
+   镜像源（AlmaLinux 官方也提供离线 ISO 挂本地源，python3.12 在 AppStream ISO 内）
 
 ## 八、常见问题（AlmaLinux 8 专项）
 
 | 现象 | 原因 | 处置 |
 |------|------|------|
-| `dnf install python3.11` 提示无包 | 8.5 仓库尚未收录（8.7 起有） | `dnf update` 升系统；或临时用 `dnf module enable python39` 不满足要求，须升级 |
-| 脚本自检"未找到 Python >=3.10" | 只装了系统默认 python3（3.6） | `dnf install python3.11`；脚本按 python3.11 → python3.12 → python3.10 顺序探测 |
+| `dnf install python3.12` 提示无包 | 系统未升到 8.10（python3.12 从 8.10 起收录） | `dnf update` 升系统；或改装 `python3.11`（8.7 起有，同样满足 ≥3.10） |
+| 脚本自检"未找到 Python >=3.10" | 只装了系统默认 python3（3.6） | `dnf install python3.12`；脚本探测顺序 python3 → python3.12 → python3.11 → python3.10 |
 | 内网机器 dig 机 A 53 不通 | 系统层 firewalld 已关，但上联设备有 ACL | 找网络组核对上联防火墙/交换机 ACL 是否放行来源段（第四节端口表） |
 | `getenforce` 输出 Enforcing | 只 setenforce 0 没改配置文件（重启会复原） | `sed -i 's/^SELINUX=enforcing/SELINUX=disabled/' /etc/selinux/config` 后重启 |
 | chrony 未同步导致 JWT/审计时间漂移 | 虚机模板未配 NTP | `systemctl enable --now chronyd`；主方案第二节 NTP 为强制项 |
