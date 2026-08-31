@@ -19,6 +19,12 @@ _TMP_DIR = tempfile.mkdtemp(prefix="dns-filter-test-")
 CONFIG.database = os.path.join(_TMP_DIR, "test.db")
 # 首次 get_conn() 会自动建表；系统配置键由各测试按需写入
 
+# 测试环境标记（在任何 seed import 之前生效）：seed 默认不启用真实
+# 情报源（DNSBL 四源仅生产默认）——单元测试不依赖公网，真实源查询
+# 网络不稳时返回无结论会走 fail-safe 拦截，串扰 forward/allow 断言。
+# 测试需要情报源时自行显式启用（如 testcenter 的 example 占位适配器）。
+os.environ["DNSF_TESTING"] = "1"
+
 import pytest  # noqa: E402
 
 

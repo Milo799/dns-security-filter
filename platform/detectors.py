@@ -25,6 +25,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dnslib import DNSRecord, QTYPE, RR, A, AAAA, RCODE
 
 import domain_cache
+import ip_cache
 import circuit_breaker
 import log_writer
 from config import CONFIG
@@ -225,10 +226,26 @@ def query_threatintel_ip(ip: str) -> tuple[bool, str]:
     """对单个 IP（IPv4/IPv6）执行威胁情报融合判断，返回 (is_malicious, reason)。
 
     逻辑与 query_threatintel_domain 一致（线程池并发），仅调用声明 supports_ip 的适配器。
+
+    结论缓存（ip_cache，TTL+LRU）：热门域名应答 IP 高度集中（CDN Top IP
+    覆盖绝大多数流量），重复 IP 直接回缓存结论跳过全部在线查询；
+    情报源配置/融合策略变更时由路由层 threatintel_invalidate 一并清空。
+    **fail-safe 默认拦截不写缓存**（全源无结论不代表情报判定，与
+    domain_cache 同规则——缓存瞬时故障会放大为持续误拦）。
     """
+    cached = ip_cache.get(ip)
+    if cached is not None:
+        return cached
+
     adapters = [a for a in get_enabled_adapters() if a.supports_ip]
     if not adapters:
-        return False, ""
+        return False, ""  # 无支持 IP 查询的情报源：跳过威胁情报检测
+
+    # 源级熔断：跳过 open 态故障源（与域名路径同规则）
+    adapters = [a for a in adapters if circuit_breaker.allows_source(a.name)]
+    if not adapters:
+        circuit_breaker.record_failsafe()
+        return _failsafe_verdict_ip([])
 
     def _safe_query(adapter):
         try:
@@ -239,14 +256,33 @@ def query_threatintel_ip(ip: str) -> tuple[bool, str]:
 
     with ThreadPoolExecutor(max_workers=min(len(adapters), 12)) as pool:
         raw = list(pool.map(_safe_query, adapters))
+    # 熔断计数：None（无结论/异常）计失败，有结论（含未命中）计成功
+    for adapter, r in zip(adapters, raw):
+        if r is None:
+            circuit_breaker.record_failure(adapter.name)
+        else:
+            circuit_breaker.record_success(adapter.name)
     results = [r for r in raw if r is not None]
 
-    srcs = ",".join(a.name for a in adapters)
     if not results:
-        return True, f"threatintel:{CONFIG.fusion_strategy}:{srcs}"
+        # 全部源超时/故障（无任何结论）→ fail-safe（不写缓存）
+        circuit_breaker.record_failsafe()
+        return _failsafe_verdict_ip(adapters)
+
+    circuit_breaker.record_verdict()
     malicious = run_fusion(results, CONFIG.fusion_strategy)
     srcs = ",".join(r.source for r in results)
-    return malicious, f"threatintel:{CONFIG.fusion_strategy}:{srcs}"
+    reason = f"threatintel:{CONFIG.fusion_strategy}:{srcs}"
+    ip_cache.put(ip, malicious, reason)     # 有结论（含放行）→ 写缓存
+    return malicious, reason
+
+
+def _failsafe_verdict_ip(adapters) -> tuple[bool, str]:
+    """IP 路径的 fail-safe 分支出口（与 _failsafe_verdict 同语义）。"""
+    if circuit_breaker.failsafe_mode() == "degrade":
+        return False, "degraded:failsafe"
+    srcs = ",".join(a.name for a in adapters)
+    return True, f"threatintel:{CONFIG.fusion_strategy}:{srcs}"
 
 
 # ---------------------------------------------------------------------------
@@ -308,6 +344,14 @@ def query_upstream_reply(request: DNSRecord) -> DNSRecord:
         return reply
 
 
+def _extract_ips(reply: DNSRecord, qtype: int) -> list[str]:
+    """从上游原始应答提取指定类型的 IP 列表（供 IP 后置过滤用）。"""
+    try:
+        return [str(rr.rdata) for rr in reply.rr if rr.rtype == qtype]
+    except Exception:
+        return []
+
+
 # ---------------------------------------------------------------------------
 # 4. IP 后置过滤
 # ---------------------------------------------------------------------------
@@ -315,17 +359,36 @@ def query_upstream_reply(request: DNSRecord) -> DNSRecord:
 def ip_postfilter(ips: list[str]) -> tuple[list[str], list[str]]:
     """对解析结果 IP 逐条校验，返回 (保留IP列表, 恶意IP列表)。
 
-    - 命中本地 IP 黑名单（含 CIDR）→ 剔除
+    - 命中本地 IP 黑名单（含 CIDR）→ 剔除（纯内存，不并发）
     - 威胁情报融合判定恶意（声明 supports_ip 的启用源）→ 剔除
-    TODO(AI): QPS 高时改为 asyncio 并发查询。
+      IP 缓存命中直接返回；未命中的 IP 线程池并行查询（多 IP 应答
+      时总耗时 ≈ 单 IP 耗时，而非逐 IP 累加）。
     """
     kept, malicious = [], []
+    # 先过本地黑名单（纯内存 O(1)），需在线查询的进入并行批次
+    pending = []
     for ip in ips:
         if is_ip_blacklisted(ip):
             malicious.append(ip)
-            continue
+        else:
+            pending.append(ip)
+
+    if not pending:
+        return kept, malicious
+
+    def _check(ip: str) -> bool:
         bad, _ = query_threatintel_ip(ip)
-        if bad:
+        return bad
+
+    # 单 IP 无需线程池开销，直接查
+    if len(pending) == 1:
+        results = {pending[0]: _check(pending[0])}
+    else:
+        with ThreadPoolExecutor(max_workers=min(len(pending), 8)) as pool:
+            results = dict(zip(pending, pool.map(_check, pending)))
+
+    for ip in pending:
+        if results[ip]:
             malicious.append(ip)
         else:
             kept.append(ip)
@@ -468,13 +531,16 @@ def process_query(request: DNSRecord, client_ip: str | None = None) -> DNSRecord
                          "alert_ip:" + CONFIG.alert_ip)
         return build_intercept_reply(request, qtype)
 
-    # 5) 公网解析 → IP 后置过滤
-    ips = query_upstream(domain, qtype)
+    # 5) 公网解析（单次往返）→ IP 后置过滤
+    #    拿上游原始应答一次，从中提取 IP 做后置过滤：
+    #    全正常直接返回该应答（保留上游 TTL/EDNS0 等原语，省一次重复解析）
+    upstream_reply = query_upstream_reply(request)
+    if upstream_reply.header.rcode != RCODE.NOERROR:
+        return upstream_reply          # SERVFAIL/NXDOMAIN 原样透传上游结论
+    ips = _extract_ips(upstream_reply, qtype)
     if not ips:
-        # 解析失败：回 SERVFAIL，不拦截不误报
-        reply = request.reply()
-        reply.header.rcode = RCODE.SERVFAIL
-        return reply
+        # 上游无应答记录（如 AAAA 无 IPv6）：原样返回，不拦截不误报
+        return upstream_reply
 
     kept, malicious_ips = ip_postfilter(ips)
     if not kept:
@@ -490,8 +556,8 @@ def process_query(request: DNSRecord, client_ip: str | None = None) -> DNSRecord
                          "ip_filter", "remove_ip", malicious_ips, final)
         return build_remaining_reply(request, qtype, kept)
 
-    # 6) 全部正常 → 原样返回
-    return query_upstream_reply(request)
+    # 6) 全部正常 → 返回上游原始应答（已在第 5 步取得，不再重复解析）
+    return upstream_reply
 
 
 def _process_ptr(request: DNSRecord, ptr_name: str, client_ip: str) -> DNSRecord:

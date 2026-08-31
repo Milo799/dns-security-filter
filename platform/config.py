@@ -44,6 +44,8 @@ class PlatformConfig:
     api_timeout_ms: int = 2000             # 威胁情报源单次调用超时（毫秒）
     domain_cache_ttl_s: int = 300          # 域名检测结论缓存 TTL（秒，1~86400）
     domain_cache_size: int = 1_000_000     # 域名检测结论缓存容量上限（条）
+    ip_cache_ttl_s: int = 900              # IP 检测结论缓存 TTL（秒，1~86400；IP 情报变化慢于域名可略长）
+    ip_cache_size: int = 200_000           # IP 检测结论缓存容量上限（条）
     failsafe_mode: str = "intercept"       # fail-safe 模式：intercept 拦截 / degrade 降级放行
     cb_failure_threshold: int = 5          # 源级熔断：连续失败阈值（次，0=禁用）
     cb_open_timeout_s: int = 60            # 源级熔断：冷却时长（秒）

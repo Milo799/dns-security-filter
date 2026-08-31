@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 
 import bcrypt
 
@@ -24,6 +25,8 @@ DEFAULT_SYSTEM_CONFIG = {
     "detection_enabled": str(int(CONFIG.detection_enabled)),
     "domain_cache_ttl_s": str(CONFIG.domain_cache_ttl_s),
     "domain_cache_size": str(CONFIG.domain_cache_size),
+    "ip_cache_ttl_s": str(CONFIG.ip_cache_ttl_s),
+    "ip_cache_size": str(CONFIG.ip_cache_size),
     "failsafe_mode": CONFIG.failsafe_mode,
     "cb_failure_threshold": str(CONFIG.cb_failure_threshold),
     "cb_open_timeout_s": str(CONFIG.cb_open_timeout_s),
@@ -34,10 +37,25 @@ DEFAULT_SYSTEM_CONFIG = {
 }
 
 # ---------------------------------------------------------------------------
-# 内置开源情报源（免 API Key，开箱即用；默认停用，由管理员在界面启用）
+# 内置开源情报源（免 API Key，开箱即用；由管理员在界面启停）
 #   adapter_type: http / dnsbl
 #   dnsbl.config: {"zone": "...", "resolver": "..."} 可自定义
+#
+# 默认启用策略（与部署方案 3.1-A 对齐，解析速度评估后确定）：
+#   - DNSBL 四源默认启用：走 DNS 协议、亚毫秒响应、无限流配额，
+#     适合进入实时检测链路；
+#   - HTTP 类源默认停用：单源延迟 1~2s 且免费 Key 配额低
+#     （10 万终端下未命中流量会打爆配额），仅用于测试中心人工核验
+#     或配了企业配额后手动启用。
 # ---------------------------------------------------------------------------
+# 首次插入即默认启用的源（仅对新库生效；存量库不覆盖管理员选择）
+DEFAULT_ENABLED_SOURCES = {"spamhaus_zen", "spamhaus_dbl", "dronebl", "spfbl"}
+
+# 测试环境（DNSF_TESTING=1）不默认启用任何真实源——单元测试不依赖公网，
+# 真实 DNSBL 查询网络不稳时返回无结论会走 fail-safe 拦截，串扰断言
+if os.environ.get("DNSF_TESTING") == "1":
+    DEFAULT_ENABLED_SOURCES = set()
+
 BUILTIN_THREATINTEL = [
     {
         "name": "spamhaus_zen",
@@ -136,7 +154,7 @@ BUILTIN_THREATINTEL = [
 def init_builtin_threatintel(conn) -> None:
     """写入内置开源情报源。
 
-    - 不存在则插入（默认停用）；
+    - 不存在则插入（DNSBL 四源默认启用，其余默认停用）；
     - 已存在则仅同步 description（项目维护的说明文字，跟随版本更新），
       不触碰管理员自定义的 config / api_key / enabled 启停状态。
     """
@@ -145,12 +163,14 @@ def init_builtin_threatintel(conn) -> None:
                            (item["name"],))
         row = cur.fetchone()
         if row is None:
+            enabled = 1 if item["name"] in DEFAULT_ENABLED_SOURCES else 0
             conn.execute(
                 """INSERT INTO threatintel_api
                    (name, adapter_type, base_url, enabled, timeout_ms,
                     is_builtin, config, description)
-                   VALUES (?, ?, ?, 0, ?, 1, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, 1, ?, ?)""",
                 (item["name"], item["adapter_type"], item["base_url"],
+                 enabled,
                  CONFIG.api_timeout_ms,
                  json.dumps(item["config"], ensure_ascii=False),
                  item["description"]),

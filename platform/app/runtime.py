@@ -17,7 +17,8 @@ _BOOL_KEYS = {"allow_log_enabled", "detection_enabled",
               "threatlist_auto_update", "log_async_enabled"}
 _INT_KEYS = {"alert_ttl", "log_retention_days", "api_timeout_ms",
              "threatlist_auto_interval_hours", "domain_cache_ttl_s",
-             "domain_cache_size", "cb_failure_threshold", "cb_open_timeout_s",
+             "domain_cache_size", "ip_cache_ttl_s", "ip_cache_size",
+             "cb_failure_threshold", "cb_open_timeout_s",
              "degrade_threshold", "degrade_window_s",
              "allow_log_sample_rate", "log_flush_interval_s",
              "log_batch_size"}

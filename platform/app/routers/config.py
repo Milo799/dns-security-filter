@@ -32,6 +32,8 @@ class ConfigBody(BaseModel):
     threatlist_auto_interval_hours: int | None = None
     domain_cache_ttl_s: int | None = None
     domain_cache_size: int | None = None
+    ip_cache_ttl_s: int | None = None
+    ip_cache_size: int | None = None
     failsafe_mode: str | None = None
     cb_failure_threshold: int | None = None
     cb_open_timeout_s: int | None = None
@@ -89,6 +91,13 @@ def update_config(body: ConfigBody, user: str = Depends(get_current_user)):
         raise HTTPException(
             status_code=400,
             detail="domain_cache_size 须在 1024~10000000 之间（条）")
+    if "ip_cache_ttl_s" in data and not (1 <= data["ip_cache_ttl_s"] <= 86400):
+        raise HTTPException(
+            status_code=400, detail="ip_cache_ttl_s 须在 1~86400 之间（秒）")
+    if "ip_cache_size" in data and not (1024 <= data["ip_cache_size"] <= 5_000_000):
+        raise HTTPException(
+            status_code=400,
+            detail="ip_cache_size 须在 1024~5000000 之间（条）")
     if "failsafe_mode" in data and data["failsafe_mode"] not in ("intercept", "degrade"):
         raise HTTPException(
             status_code=400, detail="failsafe_mode 必须为 intercept/degrade")

@@ -185,6 +185,10 @@ async def run_dns_server():
     sync_config_from_db()
     import log_writer
     log_writer.start()
+    # 跨进程状态轮询：感知 Web 进程的配置修改与名单导入
+    # （双进程部署下 system_config 热生效 + 三类名单缓存失效，最长 60s）
+    import cross_sync
+    cross_sync.start()
 
     addr = (CONFIG.dns.listen_addr, CONFIG.dns.listen_port)
 
