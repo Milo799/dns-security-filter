@@ -115,6 +115,12 @@ mkdir -p "$INSTALL_DIR/platform/data"
 chmod +x "$INSTALL_DIR/tools/"*.sh 2>/dev/null || true
 
 # ---- 4 venv + 依赖 ----------------------------------------------------------
+# 半成品 venv 防护：只验证 python 存在会被"有 python 缺 pip"的残留骗过，
+# 跳过创建直接在依赖安装环节报 "venv/bin/pip: No such file or directory"——双验证兜住
+if [[ -x "$INSTALL_DIR/platform/venv/bin/python" && ! -x "$INSTALL_DIR/platform/venv/bin/pip" ]]; then
+  warn "检测到半成品 venv（有 python 缺 pip，上次创建失败的残留）——自动清理重建"
+  rm -rf "$INSTALL_DIR/platform/venv"
+fi
 if [[ ! -x "$INSTALL_DIR/platform/venv/bin/python" ]]; then
   if ! "$PYTHON_BIN" -m venv "$INSTALL_DIR/platform/venv" 2>/tmp/dnsf-venv-err.log; then
     # ensurepip 失败的兜底：--without-pip 建裸 venv，再用系统 pip 注入引导（get-pip 或 pip install）
