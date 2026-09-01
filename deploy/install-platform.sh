@@ -116,13 +116,44 @@ chmod +x "$INSTALL_DIR/tools/"*.sh 2>/dev/null || true
 
 # ---- 4 venv + 依赖 ----------------------------------------------------------
 if [[ ! -x "$INSTALL_DIR/platform/venv/bin/python" ]]; then
-  if ! "$PYTHON_BIN" -m venv "$INSTALL_DIR/platform/venv"; then
-    # 失败时清掉半成品 venv（否则下次误判"已存在"跳过重建）
+  if ! "$PYTHON_BIN" -m venv "$INSTALL_DIR/platform/venv" 2>/tmp/dnsf-venv-err.log; then
+    # ensurepip 失败的兜底：--without-pip 建裸 venv，再用系统 pip 注入引导（get-pip 或 pip install）
+    warn "标准 venv 创建失败（常见原因：RHEL 系未装 ${PYTHON_BIN}-pip，ensurepip 报错）——尝试 --without-pip 兜底方案"
     rm -rf "$INSTALL_DIR/platform/venv"
-    die "创建 venv 失败（ensurepip 报错）。按发行版补装后重跑：
-  AlmaLinux/RHEL 8: dnf install -y $PYTHON_BIN-pip $PYTHON_BIN-setuptools  # 如 python3.12-pip
-  Debian/Ubuntu:   apt install python3-venv
-  （补装后无需删除任何文件，脚本幂等可重跑）"
+    if "$PYTHON_BIN" -m venv --without-pip "$INSTALL_DIR/platform/venv" 2>>/tmp/dnsf-venv-err.log; then
+      VENV_PY="$INSTALL_DIR/platform/venv/bin/python"
+      # 注入路径 1：系统有 pip 模块 → 直接给它装进 venv
+      if "$PYTHON_BIN" -m pip --version >/dev/null 2>&1; then
+        "$PYTHON_BIN" -m pip install -q --prefix "$INSTALL_DIR/platform/venv" pip -i "$PIP_MIRROR" 2>>/tmp/dnsf-venv-err.log || true
+      fi
+      # 注入路径 2（更可靠）：下载 get-pip.py 引导安装
+      if [[ ! -x "$INSTALL_DIR/platform/venv/bin/pip" ]]; then
+        if curl -sf -m 30 "https://bootstrap.pypa.io/get-pip.py" -o /tmp/dnsf-get-pip.py 2>>/tmp/dnsf-venv-err.log \
+           || curl -sf -m 30 "https://mirrors.aliyun.com/pypi/get-pip.py" -o /tmp/dnsf-get-pip.py 2>>/tmp/dnsf-venv-err.log; then
+          "$VENV_PY" /tmp/dnsf-get-pip.py -q -i "$PIP_MIRROR" 2>>/tmp/dnsf-venv-err.log || true
+          rm -f /tmp/dnsf-get-pip.py
+        fi
+      fi
+      # 注入路径 3（终极兜底）：系统 pip wheel 离线拷入（setuptools 同带）
+      if [[ ! -x "$INSTALL_DIR/platform/venv/bin/pip" ]] && command -v pip3.12 >/dev/null 2>&1; then
+        SYS_SITE=$("$PYTHON_BIN" -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
+        VENV_SITE=$("$VENV_PY" -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
+        cp -r "$SYS_SITE/pip"* "$SYS_SITE/setuptools"* "$VENV_SITE/" 2>>/tmp/dnsf-venv-err.log || true
+      fi
+      if [[ ! -x "$INSTALL_DIR/platform/venv/bin/pip" ]]; then
+        rm -rf "$INSTALL_DIR/platform/venv"
+        die "venv 兜底方案仍无法获得 pip。请补装后重跑本脚本：
+  AlmaLinux/RHEL 8: dnf install -y ${PYTHON_BIN}-pip ${PYTHON_BIN}-setuptools
+  Debian/Ubuntu:    apt install python3-venv
+  失败详情见 /tmp/dnsf-venv-err.log（补装后脚本幂等可重跑）"
+      fi
+      log "venv 兜底方案成功（--without-pip + pip 注入）"
+    else
+      rm -rf "$INSTALL_DIR/platform/venv"
+      die "创建 venv 失败（非 ensurepip 原因）。失败详情见 /tmp/dnsf-venv-err.log：
+  AlmaLinux/RHEL 8: dnf install -y ${PYTHON_BIN}-pip ${PYTHON_BIN}-setuptools
+  Debian/Ubuntu:    apt install python3-venv"
+    fi
   fi
 fi
 log "安装 Python 依赖（镜像 $PIP_MIRROR，首次约 1~3 分钟）…"
