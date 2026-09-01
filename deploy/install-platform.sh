@@ -85,6 +85,14 @@ if [[ $PY_OK -eq 1 ]] && ! "$PYTHON_BIN" -m pip --version >/dev/null 2>&1; then
   warn "检测到 $PYTHON_BIN 缺少 pip 模块（RHEL 系单独拆包）——venv 创建将失败"
   warn "先补装再重跑本脚本：dnf install -y ${PYTHON_BIN}-pip ${PYTHON_BIN}-setuptools"
 fi
+# pyexpat 符号缺失探测：系统底子老（如 AlmaLinux 8.5 的 expat 2.2.5）而 python3.12 是
+# el8_10 新批次时，pyexpat.so 引用的 XML_SetBillionLaughs* 符号在旧 expat 里不存在——
+# ensurepip / 系统 pip / get-pip 三条路全炸，且报错都指向 venv 而非真正的 expat——提前拦截
+if ! "$PYTHON_BIN" -c "import xml.parsers.expat" >/dev/null 2>/tmp/dnsf-pyexpat-err.log; then
+  die "pyexpat 加载失败：系统 expat 库过旧，与新版 $PYTHON_BIN 不匹配（8.5 底子 + el8_10 包的典型症状）。
+  修复：dnf update -y expat（升到 2.5.0+）后重跑本脚本；详情见 /tmp/dnsf-pyexpat-err.log
+  建议：dnf update -y 把系统整体升到 8.10 基线（python3.12 本就是 8.10 批次的包，混搭易再踩坑）"
+fi
 log "Python：$("$PYTHON_BIN" -V 2>&1)"
 log "内存：$(free -h | awk '/^Mem:/{print $2}')；磁盘可用：$(df -h / | awk 'NR==2{print $4}')"
 
@@ -138,13 +146,20 @@ if [[ ! -x "$INSTALL_DIR/platform/venv/bin/python" ]]; then
            || curl -sf -m 30 "https://mirrors.aliyun.com/pypi/get-pip.py" -o /tmp/dnsf-get-pip.py 2>>/tmp/dnsf-venv-err.log; then
           "$VENV_PY" /tmp/dnsf-get-pip.py -q -i "$PIP_MIRROR" 2>>/tmp/dnsf-venv-err.log || true
           rm -f /tmp/dnsf-get-pip.py
+        else
+          warn "get-pip.py 下载失败（bootstrap.pypa.io 与阿里镜像均不可达——服务器出站网络受限）"
         fi
       fi
       # 注入路径 3（终极兜底）：系统 pip wheel 离线拷入（setuptools 同带）
-      if [[ ! -x "$INSTALL_DIR/platform/venv/bin/pip" ]] && command -v pip3.12 >/dev/null 2>&1; then
-        SYS_SITE=$("$PYTHON_BIN" -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
-        VENV_SITE=$("$VENV_PY" -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
-        cp -r "$SYS_SITE/pip"* "$SYS_SITE/setuptools"* "$VENV_SITE/" 2>>/tmp/dnsf-venv-err.log || true
+      # 注意 sysconfig 默认 scheme 在 root 下指向 /usr/local/...，RHEL 系实际装在 /usr/lib——
+      # 显式用 posix_prefix scheme，失败再直接探测 /usr/lib/pythonX.Y/site-packages
+      if [[ ! -x "$INSTALL_DIR/platform/venv/bin/pip" ]] && "$PYTHON_BIN" -m pip --version >/dev/null 2>&1; then
+        SYS_SITE=$("$PYTHON_BIN" -c "import sysconfig; print(sysconfig.get_paths('posix_prefix')['purelib'])")
+        [[ -d "$SYS_SITE/pip" ]] || SYS_SITE="/usr/lib/${PYTHON_BIN##*/}/site-packages"
+        VENV_SITE=$("$VENV_PY" -c "import sysconfig; print(sysconfig.get_paths('posix_prefix')['purelib'])")
+        if [[ -d "$SYS_SITE/pip" ]]; then
+          cp -r "$SYS_SITE"/pip* "$SYS_SITE"/setuptools* "$VENV_SITE/" 2>>/tmp/dnsf-venv-err.log || true
+        fi
       fi
       if [[ ! -x "$INSTALL_DIR/platform/venv/bin/pip" ]]; then
         rm -rf "$INSTALL_DIR/platform/venv"

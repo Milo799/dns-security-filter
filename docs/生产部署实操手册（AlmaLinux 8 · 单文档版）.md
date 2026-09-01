@@ -203,6 +203,7 @@ Web → 威胁情报 → 离线情报源：
 | 现象 | 原因 | 处置 |
 |------|------|------|
 | venv 创建报 `ensurepip ... exit status 1` | 只装了 python3.12 没装 pip 包（RHEL 拆包） | `dnf install -y python3.12-pip python3.12-setuptools`；`rm -rf /opt/dns-security-filter/platform/venv` 后重跑脚本 |
+| venv 三条兜底全失败，日志含 `pyexpat ... undefined symbol` | **8.5 老底子 + el8_10 新 python3.12 混搭**：pyexpat.so 需要新版 expat 符号，系统 expat 还是 2.2.5 | `dnf update -y expat`（升到 2.5.0+）后重跑；根治建议 `dnf update -y` 整体升到 8.10 基线 |
 | `dnf install python3.12` 提示无包 | 系统未升到 8.10 | `dnf update` 升系统；或改装 python3.11 + pip + setuptools 效果等同 |
 | dig 机 A 53 超时 | 上联 ACL 没放行来源段 | 核对第五节端口表；测试机 IP 是否在 DC 网段内 |
 | 安装脚本健康接口无应答 | 服务仍在预热（大名单导入中） | 等 1~2 分钟；`journalctl -u platform-web -n 20` 看日志 |
