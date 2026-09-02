@@ -29,6 +29,7 @@ from datetime import datetime, timedelta
 
 import httpx
 
+from app import http_client
 from app.db import db_cursor
 
 logger = logging.getLogger("platform.app.threat_list")
@@ -239,18 +240,17 @@ def _download_once(url: str, max_bytes: int, timeout_s: int,
     连接中段被静默丢弃（无 RST/FIN）时能尽快超时，交给上层降级镜像；
     健康连接即使很慢也不会连续 30s 收不到任何字节。
 
-    IPv4 强制（local_address="0.0.0.0"）：服务器 IPv6 半配置（有接口无
-    路由）时，raw.githubusercontent.com 等双栈域名会被 httpx 依次尝试
-    AAAA 地址，IPv6 报 [Errno 99] Cannot assign requested address 且
-    掩盖 IPv4 的真实状态——强制 IPv4 源地址后系统直接跳过 v6 候选。
+    IPv4 强制 + 可选代理：经 app.http_client 共享 Client 出站——
+    服务器 IPv6 半配置（有接口无路由）时，raw.githubusercontent.com 等
+    双栈域名会被 httpx 依次尝试 AAAA 地址，IPv6 报 [Errno 99] Cannot
+    assign requested address 且掩盖 IPv4 的真实状态；CONFIG.http_proxy
+    非空时下载流量同时经代理中转（Web 界面热配置）。
     """
-    with httpx.stream(
-        "GET", url,
+    with http_client.stream(
+        url,
         headers={"User-Agent": "dns-security-filter/1.0"},
         timeout=httpx.Timeout(timeout_s, connect=min(timeout_s, 15),
                               read=min(timeout_s, 30)),
-        follow_redirects=True,
-        transport=httpx.HTTPTransport(local_address="0.0.0.0"),
     ) as resp:
         resp.raise_for_status()
         if progress is not None:

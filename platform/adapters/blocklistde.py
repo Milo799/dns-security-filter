@@ -14,7 +14,7 @@ import logging
 import re
 
 import httpx
-from adapters.http_base import _IPV4_TRANSPORT
+from app import http_client
 
 from adapters import ThreatIntelAdapter, ThreatResult
 
@@ -41,11 +41,9 @@ class BlocklistDeAdapter(ThreatIntelAdapter):
     def _lookup(self, ip: str) -> ThreatResult | None:
         url = f"{self.base_url}/api.php?ip={ip}"
         try:
-            resp = httpx.get(url,
+            resp = http_client.get(url,
                              headers={"User-Agent": "dns-security-filter/1.0"},
-                             timeout=self.timeout_ms / 1000.0,
-                             follow_redirects=True,
-                             transport=_IPV4_TRANSPORT)
+                             timeout=self.timeout_ms / 1000.0)
         except Exception as e:
             logger.info("Blocklist.de 请求失败 %s: %s", url, e)
             return None

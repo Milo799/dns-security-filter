@@ -149,6 +149,8 @@ sudo bash ./deploy/install-proxy.sh --upstream <机B内网IP> --upstream-port 15
 | DNSBL 在线源 | **无需单独放通**（走上方公网递归 53 出站；不是访问网站，是通过递归查 A 记录） | — |
 | HTTP 在线源（启用才开） | urlhaus-api.abuse.ch、threatfox-api.abuse.ch、api.threatbook.cn、api.xforce.ibmcloud.com、otx.alienvault.com、api.greynoise.io、checkurl.phishtank.com | 443/TCP |
 
+**代理出站（可选，简化防火墙策略）**：机 B 无法直连上述公网地址时，可部署一台可达的 HTTP 正向代理，Web → 系统配置 → 情报出站代理填 `http://代理IP:端口` 保存（支持连通性预检按钮）。之后在线情报源查询与离线大名单下载全部经代理转发（DNSBL 走 DNS 协议不经代理，公网递归 53 出站仍需单独放通）；出站白名单收敛为"代理服务器 IP:端口 + 公网递归 53"两条。代理地址修改即时生效（Web 进程立即、DNS 进程约 1 分钟内经轮询同步），清空即恢复直连。
+
 ## 六、上线验证清单（全部通过才切域控）
 
 在机 A / 机 B / 任意内网机分别执行：
@@ -214,6 +216,8 @@ Web → 威胁情报 → 离线情报源：
 | Web 登录 401 循环 | 服务器时间漂移导致 JWT 校验失败 | 检查 chronyd；`timedatectl status` 看同步状态 |
 | 备份目录为空 | timer 未触发过（02:30 才跑） | `sudo systemctl start dnsfilter-backup.service` 手工触发验证 |
 | 旧版脚本装的机器服务起不来（permission denied） | 旧版以 dnsfilter 专用用户运行，目录属主/53 端口授权时序问题 | 升级到当前脚本重跑（服务改为 root 运行）；或临时 `chown -R dnsfilter:dnsfilter /opt/dns-security-filter` + `setcap cap_net_bind_service=+ep .../bin/dns-proxy` |
+| 离线导入/在线源报 `[Errno 99] Cannot assign requested address` | 服务器 IPv6 半配置（有接口无路由），httpx 试 AAAA 掩盖 IPv4 真实状态 | 已修复（出站强制 IPv4）；若仍失败看 journalctl 新日志，那是 IPv4 的真实错误（如 443 出站不通 → 配代理或放通） |
+| 离线导入/在线源全部超时但 curl 手测通 | 机 B 出站被 ACL 限制，直连情报域名不通 | Web → 系统配置 → 情报出站代理填 `http://代理IP:端口`（先点"测试代理"预检）；DNSBL 不受影响仍走公网递归 |
 
 > **切换运行用户（可选）**：当前所有服务默认以 root 运行。若组织安全基线强制要求非特权用户：`useradd -r -s /usr/sbin/nologin dnsfilter` → 四个 service 文件加回 `User=dnsfilter` / `Group=dnsfilter` → 机 A 执行 `setcap cap_net_bind_service=+ep /opt/dns-security-filter/bin/dns-proxy` → `chown -R dnsfilter:dnsfilter /opt/dns-security-filter /var/backups/dnsfilter` → `systemctl daemon-reload && systemctl restart proxy platform-dns platform-web`。注意每次重跑安装脚本前需先手动 chown（脚本不再代管属主）。
 
@@ -224,6 +228,7 @@ Web → 威胁情报 → 离线情报源：
 | 机 A 代理参数 | 编辑 `/opt/dns-security-filter/proxy/config.yaml` → `systemctl restart proxy` |
 | 机 B dns/web/database 三段 | 编辑 `/opt/dns-security-filter/platform/platform.yaml` → `systemctl restart platform-dns platform-web` |
 | 检测/日志/缓存类参数 | Web → 系统配置（在线热生效，优先级高于 yaml，存 SQLite） |
+| 情报出站代理 | Web → 系统配置 → 情报出站代理（填 `http://IP:端口`，留空直连；含测试按钮；在线源+大名单下载走代理，DNSBL 不走） |
 | Web 改名单/配置后 DNS 进程感知 | 自动（cross_sync 60s 轮询），无需重启 |
 | 服务日志 | `journalctl -u platform-dns -f`（或 proxy / platform-web） |
 | 数据库 | `/opt/dns-security-filter/platform/data/platform.db`，每日 02:30 自动热备到 `/var/backups/dnsfilter/`（保留 14 份） |

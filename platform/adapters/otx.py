@@ -18,7 +18,7 @@ import ipaddress
 import logging
 
 import httpx
-from adapters.http_base import _IPV4_TRANSPORT
+from app import http_client
 
 from adapters import ThreatIntelAdapter, ThreatResult
 
@@ -58,13 +58,11 @@ class OTXAdapter(ThreatIntelAdapter):
         url = (f"{self.base_url}/api/v1/indicators/"
                f"{itype}/{httpx.URL(term).path}")
         try:
-            resp = httpx.get(
+            resp = http_client.get(
                 url,
                 headers={"X-OTX-API-KEY": self.api_key,
                          "User-Agent": "dns-security-filter/1.0"},
-                timeout=self.timeout_ms / 1000.0,
-                follow_redirects=True,
-                             transport=_IPV4_TRANSPORT)
+                timeout=self.timeout_ms / 1000.0)
         except Exception as e:
             logger.info("OTX 请求失败 %s: %s", term, e)
             return None, None

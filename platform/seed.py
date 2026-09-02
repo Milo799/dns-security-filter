@@ -34,6 +34,7 @@ DEFAULT_SYSTEM_CONFIG = {
     "degrade_window_s": str(CONFIG.degrade_window_s),
     "threatlist_auto_update": str(int(CONFIG.threatlist_auto_update)),
     "threatlist_auto_interval_hours": str(CONFIG.threatlist_auto_interval_hours),
+    "http_proxy": CONFIG.http_proxy,
 }
 
 # ---------------------------------------------------------------------------

@@ -22,6 +22,9 @@ async function loadConfig(){
     document.getElementById('cfgCbTimeout').value = v('cb_open_timeout_s', '60');
     document.getElementById('cfgDegradeThreshold').value = v('degrade_threshold', '3');
     document.getElementById('cfgDegradeWindow').value = v('degrade_window_s', '300');
+    document.getElementById('cfgHttpProxy').value = v('http_proxy', '');
+    var ptEl = document.getElementById('cfgProxyTestResult');
+    if (ptEl) ptEl.textContent = v('http_proxy', '') ? '已配置（未测试）' : '未配置（直连）';
     loadCacheStats();
     loadCbStats();
     loadLogWriterStats();
@@ -77,6 +80,10 @@ async function loadCacheStats(){
 }
 
 async function saveConfig(){
+  var proxyAddr = document.getElementById('cfgHttpProxy').value.trim();
+  if (proxyAddr && !/^https?:\/\//i.test(proxyAddr)){
+    toast('代理地址须以 http:// 或 https:// 开头', true); return;
+  }
   var body = {
     alert_ip: document.getElementById('cfgAlertIp').value.trim(),
     alert_ttl: parseInt(document.getElementById('cfgAlertTtl').value) || 60,
@@ -88,7 +95,8 @@ async function saveConfig(){
     cb_failure_threshold: parseInt(document.getElementById('cfgCbThreshold').value),
     cb_open_timeout_s: parseInt(document.getElementById('cfgCbTimeout').value) || 60,
     degrade_threshold: parseInt(document.getElementById('cfgDegradeThreshold').value),
-    degrade_window_s: parseInt(document.getElementById('cfgDegradeWindow').value) || 300
+    degrade_window_s: parseInt(document.getElementById('cfgDegradeWindow').value) || 300,
+    http_proxy: proxyAddr
   };
   if (!body.alert_ip || !body.upstream_dns){ toast('告警 IP 与上游 DNS 不能为空', true); return; }
   try{
@@ -107,7 +115,28 @@ async function saveConfig(){
     loadCacheStats();
     loadCbStats();
     loadLogWriterStats();
+    var ptEl2 = document.getElementById('cfgProxyTestResult');
+    if (ptEl2) ptEl2.textContent = proxyAddr ? '已配置（未测试）' : '未配置（直连）';
   }catch(e){ toast(e.message, true); }
+}
+
+async function testProxy(){
+  var el = document.getElementById('cfgProxyTestResult');
+  var addr = document.getElementById('cfgHttpProxy').value.trim();
+  try{
+    el.textContent = '测试中…';
+    var d = (await api('POST', '/api/proxy/test', addr ? {proxy: addr} : {})).data;
+    if (d.reachable){
+      el.textContent = '✅ ' + d.detail + '（' + d.elapsed_ms + ' ms）';
+      toast('代理连通：' + d.elapsed_ms + ' ms');
+    }else{
+      el.textContent = '❌ ' + d.detail + '（' + d.elapsed_ms + ' ms）';
+      toast('代理测试失败：' + d.detail, true);
+    }
+  }catch(e){
+    el.textContent = '❌ ' + e.message;
+    toast('代理测试失败：' + e.message, true);
+  }
 }
 
 PAGE_LOADERS.config = loadConfig;

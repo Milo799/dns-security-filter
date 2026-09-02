@@ -34,6 +34,10 @@ def _apply(key: str, value: str) -> None:
             setattr(CONFIG, key, int(value))
         else:
             setattr(CONFIG, key, str(value))
+        # 情报出站代理变更：联动共享 HTTP 客户端（日志提示 + Client 惰性重建）
+        if key == "http_proxy":
+            from app import http_client
+            http_client.apply_proxy_change()
     except (ValueError, TypeError) as e:
         logger.warning("配置 %s=%s 应用失败: %s", key, value, e)
 

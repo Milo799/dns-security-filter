@@ -18,7 +18,7 @@
 import logging
 
 import httpx
-from adapters.http_base import _IPV4_TRANSPORT
+from app import http_client
 
 from adapters import ThreatIntelAdapter, ThreatResult
 
@@ -48,10 +48,8 @@ class UrlhausAdapter(ThreatIntelAdapter):
         if self.api_key:
             headers["Auth-Key"] = self.api_key
         try:
-            resp = httpx.post(url, data=data, headers=headers,
-                              timeout=self.timeout_ms / 1000.0,
-                              follow_redirects=True,
-                             transport=_IPV4_TRANSPORT)
+            resp = http_client.post(url, data=data, headers=headers,
+                              timeout=self.timeout_ms / 1000.0)
         except Exception as e:
             self.last_error = f"网络/超时错误：{e}"
             logger.info("URLhaus 请求失败 %s: %s", url, e)

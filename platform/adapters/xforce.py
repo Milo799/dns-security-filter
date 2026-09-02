@@ -17,7 +17,7 @@ IBM X-Force Exchange 云情报共享平台，覆盖恶意软件家族、C2、钓
 import logging
 
 import httpx
-from adapters.http_base import _IPV4_TRANSPORT
+from app import http_client
 
 from adapters import ThreatIntelAdapter, ThreatResult
 
@@ -52,14 +52,12 @@ class XForceAdapter(ThreatIntelAdapter):
             return None
         url = f"{self.base_url}{path}"
         try:
-            resp = httpx.get(
+            resp = http_client.get(
                 url,
                 auth=(self.api_key, self.api_password),
                 headers={"User-Agent": "dns-security-filter/1.0",
                          "Accept": "application/json"},
-                timeout=self.timeout_ms / 1000.0,
-                follow_redirects=True,
-                             transport=_IPV4_TRANSPORT)
+                timeout=self.timeout_ms / 1000.0)
         except Exception as e:
             logger.info("X-Force 请求失败 %s: %s", path, e)
             return None

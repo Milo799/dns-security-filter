@@ -371,6 +371,18 @@
             <div class="form-row"><label>日志保留天数</label><input id="cfgRetention" type="number"></div>
           </div></div>
         </div>
+        <div class="card"><div class="card-head"><div class="card-title">情报出站代理</div></div>
+          <div class="card-body"><div class="form-grid">
+            <div class="form-row"><label>代理地址</label><input id="cfgHttpProxy" placeholder="http://172.16.0.10:8080（留空 = 直连）"><div class="form-hint">在线情报源查询与离线大名单下载统一经此代理转发（DNSBL 走 DNS 协议不经代理）；保存后立即生效，双进程约 1 分钟内全部同步。</div></div>
+            <div class="form-row"><label>连通性测试</label>
+              <div style="display:flex;gap:8px;align-items:center">
+                <button class="btn btn-normal btn-compact" onclick="testProxy()">🧪 测试代理</button>
+                <div class="form-hint" id="cfgProxyTestResult" style="flex:1">未测试</div>
+              </div>
+              <div class="form-hint">输入框有地址时测试该地址（保存前预检），留空则测试已保存的代理。</div>
+            </div>
+          </div></div>
+        </div>
         <div class="card"><div class="card-head"><div class="card-title">检测性能（域名结论缓存）</div></div>
           <div class="card-body"><div class="form-grid">
             <div class="form-row"><label>缓存 TTL（秒）</label><input id="cfgCacheTtl" type="number"><div class="form-hint">在线情报域名结论的缓存时长，默认 300。</div></div>

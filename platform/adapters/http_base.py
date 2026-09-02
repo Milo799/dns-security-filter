@@ -2,20 +2,18 @@
 
 子类只需实现 _parse_domain_response / _parse_ip_response，
 专注各厂商响应结构的解析，网络与错误处理全部在这里统一。
+
+网络出口统一走 app.http_client（共享 Client）：
+IPv4 强制 + 可选代理（CONFIG.http_proxy，Web 界面热配置）。
 """
 
 import logging
 
-import httpx
+from app import http_client
 
 from adapters import ThreatIntelAdapter
 
 logger = logging.getLogger("platform.adapters.http")
-
-# 全局复用的 IPv4 强制传输（服务器 IPv6 半配置时 httpx 试 AAAA 报
-# [Errno 99] Cannot assign requested address 并掩盖 IPv4 真实状态；
-# local_address 绑 0.0.0.0 让系统跳过 IPv6 候选地址）
-_IPV4_TRANSPORT = httpx.HTTPTransport(local_address="0.0.0.0")
 
 
 class HttpThreatIntelAdapter(ThreatIntelAdapter):
@@ -29,10 +27,8 @@ class HttpThreatIntelAdapter(ThreatIntelAdapter):
         if not url:
             return None
         try:
-            resp = httpx.get(url, headers=headers, params=params,
-                             timeout=self.timeout_ms / 1000.0,
-                             follow_redirects=True,
-                             transport=_IPV4_TRANSPORT)
+            resp = http_client.get(url, headers=headers, params=params,
+                                   timeout=self.timeout_ms / 1000.0)
         except Exception as e:
             logger.info("情报源 %s 请求失败 %s: %s", self.name, url, e)
             return None

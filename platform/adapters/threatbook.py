@@ -15,7 +15,7 @@
 import logging
 
 import httpx
-from adapters.http_base import _IPV4_TRANSPORT
+from app import http_client
 
 from adapters import ThreatIntelAdapter, ThreatResult
 
@@ -43,13 +43,11 @@ class ThreatBookAdapter(ThreatIntelAdapter):
             return None
         url = f"{self.base_url}{path}"
         try:
-            resp = httpx.get(
+            resp = http_client.get(
                 url,
                 params={"apikey": self.api_key, "resource": resource},
                 headers={"User-Agent": "dns-security-filter/1.0"},
-                timeout=self.timeout_ms / 1000.0,
-                follow_redirects=True,
-                             transport=_IPV4_TRANSPORT)
+                timeout=self.timeout_ms / 1000.0)
         except Exception as e:
             logger.info("微步请求失败 %s: %s", resource, e)
             return None

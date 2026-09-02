@@ -4,6 +4,8 @@
 DNS 引擎（detectors 每次查询读 CONFIG）立即热生效。
 """
 
+import urllib.parse
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -15,6 +17,24 @@ from app.runtime import set_config
 router = APIRouter(prefix="/api", tags=["config"])
 
 VALID_STRATEGIES = {"any", "majority", "all"}
+
+# 情报出站代理地址允许的 scheme（白名单；socks 需 httpx[socks] 额外依赖）
+PROXY_SCHEMES = {"http", "https"}
+
+
+def _validate_proxy(value: str) -> str:
+    """校验情报出站代理地址；空串合法（停用代理）。返回规范化后的值。"""
+    value = (value or "").strip()
+    if not value:
+        return ""
+    parsed = urllib.parse.urlparse(value)
+    if parsed.scheme.lower() not in PROXY_SCHEMES:
+        raise HTTPException(
+            status_code=400,
+            detail="代理地址须以 http:// 或 https:// 开头（如 http://172.16.0.10:8080）")
+    if not parsed.netloc:
+        raise HTTPException(status_code=400, detail="代理地址缺少主机与端口")
+    return value
 
 
 class ConfigBody(BaseModel):
@@ -30,6 +50,7 @@ class ConfigBody(BaseModel):
     log_batch_size: int | None = None
     threatlist_auto_update: bool | None = None
     threatlist_auto_interval_hours: int | None = None
+    http_proxy: str | None = None
     domain_cache_ttl_s: int | None = None
     domain_cache_size: int | None = None
     ip_cache_ttl_s: int | None = None
@@ -113,6 +134,8 @@ def update_config(body: ConfigBody, user: str = Depends(get_current_user)):
     if "degrade_window_s" in data and not (10 <= data["degrade_window_s"] <= 86400):
         raise HTTPException(
             status_code=400, detail="degrade_window_s 须在 10~86400 之间（秒）")
+    if "http_proxy" in data:
+        data["http_proxy"] = _validate_proxy(data["http_proxy"])
 
     changes = {}
     for key, value in data.items():
@@ -337,3 +360,71 @@ def toggle_detection(body: dict, user: str = Depends(get_current_user)):
     write_audit(user, "detection_toggle", {"enabled": enabled})
     return {"code": 0, "message": "ok",
             "data": {"detection_enabled": enabled}}
+
+
+class ProxyTestBody(BaseModel):
+    proxy: str = ""          # 待测代理地址；空 = 用当前已保存的 CONFIG.http_proxy
+
+
+@router.post("/proxy/test")
+def test_proxy(body: ProxyTestBody, _: str = Depends(get_current_user)):
+    """测试情报出站代理连通性：经代理访问一个轻量 HTTPS 端点。
+
+    - body.proxy 传入时按传入值临时构建客户端（保存前预检）；
+      不传/为空则复用当前 CONFIG.http_proxy（保存后验证）；
+    - 目标端点用域名（双栈），能同时验证代理的 DNS 解析与转发能力；
+    - 成功返回状态码与耗时；失败返回具体异常摘要（前端 toast 展示）。
+    """
+    import time
+
+    import httpx
+
+    from app import http_client as hc
+
+    proxy = (body.proxy or "").strip()
+    if not proxy:
+        proxy = hc._current_proxy()
+    if not proxy:
+        raise HTTPException(status_code=400,
+                            detail="未提供代理地址，且系统当前未配置代理")
+    err = None
+    try:
+        proxy = _validate_proxy(proxy)
+    except HTTPException as e:
+        raise HTTPException(status_code=400,
+                            detail=f"代理地址格式无效：{e.detail}")
+    t0 = time.monotonic()
+    try:
+        # 独立构建临时 Client（不影响线程缓存里的正式客户端）
+        with httpx.Client(proxy=proxy, timeout=httpx.Timeout(10, connect=5),
+                          follow_redirects=True) as client:
+            resp = client.get("https://www.baidu.com",
+                              headers={"User-Agent": "dns-security-filter/1.0"})
+            elapsed_ms = int((time.monotonic() - t0) * 1000)
+            ok = resp.status_code == 200
+            return {"code": 0, "message": "ok", "data": {
+                "proxy": proxy,
+                "reachable": ok,
+                "status_code": resp.status_code,
+                "elapsed_ms": elapsed_ms,
+                "detail": "代理连通" if ok else f"经代理访问返回 {resp.status_code}",
+            }}
+    except HTTPException:
+        raise
+    except Exception as e:
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        return {"code": 0, "message": "ok", "data": {
+            "proxy": proxy,
+            "reachable": False,
+            "status_code": 0,
+            "elapsed_ms": elapsed_ms,
+            "detail": f"代理不可达：{type(e).__name__}: {e}",
+        }}
+
+
+@router.get("/proxy/status")
+def proxy_status(_: str = Depends(get_current_user)):
+    """当前情报出站代理状态（配置页展示用）。"""
+    from app import http_client
+    return {"code": 0, "message": "ok",
+            "data": http_client.proxy_status()}

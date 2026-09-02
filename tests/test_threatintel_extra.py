@@ -9,6 +9,8 @@ URLhaus 额外覆盖：官方现已强制要求 Auth-Key（HTTP 头），未配�
 from datetime import date, timedelta
 
 import httpx
+
+from app import http_client  # noqa: E402
 import pytest
 
 from adapters.phishtank import PhishTankAdapter
@@ -36,7 +38,7 @@ class FakeResp:
 
 def test_phishtank_hit(monkeypatch):
     a = PhishTankAdapter()
-    monkeypatch.setattr(httpx, "post", lambda *a_, **k:
+    monkeypatch.setattr(http_client, "post", lambda *a_, **k:
         FakeResp(payload={"results": {"in_database": True,
                                       "phish_id": 11728}}))
     r = a.query_domain("paypal.com.evil.example")
@@ -46,7 +48,7 @@ def test_phishtank_hit(monkeypatch):
 
 def test_phishtank_miss(monkeypatch):
     a = PhishTankAdapter()
-    monkeypatch.setattr(httpx, "post", lambda *a_, **k:
+    monkeypatch.setattr(http_client, "post", lambda *a_, **k:
         FakeResp(payload={"results": {"in_database": False}}))
     r = a.query_domain("example.com")
     assert r is not None and not r.is_malicious
@@ -54,13 +56,13 @@ def test_phishtank_miss(monkeypatch):
 
 def test_phishtank_rate_limit_is_none(monkeypatch):
     a = PhishTankAdapter()
-    monkeypatch.setattr(httpx, "post", lambda *a_, **k: FakeResp(509))
+    monkeypatch.setattr(http_client, "post", lambda *a_, **k: FakeResp(509))
     assert a.query_domain("example.com") is None
 
 
 def test_phishtank_bad_json_is_none(monkeypatch):
     a = PhishTankAdapter()
-    monkeypatch.setattr(httpx, "post", lambda *a_, **k:
+    monkeypatch.setattr(http_client, "post", lambda *a_, **k:
         FakeResp(text="<html>error</html>"))
     assert a.query_domain("example.com") is None
 
@@ -69,7 +71,7 @@ def test_phishtank_network_error_is_none(monkeypatch):
     a = PhishTankAdapter()
     def boom(*a_, **k):
         raise httpx.ConnectError("no network")
-    monkeypatch.setattr(httpx, "post", boom)
+    monkeypatch.setattr(http_client, "post", boom)
     assert a.query_domain("example.com") is None
 
 
@@ -83,7 +85,7 @@ def test_phishtank_supports_ip_false():
 def test_dshield_hit_active(monkeypatch):
     a = DShieldAdapter()
     today = date.today().isoformat()
-    monkeypatch.setattr(httpx, "get", lambda *a_, **k:
+    monkeypatch.setattr(http_client, "get", lambda *a_, **k:
         FakeResp(payload={"ip": {"number": "1.2.3.4", "count": "5000",
                                  "attacks": "34", "maxdate": today}}))
     r = a.query_ip("1.2.3.4")
@@ -94,7 +96,7 @@ def test_dshield_hit_active(monkeypatch):
 def test_dshield_below_min_count_is_miss(monkeypatch):
     a = DShieldAdapter()
     today = date.today().isoformat()
-    monkeypatch.setattr(httpx, "get", lambda *a_, **k:
+    monkeypatch.setattr(http_client, "get", lambda *a_, **k:
         FakeResp(payload={"ip": {"count": "50", "maxdate": today}}))
     r = a.query_ip("1.2.3.4")
     assert r is not None and not r.is_malicious
@@ -103,7 +105,7 @@ def test_dshield_below_min_count_is_miss(monkeypatch):
 def test_dshield_stale_report_is_miss(monkeypatch):
     a = DShieldAdapter()
     old = (date.today() - timedelta(days=90)).isoformat()
-    monkeypatch.setattr(httpx, "get", lambda *a_, **k:
+    monkeypatch.setattr(http_client, "get", lambda *a_, **k:
         FakeResp(payload={"ip": {"count": "5000", "maxdate": old}}))
     r = a.query_ip("1.2.3.4")
     assert r is not None and not r.is_malicious
@@ -111,7 +113,7 @@ def test_dshield_stale_report_is_miss(monkeypatch):
 
 def test_dshield_no_record_is_miss(monkeypatch):
     a = DShieldAdapter()
-    monkeypatch.setattr(httpx, "get", lambda *a_, **k:
+    monkeypatch.setattr(http_client, "get", lambda *a_, **k:
         FakeResp(payload={"ip": {"number": "8.8.8.8"}}))
     r = a.query_ip("8.8.8.8")
     assert r is not None and not r.is_malicious
@@ -119,7 +121,7 @@ def test_dshield_no_record_is_miss(monkeypatch):
 
 def test_dshield_rate_limit_is_none(monkeypatch):
     a = DShieldAdapter()
-    monkeypatch.setattr(httpx, "get", lambda *a_, **k: FakeResp(429))
+    monkeypatch.setattr(http_client, "get", lambda *a_, **k: FakeResp(429))
     assert a.query_ip("1.2.3.4") is None
 
 
@@ -127,7 +129,7 @@ def test_dshield_network_error_is_none(monkeypatch):
     a = DShieldAdapter()
     def boom(*a_, **k):
         raise httpx.ConnectError("no network")
-    monkeypatch.setattr(httpx, "get", boom)
+    monkeypatch.setattr(http_client, "get", boom)
     assert a.query_ip("1.2.3.4") is None
 
 
@@ -146,7 +148,7 @@ def test_dshield_config_thresholds():
 
 def test_blocklistde_hit(monkeypatch):
     a = BlocklistDeAdapter()
-    monkeypatch.setattr(httpx, "get", lambda *a_, **k:
+    monkeypatch.setattr(http_client, "get", lambda *a_, **k:
         FakeResp(text="attacks: 5<br />reports: 3<br />"
                       "lastreport: 2026-08-20 10:00:00<br />"))
     r = a.query_ip("1.2.3.4")
@@ -156,7 +158,7 @@ def test_blocklistde_hit(monkeypatch):
 
 def test_blocklistde_miss(monkeypatch):
     a = BlocklistDeAdapter()
-    monkeypatch.setattr(httpx, "get", lambda *a_, **k:
+    monkeypatch.setattr(http_client, "get", lambda *a_, **k:
         FakeResp(text="attacks: 0<br />reports: 0<br />"))
     r = a.query_ip("8.8.8.8")
     assert r is not None and not r.is_malicious
@@ -164,7 +166,7 @@ def test_blocklistde_miss(monkeypatch):
 
 def test_blocklistde_unparseable_is_none(monkeypatch):
     a = BlocklistDeAdapter()
-    monkeypatch.setattr(httpx, "get", lambda *a_, **k:
+    monkeypatch.setattr(http_client, "get", lambda *a_, **k:
         FakeResp(text="<html>maintenance</html>"))
     assert a.query_ip("1.2.3.4") is None
 
@@ -173,7 +175,7 @@ def test_blocklistde_network_error_is_none(monkeypatch):
     a = BlocklistDeAdapter()
     def boom(*a_, **k):
         raise httpx.TimeoutException("timeout")
-    monkeypatch.setattr(httpx, "get", boom)
+    monkeypatch.setattr(http_client, "get", boom)
     assert a.query_ip("1.2.3.4") is None
 
 
@@ -200,7 +202,7 @@ def test_urlhaus_sends_auth_key_header(monkeypatch):
         seen["headers"] = headers or {}
         return FakeResp(payload={"query_status": "no_results", "urls": []})
 
-    monkeypatch.setattr(httpx, "post", fake_post)
+    monkeypatch.setattr(http_client, "post", fake_post)
     r = a.query_domain("example.com")
     assert r is not None and not r.is_malicious
     assert seen["headers"].get("Auth-Key") == "my-key-1234"
@@ -210,7 +212,7 @@ def test_urlhaus_sends_auth_key_header(monkeypatch):
 
 def test_urlhaus_hit(monkeypatch):
     a = UrlhausAdapter(api_key="k")
-    monkeypatch.setattr(httpx, "post", lambda *a_, **k:
+    monkeypatch.setattr(http_client, "post", lambda *a_, **k:
         FakeResp(payload={"query_status": "ok",
                           "urls": [{"url_id": 1, "url_status": "online"},
                                    {"url_id": 2, "url_status": "online"}]}))
@@ -222,7 +224,7 @@ def test_urlhaus_hit(monkeypatch):
 def test_urlhaus_only_offline_is_miss(monkeypatch):
     """全部记录已离线（如 baidu.com 的 2021 死链）→ 明确未命中，不误拦。"""
     a = UrlhausAdapter(api_key="k")
-    monkeypatch.setattr(httpx, "post", lambda *a_, **k:
+    monkeypatch.setattr(http_client, "post", lambda *a_, **k:
         FakeResp(payload={"query_status": "ok",
                           "urls": [{"url_id": 1, "url_status": "offline"},
                                    {"url_id": 2, "url_status": "unknown"}]}))
@@ -234,7 +236,7 @@ def test_urlhaus_only_offline_is_miss(monkeypatch):
 def test_urlhaus_mixed_online_offline_is_hit(monkeypatch):
     """只要存在当前在线恶意 URL 即命中（离线历史不影响判定）。"""
     a = UrlhausAdapter(api_key="k")
-    monkeypatch.setattr(httpx, "post", lambda *a_, **k:
+    monkeypatch.setattr(http_client, "post", lambda *a_, **k:
         FakeResp(payload={"query_status": "ok",
                           "urls": [{"url_id": 1, "url_status": "offline"},
                                    {"url_id": 2, "url_status": "online"}]}))
@@ -245,7 +247,7 @@ def test_urlhaus_mixed_online_offline_is_hit(monkeypatch):
 
 def test_urlhaus_miss(monkeypatch):
     a = UrlhausAdapter(api_key="k")
-    monkeypatch.setattr(httpx, "post", lambda *a_, **k:
+    monkeypatch.setattr(http_client, "post", lambda *a_, **k:
         FakeResp(payload={"query_status": "no_results", "urls": []}))
     r = a.query_domain("example.com")
     assert r is not None and not r.is_malicious
@@ -254,14 +256,14 @@ def test_urlhaus_miss(monkeypatch):
 def test_urlhaus_unauthorized_is_none(monkeypatch):
     """Key 无效 → 401 → 无结论，并明确提示检查 Key。"""
     a = UrlhausAdapter(api_key="bad-key")
-    monkeypatch.setattr(httpx, "post", lambda *a_, **k: FakeResp(401))
+    monkeypatch.setattr(http_client, "post", lambda *a_, **k: FakeResp(401))
     assert a.query_domain("example.com") is None
     assert "Auth-Key" in a.last_error
 
 
 def test_urlhaus_rate_limit_is_none(monkeypatch):
     a = UrlhausAdapter(api_key="k")
-    monkeypatch.setattr(httpx, "post", lambda *a_, **k: FakeResp(429))
+    monkeypatch.setattr(http_client, "post", lambda *a_, **k: FakeResp(429))
     assert a.query_domain("example.com") is None
     assert "rate limit" in a.last_error or "频繁" in a.last_error
 
@@ -270,7 +272,7 @@ def test_urlhaus_network_error_is_none(monkeypatch):
     a = UrlhausAdapter(api_key="k")
     def boom(*a_, **k):
         raise httpx.ConnectError("no network")
-    monkeypatch.setattr(httpx, "post", boom)
+    monkeypatch.setattr(http_client, "post", boom)
     assert a.query_domain("example.com") is None
     assert "网络" in a.last_error
 
@@ -278,7 +280,7 @@ def test_urlhaus_network_error_is_none(monkeypatch):
 def test_urlhaus_bad_status_is_none(monkeypatch):
     """query_status 为 invalid_host 等 → 请求未成功，无结论。"""
     a = UrlhausAdapter(api_key="k")
-    monkeypatch.setattr(httpx, "post", lambda *a_, **k:
+    monkeypatch.setattr(http_client, "post", lambda *a_, **k:
         FakeResp(payload={"query_status": "invalid_host"}))
     assert a.query_domain("example.com") is None
     assert "invalid_host" in a.last_error
@@ -294,7 +296,7 @@ def test_urlhaus_ip_uses_host_endpoint(monkeypatch):
         seen["data"] = data
         return FakeResp(payload={"query_status": "no_results", "urls": []})
 
-    monkeypatch.setattr(httpx, "post", fake_post)
+    monkeypatch.setattr(http_client, "post", fake_post)
     r = a.query_ip("8.8.8.8")
     assert r is not None and not r.is_malicious
     assert seen["url"].endswith("/v1/host/")
