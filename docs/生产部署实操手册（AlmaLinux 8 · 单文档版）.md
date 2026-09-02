@@ -51,10 +51,11 @@ dnf install -y rsync curl bind-utils sqlite
 # ⑤ 机 B 出站连通（三种目的地都要通）
 curl -sI -m 8 https://pypi.tuna.tsinghua.edu.cn/simple/ | head -1   # pip 镜像，预期 200
 dig +short +time=3 @223.5.5.5 www.baidu.com                          # 公网递归，预期有 IP
-dig +short +time=3 zen.spamhaus.org.                                 # DNSBL 出站 UDP53（可能空答，不超时即可）
+dig +short +time=3 test.dbl.spamhaus.org.                            # DNSBL 链路（官方测试值，预期 127.0.1.2）
 ```
 
 > 若 ⑤ 中 pip 镜像不通，改用 `--pip-mirror` 参数换内网源（见安装脚本参数表）；公网递归不通则整个方案不成立（平台解析依赖上游）。
+> DNSBL 注意：`test.dbl.spamhaus.org` 查询**必须经 223.5.5.5 / 119.29.29.29 这类递归**——Spamhaus 会对 8.8.8.8 等超大型公共解析器限流（实测经 8.8.8.8 查官方测试值返回空应答）。平台 DNSBL 源默认 resolver 已配 223.5.5.5，与上游递归一致。
 
 ## 三、机 B（检测平台）安装
 
@@ -143,7 +144,7 @@ sudo bash ./deploy/install-proxy.sh --upstream <机B内网IP> --upstream-port 15
 |------|------|------|
 | 公网递归 DNS | 223.5.5.5 主 / 119.29.29.29 备 | UDP/TCP 53 |
 | 离线大名单 | raw.githubusercontent.com、cdn.jsdelivr.net（镜像降级）、urlhaus.abuse.ch | 443/TCP |
-| DNSBL 在线源 | zen/dbl.spamhaus.org、dnsbl.dronebl.org、dnsbl.spfbl.net | UDP 53 |
+| DNSBL 在线源 | **无需单独放通**（走上方公网递归 53 出站；不是访问网站，是通过递归查 A 记录） | — |
 | HTTP 在线源（启用才开） | urlhaus-api.abuse.ch、threatfox-api.abuse.ch、api.threatbook.cn、api.xforce.ibmcloud.com、otx.alienvault.com、api.greynoise.io、checkurl.phishtank.com | 443/TCP |
 
 ## 六、上线验证清单（全部通过才切域控）

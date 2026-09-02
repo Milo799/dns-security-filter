@@ -63,16 +63,28 @@ class DNSBLAdapter(ThreatIntelAdapter):
             return None
         return ".".join(reversed(parts))
 
+    # Spamhaus 公共解析器限流/拒答专用码：出现即视为"无结论"（fail-safe），
+    # 绝不能当成命中——否则 Google/阿里等公共 DNS 大量查询时会造成大面积误拦
+    _NO_ANSWER_CODES = {"127.255.255.254", "127.255.255.252"}
+
     def _verdict(self, ips: list[str] | None) -> ThreatResult | None:
         """将 DNSBL 应答翻译为统一结果。"""
         if ips is None:
             return None  # 网络失败无结论
-        hits = [ip for ip in ips if ip.startswith("127.")]
+        # 先排除限流/拒答码（127.255.255.252/254），它们不是命中
+        hits = [ip for ip in ips
+                if ip.startswith("127.") and ip not in self._NO_ANSWER_CODES]
         if hits:
             code = hits[0]
             meaning = self.code_map.get(code, "命中黑名单")
             return ThreatResult(True, self.name,
                                 f"LISTED {code}（{meaning}）")
+        if any(ip in self._NO_ANSWER_CODES for ip in ips):
+            logger.warning(
+                "DNSBL %s 返回 127.255.255.25x（公共解析器限流/拒答，"
+                "建议把该源 resolver 换成非公共 DNS 或减少查询量）",
+                self.name)
+            return None  # 无结论，参与 fail-safe
         return ThreatResult(False, self.name, "未命中")
 
     # ---- 能力实现 ----

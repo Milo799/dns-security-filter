@@ -155,3 +155,34 @@ def test_unknown_code_still_malicious():
     a = make(SpamhausZenAdapter, lookup_result=["127.0.0.99"])
     r = a.query_ip("1.2.3.4")
     assert r is not None and r.is_malicious is True
+
+
+# ---------------- 公共解析器限流/拒答码（127.255.255.25x） ----------------
+
+def test_rate_limited_254_no_verdict():
+    # Spamhaus 公共解析器限流码 127.255.255.254 → 无结论（fail-safe），
+    # 绝不能当成命中（否则公共 DNS 大流量查询会大面积误拦）
+    a = make(SpamhausZenAdapter, lookup_result=["127.255.255.254"])
+    r = a.query_ip("1.2.3.4")
+    assert r is None
+
+
+def test_rate_limited_252_no_verdict():
+    # Spamhaus 拒答码 127.255.255.252（策略拒绝）→ 同样无结论
+    a = make(SpamhausDBLAdapter, lookup_result=["127.255.255.252"])
+    r = a.query_domain("example.com")
+    assert r is None
+
+
+def test_rate_limited_mixed_with_hit():
+    # 限流码与真实命中并存时，只认真实命中（限流码不参与判定，也不掩盖命中）
+    a = make(SPFBLAdapter, lookup_result=["127.255.255.254", "127.0.0.2"])
+    r = a.query_ip("1.2.3.4")
+    assert r is not None and r.is_malicious is True
+
+
+def test_rate_limited_mixed_with_miss():
+    # 限流码 + 非命中记录（如 zone 自身 A 记录泄漏）→ 无结论
+    a = make(SPFBLAdapter, lookup_result=["127.255.255.254", "54.233.253.229"])
+    r = a.query_ip("1.2.3.4")
+    assert r is None
