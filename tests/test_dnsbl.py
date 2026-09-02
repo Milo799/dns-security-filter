@@ -142,7 +142,9 @@ def test_bad_config_ignored():
     (DroneBLAdapter, "127.0.0.4", "恶意软件"),
     (SpamhausDBLAdapter, "127.0.1.4", "钓鱼"),
     (SpamhausDBLAdapter, "127.0.1.106", "僵尸"),
-    (SpamhausZenAdapter, "127.0.0.10", "PBL"),
+    # ZEN 的 PBL 码（127.0.0.10/11）已改为忽略码不计恶意（防 CDN 误拦），
+    # 含义断言移入 test_zen_pbl_* 专项；此处改用 SBL 码验证含义注入
+    (SpamhausZenAdapter, "127.0.0.2", "SBL"),
 ])
 def test_code_meaning(adapter_cls, code, expect):
     a = make(adapter_cls, lookup_result=[code])
@@ -186,3 +188,35 @@ def test_rate_limited_mixed_with_miss():
     a = make(SPFBLAdapter, lookup_result=["127.255.255.254", "54.233.253.229"])
     r = a.query_ip("1.2.3.4")
     assert r is None
+
+
+# ---------------- PBL 忽略码（防 CDN 误拦） ----------------
+
+def test_zen_pbl_codes_ignored():
+    # PBL（127.0.0.10/11）是邮件发送策略清单，不是恶意主机——
+    # 国内运营商 CDN IP 大面积被列，用于浏览类 DNS 拦截必然误杀主流站点
+    a = make(SpamhausZenAdapter, lookup_result=["127.0.0.11"])
+    r = a.query_ip("1.2.3.4")
+    assert r is not None and r.is_malicious is False
+    assert "忽略" in r.detail
+
+    a2 = make(SpamhausZenAdapter, lookup_result=["127.0.0.10"])
+    r2 = a2.query_ip("1.2.3.4")
+    assert r2 is not None and r2.is_malicious is False
+
+
+def test_zen_pbl_config_can_re_enable():
+    # 邮件场景严格策略：config ignore_pbl=false 时 PBL 恢复计恶意
+    a = make(SpamhausZenAdapter,
+             lookup_result=["127.0.0.11"],
+             config='{"ignore_pbl": false}')
+    r = a.query_ip("1.2.3.4")
+    assert r is not None and r.is_malicious is True
+
+
+def test_zen_sbl_xbl_still_malicious():
+    # PBL 忽略不影响 SBL/XBL 判定——真正的恶意返回码照常命中
+    for code in ["127.0.0.2", "127.0.0.4"]:
+        a = make(SpamhausZenAdapter, lookup_result=[code])
+        r = a.query_ip("1.2.3.4")
+        assert r is not None and r.is_malicious is True

@@ -67,6 +67,14 @@ class DNSBLAdapter(ThreatIntelAdapter):
     # 绝不能当成命中——否则 Google/阿里等公共 DNS 大量查询时会造成大面积误拦
     _NO_ANSWER_CODES = {"127.255.255.254", "127.255.255.252"}
 
+    # 忽略码（类属性，子类可覆盖）：命中这些返回码不算恶意——
+    # PBL（127.0.0.10/11）是"动态/非邮件 IP 段"邮件发送策略清单，语义是
+    # "该 IP 不应直接发邮件"，不是恶意主机；国内运营商 CDN IP 大量被列
+    # （实测 www.126.com/www.163.com/www.baidu.com 的 CDN 节点全部踩 PBL），
+    # 用它拦截浏览类流量必然大面积误拦。默认全部 DNSBL 子类忽略 PBL 码；
+    # 需要邮件场景严格策略时在源 config 里设 ignore_pbl: false
+    _IGNORE_CODES: set[str] = set()
+
     def _verdict(self, ips: list[str] | None) -> ThreatResult | None:
         """将 DNSBL 应答翻译为统一结果。"""
         if ips is None:
@@ -76,6 +84,9 @@ class DNSBLAdapter(ThreatIntelAdapter):
                 if ip.startswith("127.") and ip not in self._NO_ANSWER_CODES]
         if hits:
             code = hits[0]
+            if code in self._IGNORE_CODES and self.config.get("ignore_pbl", True):
+                return ThreatResult(False, self.name,
+                                    f"LISTED {code}（命中忽略码，不计恶意）")
             meaning = self.code_map.get(code, "命中黑名单")
             return ThreatResult(True, self.name,
                                 f"LISTED {code}（{meaning}）")
@@ -111,11 +122,18 @@ class DNSBLAdapter(ThreatIntelAdapter):
 # ---------------------------------------------------------------------------
 
 class SpamhausZenAdapter(DNSBLAdapter):
-    """Spamhaus ZEN：综合 IP 信誉（SBL 僵尸/垃圾 + XBL 被劫持 + PBL 动态段）。"""
+    """Spamhaus ZEN：综合 IP 信誉（SBL 僵尸/垃圾 + XBL 被劫持 + PBL 动态段）。
+
+    PBL 返回码（127.0.0.10/11）默认忽略不计恶意——见基类 _IGNORE_CODES 注释：
+    国内运营商 CDN IP 大面积被列 PBL（邮件发送策略清单，非恶意主机清单），
+    直接用于浏览类 DNS 拦截会误杀主流站点（实测 126/163/baidu CDN 全踩 PBL）。
+    邮件场景需严格策略时在源 config 加 "ignore_pbl": false。
+    """
     name = "spamhaus_zen"
     zone = "zen.spamhaus.org"
     supports_domain = False
     supports_ip = True
+    _IGNORE_CODES = {"127.0.0.10", "127.0.0.11"}
     code_map = {
         "127.0.0.2": "SBL 僵尸网络/垃圾邮件",
         "127.0.0.3": "SBL CSS 僵尸网络子段",
