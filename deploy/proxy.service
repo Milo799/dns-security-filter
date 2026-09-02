@@ -6,9 +6,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# 以专用非特权用户运行；绑定 53 端口的授权由安装脚本 setcap 完成
-User=dnsfilter
-Group=dnsfilter
+# 以 root 运行（内网专用设备 + 上联 ACL 边界防护形态）：免去专用用户属主/属组
+# 与 53 特权端口 setcap 授权负担；如需切回专用用户见部署手册 FAQ
 WorkingDirectory=/opt/dns-security-filter
 ExecStart=/opt/dns-security-filter/bin/dns-proxy -config /opt/dns-security-filter/proxy/config.yaml
 ExecReload=/bin/kill -HUP $MAINPID

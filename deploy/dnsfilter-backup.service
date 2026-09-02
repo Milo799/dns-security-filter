@@ -8,9 +8,7 @@ Type=oneshot
 ExecStart=/opt/dns-security-filter/tools/backup_db.sh /opt/dns-security-filter/platform/data/platform.db /var/backups/dnsfilter
 # 备份保留份数可用环境变量覆盖（默认 14 份）
 # Environment=BACKUP_KEEP=30
-User=dnsfilter
-Group=dnsfilter
-# 备份目录需可写：安装脚本已创建并授权
+# 以 root 运行（与平台服务一致的运行形态）
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true

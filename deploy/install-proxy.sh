@@ -12,17 +12,16 @@
 #     --forward-timeout NUM     转发超时秒数                默认 8
 #     --binary          PATH    预编译代理二进制路径        默认 bin/dns-proxy
 #     --install-dir     DIR     安装目录                    默认 /opt/dns-security-filter
-#     --skip-tuning             跳过 sysctl/limits 内核参数调优
+#     --skip-tuning             跳过 sysctl 内核参数调优
 #
-# 脚本做 8 件事（全部幂等，可重复执行）：
+# 脚本做 7 件事（全部幂等，可重复执行）：
 #   1 环境检测（root / Linux / 53 端口占用提示）
-#   2 创建 dnsfilter 系统用户与目录
-#   3 安装代理二进制 + setcap 53 端口授权
+#   2 创建安装目录
+#   3 安装代理二进制（服务以 root 运行，绑定 53 无需 setcap 授权）
 #   4 从 proxy.example.yaml 生成带全量注释的 config.yaml（已存在则保留）
 #   5 安装并启动 systemd 服务 proxy
-#   6 内核参数调优（DNS 高并发收发缓冲）
-#   7 文件句柄上限
-#   8 自检（服务状态 / 端口监听）
+#   6 内核参数调优（DNS 高并发收发缓冲；句柄由 systemd LimitNOFILE 承担）
+#   7 自检（服务状态 / 端口监听）
 # ============================================================================
 set -euo pipefail
 
@@ -36,7 +35,8 @@ FORWARD_TIMEOUT=8
 BINARY="$REPO_ROOT/bin/dns-proxy"
 INSTALL_DIR="/opt/dns-security-filter"
 SKIP_TUNING=0
-APP_USER="dnsfilter"
+# 服务以 root 运行（内网专用设备 + 上联 ACL 边界防护形态）：
+# 绑定 53 特权端口无需 setcap，也免去专用用户属主管理
 
 # ---- 参数解析 --------------------------------------------------------------
 while [[ $# -gt 0 ]]; do
@@ -73,21 +73,16 @@ if command -v ss >/dev/null 2>&1 && [[ "$LISTEN_PORT" == "53" ]]; then
   fi
 fi
 
-# ---- 2 用户与目录 -----------------------------------------------------------
-id "$APP_USER" >/dev/null 2>&1 || useradd -r -s /usr/sbin/nologin "$APP_USER"
+# ---- 2 目录 ------------------------------------------------------------------
 mkdir -p "$INSTALL_DIR/bin" "$INSTALL_DIR/proxy"
-log "安装目录：$INSTALL_DIR（运行用户：$APP_USER）"
+log "安装目录：$INSTALL_DIR（服务以 root 运行）"
 
-# ---- 3 二进制 + 端口授权 ----------------------------------------------------
+# ---- 3 二进制 ----------------------------------------------------------------
 [[ -x "$BINARY" ]] || die "代理二进制不存在：$BINARY
   请先在任意有 Go>=1.21 的机器上交叉编译并放到该路径：
     cd proxy && GOPROXY=https://goproxy.cn,direct GOOS=linux GOARCH=amd64 go build -o ../bin/dns-proxy .
   或用 --binary 指定已上传的二进制位置（如 /tmp/dns-proxy）"
 install -m 0755 "$BINARY" "$INSTALL_DIR/bin/dns-proxy"
-if [[ "$LISTEN_PORT" -lt 1024 ]]; then
-  setcap 'cap_net_bind_service=+ep' "$INSTALL_DIR/bin/dns-proxy"
-  log "已授权 $APP_USER 用户绑定特权端口 $LISTEN_PORT（setcap）"
-fi
 
 # ---- 4 配置生成（替换键值、保留全量注释；已存在则保留不动）------------------
 CONFIG="$INSTALL_DIR/proxy/config.yaml"
@@ -112,7 +107,7 @@ systemctl enable proxy >/dev/null 2>&1
 systemctl restart proxy
 log "服务 proxy 已安装并启动（开机自启）"
 
-# ---- 6/7 内核参数与句柄上限（幂等追加）-------------------------------------
+# ---- 6 内核参数调优（幂等追加；句柄由 systemd LimitNOFILE 承担）-------------
 if [[ $SKIP_TUNING -eq 0 ]]; then
   touch /etc/sysctl.d/99-dnsfilter.conf
   for kv in "net.core.rmem_max=16777216" "net.core.wmem_max=16777216" "net.core.netdev_max_backlog=10000"; do
@@ -124,22 +119,16 @@ if [[ $SKIP_TUNING -eq 0 ]]; then
   tac /etc/sysctl.d/99-dnsfilter.conf | awk '!seen[$1]++' | tac > /etc/sysctl.d/99-dnsfilter.conf.tmp && \
     mv /etc/sysctl.d/99-dnsfilter.conf.tmp /etc/sysctl.d/99-dnsfilter.conf
   sysctl --system >/dev/null 2>&1 || true
-  if ! grep -q "^${APP_USER} soft nofile" /etc/security/limits.conf 2>/dev/null; then
-    echo "${APP_USER} soft nofile 65536" >> /etc/security/limits.conf
-    echo "${APP_USER} hard nofile 65536" >> /etc/security/limits.conf
-  fi
-  log "内核参数（收发缓冲/backlog）与句柄上限已就绪"
+  log "内核参数（收发缓冲/backlog）已就绪"
 fi
 
-# ---- 8 自检 -----------------------------------------------------------------
+# ---- 7 自检 ------------------------------------------------------------------
 sleep 2
 systemctl is-active --quiet proxy || { journalctl -u proxy -n 20 --no-pager; die "服务未正常运行，上方为最近日志"; }
 log "自检通过：proxy 服务运行中"
 if command -v ss >/dev/null 2>&1; then
   ss -lun | grep -q ":${LISTEN_PORT} " && log "自检通过：UDP $LISTEN_PORT 已监听" || warn "UDP $LISTEN_PORT 暂未监听（可能启动中，稍后 ss -lun 复查）"
 fi
-
-chown -R "$APP_USER:$APP_USER" "$INSTALL_DIR"
 
 LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 [[ -n "$LOCAL_IP" ]] || LOCAL_IP=$(ip -4 route get 8.8.8.8 2>/dev/null | awk '{for(i=1;i<=NF;i++)if($i=="src")print $(i+1)}' | head -1)

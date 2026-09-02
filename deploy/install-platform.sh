@@ -13,18 +13,18 @@
 #     --memory-max     SIZE  systemd MemoryMax（防缓存打爆）   默认 24G
 #     --pip-mirror     URL   pip 国内镜像                      默认清华源
 #     --install-dir    DIR   安装目录                          默认 /opt/dns-security-filter
-#     --skip-tuning          跳过 sysctl/limits 内核参数调优
+#     --skip-tuning          跳过 sysctl 内核参数调优
 #
 # 脚本做 10 件事（全部幂等，可重复执行）：
 #   1 环境检测（root / Linux / Python>=3.10 / 内存预警）
-#   2 创建 dnsfilter 系统用户与目录
+#   2 创建安装目录
 #   3 复制平台代码 + Web 前端 + tools 工具脚本
 #   4 venv + pip 依赖安装（国内镜像）
 #   5 自动生成 jwt_secret 与管理员初始密码，从 platform.example.yaml
 #     生成带全量注释的 platform.yaml（已存在则保留）
 #   6 安装并启动 systemd 服务 platform-dns + platform-web
 #   7 内核参数调优（DNS 高并发收发缓冲）
-#   8 文件句柄上限
+#   8 内核参数调优（句柄上限由 systemd 单元 LimitNOFILE 承担）
 #   9 数据库每日备份（dnsfilter-backup.timer，02:30 热备 + 保留 14 份）
 #  10 自检（服务状态 / 端口监听 / 健康接口）
 # ============================================================================
@@ -41,7 +41,8 @@ MEMORY_MAX="24G"
 PIP_MIRROR="https://pypi.tuna.tsinghua.edu.cn/simple"
 INSTALL_DIR="/opt/dns-security-filter"
 SKIP_TUNING=0
-APP_USER="dnsfilter"
+# 服务以 root 运行（内网专用设备 + 上联 ACL 边界防护形态）：
+# 免去专用用户的属主/属组管理与 53 端口 setcap 授权，杜绝权限类报错
 
 # ---- 参数解析 --------------------------------------------------------------
 while [[ $# -gt 0 ]]; do
@@ -103,10 +104,9 @@ if [[ "${MEM_MB:-0}" -lt 8000 ]]; then
   warn "小内存场景：用 hagezi_mini 名单 + domain_cache_size 降到 200000，并把 --memory-max 调小。"
 fi
 
-# ---- 2 用户与目录 -----------------------------------------------------------
-id "$APP_USER" >/dev/null 2>&1 || useradd -r -s /usr/sbin/nologin "$APP_USER"
+# ---- 2 目录 ------------------------------------------------------------------
 mkdir -p "$INSTALL_DIR"
-log "安装目录：$INSTALL_DIR（运行用户：$APP_USER）"
+log "安装目录：$INSTALL_DIR（服务以 root 运行）"
 
 # ---- 3 代码落位（tar 保持兼容性；保留 venv/data/platform.yaml/pyc 缓存）----
 if command -v rsync >/dev/null 2>&1; then
@@ -218,7 +218,7 @@ sleep 3
 systemctl restart platform-web
 log "服务 platform-dns + platform-web 已安装并启动（开机自启）"
 
-# ---- 7/8 内核参数与句柄上限（幂等追加）-------------------------------------
+# ---- 7/8 内核参数调优（幂等追加；句柄由 systemd LimitNOFILE 承担）------------
 if [[ $SKIP_TUNING -eq 0 ]]; then
   touch /etc/sysctl.d/99-dnsfilter.conf
   for kv in "net.core.rmem_max=16777216" "net.core.wmem_max=16777216" "net.core.netdev_max_backlog=10000"; do
@@ -229,17 +229,12 @@ if [[ $SKIP_TUNING -eq 0 ]]; then
   tac /etc/sysctl.d/99-dnsfilter.conf | awk '!seen[$1]++' | tac > /etc/sysctl.d/99-dnsfilter.conf.tmp && \
     mv /etc/sysctl.d/99-dnsfilter.conf.tmp /etc/sysctl.d/99-dnsfilter.conf
   sysctl --system >/dev/null 2>&1 || true
-  if ! grep -q "^${APP_USER} soft nofile" /etc/security/limits.conf 2>/dev/null; then
-    echo "${APP_USER} soft nofile 65536" >> /etc/security/limits.conf
-    echo "${APP_USER} hard nofile 65536" >> /etc/security/limits.conf
-  fi
-  log "内核参数（收发缓冲/backlog）与句柄上限已就绪"
+  log "内核参数（收发缓冲/backlog）已就绪"
 fi
 
 # ---- 9 数据库每日备份（P1-3：.backup 热备 + 保留份数轮转）--------------------
 BACKUP_DIR="/var/backups/dnsfilter"
 mkdir -p "$BACKUP_DIR"
-chown "$APP_USER:$APP_USER" "$BACKUP_DIR"
 chmod 0750 "$BACKUP_DIR"
 for unit in dnsfilter-backup; do
   sed -e "s|/opt/dns-security-filter|$INSTALL_DIR|g" \
@@ -265,8 +260,6 @@ if command -v ss >/dev/null 2>&1; then
 fi
 HEALTH=$(curl -sf -m 5 "http://127.0.0.1:${WEB_PORT}/api/health" 2>/dev/null || true)
 [[ -n "$HEALTH" ]] && log "自检通过：健康接口应答 $HEALTH" || warn "健康接口暂无应答（服务可能仍在预热，稍后浏览器访问确认）"
-
-chown -R "$APP_USER:$APP_USER" "$INSTALL_DIR"
 
 # ---- 收尾输出 ---------------------------------------------------------------
 LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}')

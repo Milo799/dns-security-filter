@@ -8,8 +8,7 @@ Requires=platform-dns.service
 
 [Service]
 Type=simple
-User=dnsfilter
-Group=dnsfilter
+# 以 root 运行（内网专用设备 + 上联 ACL 边界防护形态）：免去专用用户属主/属组负担
 WorkingDirectory=/opt/dns-security-filter/platform
 # venv 内的 uvicorn；host/port 与 platform.yaml 的 web 段一致时以本命令行为准
 ExecStart=/opt/dns-security-filter/platform/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8080

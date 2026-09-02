@@ -103,14 +103,11 @@
 
 ### 3.3 系统参数
 
-> 以下三项（setcap 端口授权 / sysctl 收发缓冲 / nofile 句柄）**安装脚本均已自动完成**
-> （见 5.1/5.2 节），此处仅供脚本不可用时的手工兜底与核对：
+> 以下两项（sysctl 收发缓冲 / nofile 句柄）**安装脚本与 systemd 单元均已自动完成**
+> （见 5.1/5.2 节），此处仅供脚本不可用时的手工兜底与核对。
+> 服务现以 **root 运行**（内网专用设备 + 上联 ACL 边界防护形态），绑定 53 无需 setcap。
 
 ```bash
-# 机 A：端口授权（dnsfilter 用户绑 53）——脚本用 setcap 完成
-sudo setcap 'cap_net_bind_service=+ep' /opt/dns-security-filter/bin/dns-proxy
-
-# 机 B：若直接监听 53 需同样授权 python；监听 15353 无需
 # 两机：DNS 高并发内核参数——脚本写入 /etc/sysctl.d/99-dnsfilter.conf
 cat >> /etc/sysctl.d/99-dnsfilter.conf <<EOF
 net.core.rmem_max=16777216
@@ -118,8 +115,8 @@ net.core.wmem_max=16777216
 net.core.netdev_max_backlog=10000
 EOF
 sysctl --system
-# 两机：文件句柄（SQLite/日志/线程）——脚本追加 limits.conf
-echo 'dnsfilter soft nofile 65536' | sudo tee -a /etc/security/limits.conf
+# 两机：文件句柄（SQLite/日志/线程）——systemd 单元 LimitNOFILE=65536 承担
+# （手工前台运行时才需要 limits.conf）
 ```
 
 ### 3.4 软件依赖
@@ -234,10 +231,10 @@ cd proxy && GOPROXY=https://goproxy.cn,direct GOOS=linux GOARCH=amd64 go build -
 sudo ./deploy/install-platform.sh --upstream-dns 223.5.5.5 --alert-ip 10.0.0.99
 ```
 
-脚本自动完成 10 件事（幂等可重跑）：环境检测（Python>=3.10/内存预警）→ 建 dnsfilter
-用户与目录 → 代码落位 → venv+pip 依赖（清华镜像）→ **自动生成随机 jwt_secret 与
-管理员初始密码**并从全注释模板生成 platform.yaml → 装 systemd 双服务并启动 →
-内核参数调优 → 句柄上限 → 每日备份 timer → 自检（服务/端口/健康接口）。
+脚本自动完成 9 件事（幂等可重跑）：环境检测（Python>=3.10/内存预警）→ 代码落位 →
+venv+pip 依赖（清华镜像）→ **自动生成随机 jwt_secret 与管理员初始密码**并从全注释模板
+生成 platform.yaml → 装 systemd 双服务并启动（root 运行，无需专用用户/setcap）→
+内核参数调优 → 每日备份 timer → 自检（服务/端口/健康接口）。
 
 **参数表**（全部可选，默认值适合双机标准拓扑）：
 
@@ -262,9 +259,9 @@ hagezi_mini 起步）。
 sudo ./deploy/install-proxy.sh --upstream 192.168.10.21 --upstream-port 15353
 ```
 
-脚本自动完成 8 件事（幂等可重跑）：环境检测（53 占用自动提示 systemd-resolved
-让端口方法）→ 用户与目录 → 二进制安装 + setcap 53 授权 → 从全注释模板生成
-config.yaml → systemd 服务并启动 → 内核参数 → 句柄上限 → 自检。
+脚本自动完成 7 件事（幂等可重跑）：环境检测（53 占用自动提示 systemd-resolved
+让端口方法）→ 目录 → 二进制安装（root 运行无需 setcap）→ 从全注释模板生成
+config.yaml → systemd 服务并启动 → 内核参数 → 自检。
 （**AlmaLinux 8 注意**：无 systemd-resolved，53 端口占用提示照常工作，命中才提示。）
 
 **参数表**：
@@ -283,13 +280,11 @@ config.yaml → systemd 服务并启动 → 内核参数 → 句柄上限 → �
 
 | 变更点 | 内容 | 回滚方式 |
 |--------|------|---------|
-| 系统用户 | `dnsfilter`（nologin 系统账号） | `userdel dnsfilter` |
 | 文件 | `/opt/dns-security-filter/`（bin/proxy/platform/web/data） | 删目录 |
 | venv | `platform/venv`（9 个 pip 包） | 删 venv 目录 |
-| systemd | proxy / platform-dns / platform-web 三服务（enable+start） | `systemctl disable --now <svc>` 后删 unit 文件 |
+| systemd | proxy / platform-dns / platform-web 三服务（enable+start，root 运行） | `systemctl disable --now <svc>` 后删 unit 文件 |
 | 备份 | dnsfilter-backup.timer + .service（每日 02:30）+ /var/backups/dnsfilter/ 备份目录 | `systemctl disable --now dnsfilter-backup.timer` 后删 unit 文件与备份目录 |
 | 内核参数 | `/etc/sysctl.d/99-dnsfilter.conf`（rmem/wmem 16MB、backlog 10000） | 删该文件后 `sysctl --system` |
-| 句柄上限 | `/etc/security/limits.conf` 追加 dnsfilter nofile 65536 | 删追加行 |
 | 配置 | 从 example 生成（**已存在则永不覆盖**） | 删配置文件重跑脚本 |
 
 ### 5.4 改配置的正确姿势
@@ -322,10 +317,8 @@ Web 配置页（系统→系统配置）可在线调整的项存 SQLite，**优�
 **机 A（代理）：**
 
 ```bash
-sudo useradd -r -s /usr/sbin/nologin dnsfilter
 sudo mkdir -p /opt/dns-security-filter/{bin,proxy}
 sudo install -m 0755 bin/dns-proxy /opt/dns-security-filter/bin/
-sudo setcap 'cap_net_bind_service=+ep' /opt/dns-security-filter/bin/dns-proxy
 sudo cp proxy/proxy.example.yaml /opt/dns-security-filter/proxy/config.yaml
 # 编辑 config.yaml：upstream_addr=机B IP、upstream_port=15353、forward_timeout=8
 sudo cp deploy/proxy.service /etc/systemd/system/
@@ -335,7 +328,6 @@ sudo systemctl daemon-reload && sudo systemctl enable --now proxy
 **机 B（平台）：**
 
 ```bash
-sudo useradd -r -s /usr/sbin/nologin dnsfilter 2>/dev/null || true
 sudo mkdir -p /opt/dns-security-filter
 sudo cp -r platform web tools /opt/dns-security-filter/     # tools 含备份脚本
 sudo chmod +x /opt/dns-security-filter/tools/*.sh

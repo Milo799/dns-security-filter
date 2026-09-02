@@ -75,7 +75,9 @@ cd /root/dns-security-filter
 sudo bash ./deploy/install-platform.sh --upstream-dns 223.5.5.5 --alert-ip 10.0.0.99
 ```
 
-脚本幂等可重跑，自动完成 10 件事：环境检测（Python≥3.10/pip 模块缺失提前告警/内存预警）→ 建 dnsfilter 系统用户 → 代码落位 /opt/dns-security-filter → venv + pip 依赖（清华镜像）→ **自动生成随机 jwt_secret 与管理员初始密码** → 装 systemd 双服务并启动 → 内核参数调优 → 句柄上限 → 每日备份 timer（02:30，保留 14 份）→ 自检（服务/端口/健康接口）。
+脚本幂等可重跑，自动完成 9 件事：环境检测（Python≥3.10/pip 模块缺失提前告警/内存预警）→ 代码落位 /opt/dns-security-filter → venv + pip 依赖（清华镜像）→ **自动生成随机 jwt_secret 与管理员初始密码** → 装 systemd 双服务并启动 → 内核参数调优 → 每日备份 timer（02:30，保留 14 份）→ 自检（服务/端口/健康接口）。
+
+> **运行形态**：全部服务以 root 运行（内网专用设备 + 上联 ACL 边界防护），不创建专用系统用户、无需 setcap 授权——从源头杜绝属主/属组类权限报错。如组织安全基线强制要求非特权用户运行，见 FAQ 最后一条。
 
 **参数表**（全部可选）：
 
@@ -211,6 +213,9 @@ Web → 威胁情报 → 离线情报源：
 | 改了 yaml 不生效 | dns/web/database 三段须重启 | `systemctl restart platform-dns platform-web`（或 proxy） |
 | Web 登录 401 循环 | 服务器时间漂移导致 JWT 校验失败 | 检查 chronyd；`timedatectl status` 看同步状态 |
 | 备份目录为空 | timer 未触发过（02:30 才跑） | `sudo systemctl start dnsfilter-backup.service` 手工触发验证 |
+| 旧版脚本装的机器服务起不来（permission denied） | 旧版以 dnsfilter 专用用户运行，目录属主/53 端口授权时序问题 | 升级到当前脚本重跑（服务改为 root 运行）；或临时 `chown -R dnsfilter:dnsfilter /opt/dns-security-filter` + `setcap cap_net_bind_service=+ep .../bin/dns-proxy` |
+
+> **切换运行用户（可选）**：当前所有服务默认以 root 运行。若组织安全基线强制要求非特权用户：`useradd -r -s /usr/sbin/nologin dnsfilter` → 四个 service 文件加回 `User=dnsfilter` / `Group=dnsfilter` → 机 A 执行 `setcap cap_net_bind_service=+ep /opt/dns-security-filter/bin/dns-proxy` → `chown -R dnsfilter:dnsfilter /opt/dns-security-filter /var/backups/dnsfilter` → `systemctl daemon-reload && systemctl restart proxy platform-dns platform-web`。注意每次重跑安装脚本前需先手动 chown（脚本不再代管属主）。
 
 ## 十一、配置速查（装完后改配置从这里查）
 

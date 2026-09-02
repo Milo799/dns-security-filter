@@ -6,8 +6,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=dnsfilter
-Group=dnsfilter
+# 以 root 运行（内网专用设备 + 上联 ACL 边界防护形态）：免去专用用户属主/属组
+# 与 53 特权端口 setcap 授权的运维负担；如需切回专用用户见部署手册 FAQ
 WorkingDirectory=/opt/dns-security-filter/platform
 # venv 解释器（安装脚本创建）；加载 platform.yaml 配置
 ExecStart=/opt/dns-security-filter/platform/venv/bin/python dns_server.py
