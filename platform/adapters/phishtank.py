@@ -12,6 +12,7 @@
 import logging
 
 import httpx
+from adapters.http_base import _IPV4_TRANSPORT
 
 from adapters import ThreatIntelAdapter, ThreatResult
 
@@ -38,7 +39,8 @@ class PhishTankAdapter(ThreatIntelAdapter):
                               data={"url": url, "format": "json"},
                               headers={"User-Agent": "dns-security-filter/1.0"},
                               timeout=self.timeout_ms / 1000.0,
-                              follow_redirects=True)
+                              follow_redirects=True,
+                             transport=_IPV4_TRANSPORT)
         except Exception as e:
             logger.info("PhishTank 请求失败 %s: %s", url, e)
             return None

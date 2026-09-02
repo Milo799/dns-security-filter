@@ -16,6 +16,7 @@ import logging
 from datetime import date
 
 import httpx
+from adapters.http_base import _IPV4_TRANSPORT
 
 from adapters import ThreatIntelAdapter, ThreatResult
 
@@ -50,7 +51,8 @@ class DShieldAdapter(ThreatIntelAdapter):
                                      "dns-security-filter/1.0 "
                                      "(threat-intel integration)"},
                              timeout=self.timeout_ms / 1000.0,
-                             follow_redirects=True)
+                             follow_redirects=True,
+                             transport=_IPV4_TRANSPORT)
         except Exception as e:
             logger.info("DShield 请求失败 %s: %s", url, e)
             return None

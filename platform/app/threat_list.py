@@ -238,6 +238,11 @@ def _download_once(url: str, max_bytes: int, timeout_s: int,
     超时拆分：连接 15s / 读空闲 min(timeout_s, 30)s——GitHub raw 偶发
     连接中段被静默丢弃（无 RST/FIN）时能尽快超时，交给上层降级镜像；
     健康连接即使很慢也不会连续 30s 收不到任何字节。
+
+    IPv4 强制（local_address="0.0.0.0"）：服务器 IPv6 半配置（有接口无
+    路由）时，raw.githubusercontent.com 等双栈域名会被 httpx 依次尝试
+    AAAA 地址，IPv6 报 [Errno 99] Cannot assign requested address 且
+    掩盖 IPv4 的真实状态——强制 IPv4 源地址后系统直接跳过 v6 候选。
     """
     with httpx.stream(
         "GET", url,
@@ -245,6 +250,7 @@ def _download_once(url: str, max_bytes: int, timeout_s: int,
         timeout=httpx.Timeout(timeout_s, connect=min(timeout_s, 15),
                               read=min(timeout_s, 30)),
         follow_redirects=True,
+        transport=httpx.HTTPTransport(local_address="0.0.0.0"),
     ) as resp:
         resp.raise_for_status()
         if progress is not None:

@@ -12,6 +12,11 @@ from adapters import ThreatIntelAdapter
 
 logger = logging.getLogger("platform.adapters.http")
 
+# 全局复用的 IPv4 强制传输（服务器 IPv6 半配置时 httpx 试 AAAA 报
+# [Errno 99] Cannot assign requested address 并掩盖 IPv4 真实状态；
+# local_address 绑 0.0.0.0 让系统跳过 IPv6 候选地址）
+_IPV4_TRANSPORT = httpx.HTTPTransport(local_address="0.0.0.0")
+
 
 class HttpThreatIntelAdapter(ThreatIntelAdapter):
     """基于 HTTP GET + JSON 响应的适配器基类。"""
@@ -26,7 +31,8 @@ class HttpThreatIntelAdapter(ThreatIntelAdapter):
         try:
             resp = httpx.get(url, headers=headers, params=params,
                              timeout=self.timeout_ms / 1000.0,
-                             follow_redirects=True)
+                             follow_redirects=True,
+                             transport=_IPV4_TRANSPORT)
         except Exception as e:
             logger.info("情报源 %s 请求失败 %s: %s", self.name, url, e)
             return None

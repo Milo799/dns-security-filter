@@ -18,6 +18,7 @@
 import logging
 
 import httpx
+from adapters.http_base import _IPV4_TRANSPORT
 
 from adapters import ThreatIntelAdapter, ThreatResult
 
@@ -49,7 +50,8 @@ class UrlhausAdapter(ThreatIntelAdapter):
         try:
             resp = httpx.post(url, data=data, headers=headers,
                               timeout=self.timeout_ms / 1000.0,
-                              follow_redirects=True)
+                              follow_redirects=True,
+                             transport=_IPV4_TRANSPORT)
         except Exception as e:
             self.last_error = f"网络/超时错误：{e}"
             logger.info("URLhaus 请求失败 %s: %s", url, e)

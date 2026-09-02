@@ -17,6 +17,7 @@ C2 专项情报源：收录 botnet C2 服务器、恶意软件分发基础设施
 import logging
 
 import httpx
+from adapters.http_base import _IPV4_TRANSPORT
 
 from adapters import ThreatIntelAdapter, ThreatResult
 
@@ -53,7 +54,7 @@ class ThreatFoxAdapter(ThreatIntelAdapter):
                       "exact_match": True},
                 timeout=self.timeout_ms / 1000.0,
                 follow_redirects=True,
-            )
+                             transport=_IPV4_TRANSPORT)
         except Exception as e:
             logger.info("ThreatFox 请求失败 %s: %s", term, e)
             return None
