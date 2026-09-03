@@ -396,7 +396,9 @@ Web"测试中心"页面，输入域名或 IP（含 PTR 模式）进行**只读�
 
 **★ 仪表盘数据**：`GET /api/status/hourly?hours=24`（小时聚合，柱线图+热力图共用）、`GET /api/status/breakdown?days=7&top=5`（来源构成+Top 域名+Top 客户端）
 
-**★ 观测**：`GET /api/log-writer/stats`（日志写入队列/累计/丢弃——dropped>0 需调采样率或保留周期）
+**★ 观测**：`GET /api/log-writer/stats`（日志写入队列/累计/丢弃——dropped>0 需调采样率或保留周期）、`GET /api/circuit-breaker/stats`（源级熔断 + 路径降级 + **上游熔断**）、`GET /api/queue-stats`（检测线程池队列深度 pending/inflight/max_pending）
+
+**★ 状态口径（迭代 25）**：`GET /api/status` 的今日请求数优先读 `dns_query_stats` 统计表（DNS 进程内存计数 5s 周期 UPSERT，全量含放行/直通，不受放行日志采样影响；进程重启恢复当日基数）
 
 **审计**：`GET /api/audit`
 
@@ -449,14 +451,14 @@ Web"测试中心"页面，输入域名或 IP（含 PTR 模式）进行**只读�
 
 | # | 交付物 | 说明 |
 |---|--------|------|
-| 1 | DNS 代理中间件 | Go 源码 + 配置模板 + systemd/Docker 打包；完整透传 EDNS0；★ 编译验证 + 端到端四场景通过 |
+| 1 | DNS 代理中间件 | Go 源码 + 配置模板 + systemd/Docker 打包；完整透传 EDNS0；★ 转发前注入客户端 ECS（ecs_enabled，已有 ECS 透传）；★ 编译验证 + 端到端四场景通过 |
 | 2 | DNS 安全过滤平台服务 | Python 包 + schema.sql + seed + systemd/Docker 打包 |
 | 3 | Web 管理前端 | ★ 多文件 SPA（theme/base/pages CSS + app/charts/pages/boot JS + 9 页面模块，零构建链，SOC 深浅双主题），随平台静态部署 |
 | 4 | 数据库初始化脚本 | 建表 SQL（含 threat_list 与统计覆盖索引）+ 默认管理员 + 默认配置 + 内置情报源 seed（★ 方案 C：预置 DNSBL 四源，默认启用三源） |
 | 5 | 威胁情报适配器框架 | 统一接口 + 融合判定 + **16 个内置适配器**（DNSBL 4 / 免 Key 3 / 厂商 5 / URLhaus）+ ★ 单源熔断 |
 | 6 | ▲ 离线大名单模块 | 8 内置源 + 自定义导入 + 自动更新调度 + 镜像降级 + 进度可视化 |
 | 7 | 部署文档 | systemd 安装、★ 一键脚本（install-proxy.sh/install-platform.sh）、Docker 编排、网络白名单、转发器配置、回退步骤 |
-| 8 | ▲ 测试基线 | ★ pytest 265 项（融合/拦截/ECS/PTR/大名单/情报源/调度/性能/★缓存/★并行/★跨进程同步），`cd platform && python -m pytest ../tests`；★ 测试隔离：conftest 设 `DNSF_TESTING=1`（seed 检测后不默认启用在线源，单测不依赖公网） |
+| 8 | ▲ 测试基线 | ★ pytest 346 项（融合/拦截/ECS/PTR/大名单/情报源/调度/性能/★缓存/★并行/★跨进程同步/★线程池复用/★上游熔断/★队列观测/★查询统计），`cd platform && python -m pytest ../tests`；★ 测试隔离：conftest 设 `DNSF_TESTING=1`（seed 检测后不默认启用在线源，单测不依赖公网） |
 | 9 | ★ 性能与压测工具 | `tools/loadtest.py` DNS 压测（QPS/延迟分位；Windows 须 SelectorEventLoop）；观测接口 /api/log-writer/stats |
 
 ## 十一、补充说明

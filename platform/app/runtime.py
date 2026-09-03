@@ -20,6 +20,8 @@ _INT_KEYS = {"alert_ttl", "log_retention_days", "api_timeout_ms",
              "domain_cache_size", "ip_cache_ttl_s", "ip_cache_size",
              "cb_failure_threshold", "cb_open_timeout_s",
              "degrade_threshold", "degrade_window_s",
+             "upstream_timeout_s", "upstream_failure_threshold",
+             "upstream_open_timeout_s",
              "allow_log_sample_rate", "log_flush_interval_s",
              "log_batch_size"}
 

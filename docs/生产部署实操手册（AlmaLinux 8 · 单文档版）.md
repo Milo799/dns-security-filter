@@ -190,7 +190,7 @@ Web → 威胁情报 → 离线情报源：
 4. 观察 **3~7 天**：拦截日志、误报、终端反馈、平台资源曲线（Web 总览页）
 5. 无异常后逐台追加 DC，每台间隔 ≥1 天
 
-**EDNS0 说明**：Windows Server 2012+ DC 默认附加 Client Subnet，平台据此记录真实终端 IP；若组策略曾设 `DisableEDNSProbes=1` 需移除。哑终端可能不带 ECS（client_ip 为空）——不影响过滤，只影响日志定位，属预期。
+**EDNS0 / 客户端 IP 说明（迭代 25 更新）**：代理现在默认**注入客户端源 IP 到 EDNS0 Client Subnet**（`ecs_enabled: true`），过滤日志的"客户端 IP"由此而来。两条铁律：①**转发器模式下记录的是发起查询的 DNS 服务器/域控 IP**（DNS 协议限制：终端 IP 不上报，代理只知道上一跳）；②**终端直连代理模式记录终端真实 IP**。若组策略曾设 `DisableEDNSProbes=1` 需移除。上级转发器已发 ECS 时代理透传不改写。
 
 ## 九、容灾与回退（背下来）
 
@@ -199,7 +199,8 @@ Web → 威胁情报 → 离线情报源：
 | 机 B 平台挂 | 全网 SERVFAIL | **任一 DC 转发器改回公网 DNS，该 DC 覆盖终端立即恢复**（多 DC 可分批放）；修复后再切回 |
 | 机 A 代理挂 | DC 转发超时 | DC 转发器临时直指机B:15353 或回公网 |
 | 误拦截业务域名 | 业务异常 | Web 加白名单秒级生效；或 Web 系统配置把 detection_enabled 切 false（全放行止血） |
-| 公网 DNS 出站断 | 解析失败 | 检查上联防火墙出站；确认 223.5.5.5 可达 |
+| 公网 DNS 出站断 | 解析失败 | **上游熔断自动 fast-fail**（连续 3 次失败开窗 10s 直接 SERVFAIL，不占线程等待，半开探测自动恢复）；持续故障查上联出站/切备用 DNS；`GET /api/circuit-breaker/stats` 看 upstream 状态 |
+| 事件循环健康但全网无应答（2026-09-03 事故形态） | 解析超时但进程/端口正常 | journalctl 搜"检测线程池积压告警"；`py-spy dump --pid $(pidof -x platform-dns)` 看线程栈；上游熔断 + 线程池复用（迭代 25）已自动防护，一般重启即清 |
 
 > 原则（安全优先）：故障不自动放行，人工决策切换。紧急场景**优先保业务**（回退转发器），事后补审计。
 
@@ -230,6 +231,8 @@ Web → 威胁情报 → 离线情报源：
 | 检测/日志/缓存类参数 | Web → 系统配置（在线热生效，优先级高于 yaml，存 SQLite） |
 | 情报出站代理 | Web → 系统配置 → 情报出站代理（填 `http://IP:端口`，留空直连；含测试按钮；在线源+大名单下载走代理，DNSBL 不走） |
 | Web 改名单/配置后 DNS 进程感知 | 自动（cross_sync 60s 轮询），无需重启 |
+| 今日请求统计口径 | `/api/status` 优先读 dns_query_stats（全量含放行/直通，5s 落库；进程重启恢复当日基数）——不受放行日志采样影响 |
+| 线程池队列观测 | `GET /api/queue-stats`（Web 进程视角）；生产以 DNS 进程 journalctl"检测线程池积压告警"为准 |
 | 服务日志 | `journalctl -u platform-dns -f`（或 proxy / platform-web） |
 | 数据库 | `/opt/dns-security-filter/platform/data/platform.db`，每日 02:30 自动热备到 `/var/backups/dnsfilter/`（保留 14 份） |
 

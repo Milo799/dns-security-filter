@@ -15,6 +15,7 @@ type Config struct {
 	UpstreamPort   int    `yaml:"upstream_port"`    // 平台端口，默认 53
 	ForwardTimeout int    `yaml:"forward_timeout"`  // 转发超时（秒），默认 3
 	LogEnabled     bool   `yaml:"log_enabled"`      // 代理运行日志开关，默认 false
+	EcsEnabled     bool   `yaml:"ecs_enabled"`      // 客户端 IP 注入开关（Task #158），默认 true
 }
 
 // DefaultConfig 返回默认配置
@@ -26,6 +27,7 @@ func DefaultConfig() *Config {
 		UpstreamPort:   53,
 		ForwardTimeout: 3,
 		LogEnabled:     false,
+		EcsEnabled:     true,
 	}
 }
 

@@ -1,8 +1,8 @@
-"""威胁情报链路熔断与降级 —— 10 万终端前置开发项第 2 项。
+"""威胁情报链路熔断与降级 —— 10 万终端前置开发项第 2 项 + 上游熔断（Task #159）。
 
 背景（生产部署方案第零节）：fail-safe 语义在 10 万终端规模下有放大风险——
 在线情报源被限流/故障时，全部查询"无结论 → 默认拦截"，等价全网断网。
-本模块提供两层防护：
+本模块提供三层防护：
 
 1) 源级熔断（circuit breaker，逐适配器）：
    - 单个情报源连续失败 N 次（failure_threshold）→ 熔断（open），
@@ -23,6 +23,17 @@
    - 注意：IP 后置过滤（query_threatintel_ip / ip_postfilter）不降级——
      单域名 IP 数量少（1~8 个），且部分剔除/拦截不影响域名整体可用性，
      保持 fail-safe 原语义。
+
+3) 上游解析熔断（upstream breaker，Task #159，生产事故 2026-09-03 加固）：
+   - query_upstream_reply 出站超时/异常时计数；连续 N 次
+     （upstream_failure_threshold）→ 熔断（open）；
+   - 熔断窗口（upstream_open_timeout_s）内**不再出站等待 3s 超时**，
+     直接返回 SERVFAIL（fast-fail，0ms）——避免出站抖动期间 6 个
+     executor worker 全部挂在 send() 上把主池耗尽（当日事故根因）；
+   - 窗口到期半开探测：放行 1 次真实出站，成功关闭/失败重开；
+   - 语义与源级熔断一致，仅保护对象不同（上游 DNS vs 情报源）。
+   - SERVFAIL 是 DNS 标准失败语义：客户端会按自身重试策略自愈，
+     出站恢复后半开探测让服务自动回切，无需人工干预。
 
 线程模型：检测主流程在线程池（run_in_executor）并发调用，本模块
 仅做计数与状态读写，统一锁保护；无 IO，锁内耗时纳秒级。
@@ -49,6 +60,16 @@ _DEGRADE = {
     "consecutive_failsafes": 0,   # 连续 fail-safe 计数
     "degraded_until": 0.0,        # 降级窗口截止时刻（monotonic），0=未降级
     "degrade_count": 0,           # 累计触发降级次数（观测用）
+}
+
+# ---- 上游解析熔断状态（进程内单例，Task #159）----
+# 与源级熔断同状态机（closed/open/half-open），对象为上游 DNS 出站链路
+_UPSTREAM = {
+    "state": "closed",            # closed / open / half-open
+    "failures": 0,                # closed 态连续失败计数
+    "opened_at": 0.0,             # 熔断时刻（monotonic）
+    "open_count": 0,              # 累计熔断次数（观测用）
+    "fast_fails": 0,              # 熔断窗口内直接返回 SERVFAIL 次数（观测用）
 }
 
 # 事件钩子（测试注入用）：函数列表，降级触发/恢复时回调
@@ -227,9 +248,87 @@ def degrade_state() -> dict:
         }
 
 
+# ---------------------------------------------------------------------------
+# 3) 上游解析熔断（Task #159，生产事故 2026-09-03 加固）
+# ---------------------------------------------------------------------------
+
+def upstream_allows() -> bool:
+    """上游出站当前是否允许真实请求。
+
+    closed → 允许；open 且已过冷却 → 转 half-open 放行本次（探测）；
+    open 未到冷却 → 拒绝（调用方直接 SERVFAIL，fast-fail）；
+    half-open → 拒绝（探测已在途，避免并发放行多个探测各挂 3s）。
+    """
+    now = time.monotonic()
+    with _LOCK:
+        if _UPSTREAM["state"] == "closed":
+            return True
+        if _UPSTREAM["state"] == "open":
+            if now - _UPSTREAM["opened_at"] >= \
+                    _cfg_int("upstream_open_timeout_s", 10):
+                _UPSTREAM["state"] = "half-open"
+                return True                  # 放行一次探测
+            _UPSTREAM["fast_fails"] += 1
+            return False
+        return False                         # half-open：探测在途
+
+
+def upstream_record_success() -> None:
+    """上游出站成功（拿到任何应答，含 NXDOMAIN）→ 关闭，计数清零。"""
+    with _LOCK:
+        if _UPSTREAM["state"] != "closed":
+            logger.info("上游解析熔断恢复（探测成功）")
+        _UPSTREAM["state"] = "closed"
+        _UPSTREAM["failures"] = 0
+
+
+def upstream_record_failure() -> None:
+    """上游出站失败（超时/异常）→ 计失败，达阈值熔断开窗。"""
+    threshold = _cfg_int("upstream_failure_threshold", 3)
+    now = time.monotonic()
+    with _LOCK:
+        if _UPSTREAM["state"] == "half-open":
+            # 探测失败：直接重新熔断
+            _UPSTREAM["state"] = "open"
+            _UPSTREAM["opened_at"] = now
+            _UPSTREAM["failures"] = threshold
+            return
+        if _UPSTREAM["state"] == "open":
+            return                           # open 态不应被调用（防御）
+        _UPSTREAM["failures"] += 1
+        if threshold > 0 and _UPSTREAM["failures"] >= threshold:
+            _UPSTREAM["state"] = "open"
+            _UPSTREAM["opened_at"] = now
+            _UPSTREAM["open_count"] += 1
+            logger.warning(
+                "上游解析连续失败 %d 次，熔断 %ds：窗口内直接 SERVFAIL"
+                "（fast-fail，不再等待 %ss 出站超时）",
+                _UPSTREAM["failures"],
+                _cfg_int("upstream_open_timeout_s", 10),
+                _cfg_int("upstream_timeout_s", 3))
+
+
+def upstream_state() -> dict:
+    """上游熔断状态快照（诊断/状态接口用）。"""
+    now = time.monotonic()
+    with _LOCK:
+        state = _UPSTREAM["state"]
+        if state == "open" and now - _UPSTREAM["opened_at"] >= \
+                _cfg_int("upstream_open_timeout_s", 10):
+            state = "half-open"              # 展示口径与 upstream_allows 一致
+        return {
+            "state": state,
+            "failures": _UPSTREAM["failures"],
+            "open_count": _UPSTREAM["open_count"],
+            "fast_fails": _UPSTREAM["fast_fails"],
+        }
+
+
 def reset_all() -> None:
     """全量复位（测试用）。"""
     with _LOCK:
         _BREAKERS.clear()
         _DEGRADE.update(consecutive_failsafes=0, degraded_until=0.0,
                         degrade_count=0)
+        _UPSTREAM.update(state="closed", failures=0, opened_at=0.0,
+                         open_count=0, fast_fails=0)

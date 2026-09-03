@@ -31,6 +31,9 @@ class PlatformConfig:
     web: WebConfig = field(default_factory=WebConfig)
     database: str = "./data/platform.db"
     upstream_dns: str = "8.8.8.8"          # 公网 DNS（平台解析外网域名用）
+    upstream_timeout_s: int = 3            # 上游单次查询超时（秒，1~10；Task #159 熔断联动）
+    upstream_failure_threshold: int = 3    # 上游熔断：连续失败阈值（次，0=禁用；Task #159）
+    upstream_open_timeout_s: int = 10      # 上游熔断：窗口时长（秒，窗口内 fast-fail SERVFAIL）
     alert_ip: str = "127.0.0.1"            # 告警 IP（A 记录拦截应答）
     alert_ttl: int = 60                    # 告警应答 TTL（秒）
     fusion_strategy: str = "any"           # 威胁情报融合策略：any / majority / all

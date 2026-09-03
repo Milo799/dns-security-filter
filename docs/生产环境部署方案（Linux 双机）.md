@@ -395,7 +395,8 @@ sudo systemctl daemon-reload && sudo systemctl enable --now dnsfilter-backup.tim
 | 机B平台挂 | 全网 SERVFAIL，**10 万终端外网解析中断** | ① 修复；② **紧急放行：任一 DC 把转发器改回公网 DNS，该 DC 覆盖的终端立即恢复**（这是多 DC 结构的优势：可分批放） |
 | 机A代理挂 | DC 转发超时 | 改 DC 转发器直指机B:15353（临时）或回公网 |
 | 在线情报源集体限流 | 未命中域名查询变慢 | 开发项 2 的熔断机制应已自动降级放行；否则临时停用在线源（Web 界面）只跑离线名单 |
-| 公网 DNS 出站断 | 解析失败 | 切备用公网 DNS / 检查防火墙 |
+| 公网 DNS 出站断 | 解析失败 | **上游熔断自动 fast-fail**（迭代 25：连续 3 次出站失败开窗 10s，窗口内直接 SERVFAIL 不占线程等待；半开探测成功自动恢复）；持续故障切备用公网 DNS / 检查防火墙；`GET /api/circuit-breaker/stats` 的 `upstream` 节看熔断状态 |
+| 出站抖动致检测线程堆积 | 事件循环健康但全网无应答（2026-09-03 事故形态） | **队列深度观测已内置**（迭代 25）：journalctl 搜"检测线程池积压告警"，`GET /api/queue-stats` 看 pending/max_pending；上游熔断 fast-fail 会自动保住 worker |
 | 误拦截业务域名 | 业务异常 | Web 加白名单秒生效 |
 
 > **重要**：10 万终端规模下，"全网断网"的代价远高于百人级。强烈建议与安全负责人明确：**紧急场景优先保业务（回退转发器），事后补审计**。同时考虑给代理加一个"平台连续 N 次超时自动透传公网"的降级开关（可配置，默认关闭保安全，见前置开发项讨论）。
@@ -404,7 +405,9 @@ sudo systemctl daemon-reload && sudo systemctl enable --now dnsfilter-backup.tim
 
 - **日志策略**：10 万终端下 `allow_log_enabled` 必须为 false（全量放行日志 = 每日数百万行、SQLite 写放大拖垮检测）；拦截/剔除日志保留 90 天，预计每日 1~50 万行（取决于拦截率），**每周关注 platform.db 体积**
 - **日志自动清理（已内置）**：`log_retention_days`（默认 90，配置页热生效）驱动后台清理线程——每 6 小时对 filter_log / audit_log 分批删除过期行（单批 1 万行防长事务锁库）；观测接口 `GET /api/log-retention/stats`（最近/累计删除行数、执行轮数；`total_deleted` 长期为 0 且库体积持续增长时检查天数配置）
-- **缓存监控（已内置）**：`GET /api/domain-cache/stats`（域名结论缓存）与 `GET /api/ip-cache/stats`（IP 结论缓存）——条目数/容量/命中数/命中率；另有熔断 `GET /api/circuit-breaker/stats`、日志写入 `GET /api/log-writer/stats`。均需 JWT（curl 先 `/api/auth/login` 换 token）
+- **缓存监控（已内置）**：`GET /api/domain-cache/stats`（域名结论缓存）与 `GET /api/ip-cache/stats`（IP 结论缓存）——条目数/容量/命中数/命中率；另有熔断 `GET /api/circuit-breaker/stats`（源级 + 路径级 + **上游熔断**）、日志写入 `GET /api/log-writer/stats`、**线程池队列 `GET /api/queue-stats`**（注意双进程部署下此接口是 Web 进程视角，生产排障以 DNS 进程 journalctl 告警为准）。均需 JWT（curl 先 `/api/auth/login` 换 token）
+- **今日请求口径（迭代 25）**：`/api/status` 的 today_total 优先读 dns_query_stats 统计表（DNS 进程内存计数 5s 周期落库，全量含放行/直通），不再受放行日志采样影响；进程重启自动恢复当日基数
+- **客户端 IP（迭代 25）**：过滤日志的"客户端 IP"来自代理注入的 EDNS0 Client Subnet（`ecs_enabled` 默认开，已有 ECS 透传）。**转发器模式下记录的是发起查询的 DNS 服务器/域控 IP（协议限制：客户端 IP 只在本机缓存，不上报 DNS 报文）；直连代理模式记录终端真实 IP**
 - **备份（已内置）**：安装脚本自动部署 `dnsfilter-backup.timer`——每日 02:30 调 `tools/backup_db.sh` 对 platform.db 做 SQLite `.backup` 在线热备（与检测写入并发安全），gzip 压缩后默认保留 14 份于 `/var/backups/dnsfilter`（`BACKUP_KEEP` 环境变量可调）；手工备份同命令随时可跑；两份 yaml 变更留副本
 - **升级窗口**：凌晨低峰；先平台后代理；升级前必跑测试套件
 - **监控告警建议**：平台 SERVFAIL 率（代理日志 rcode 统计）、缓存命中率、磁盘水位、三进程存活、备份 timer 最近执行状态（`systemctl list-timers dnsfilter-backup.timer`）

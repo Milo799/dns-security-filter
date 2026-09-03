@@ -86,3 +86,23 @@ def test_dnslib_roundtrip_with_ecs():
     rec = DNSRecord.parse(data)          # 不抛异常
     assert str(rec.q.qname) == "www.example.com."
     assert extract_client_ip(data) == "172.16.5.0"
+
+
+def test_miekg_injected_ecs_format():
+    """Task #158 端到端兼容：模拟 Go 代理（miekg/dns EDNS0_SUBNET）注入的
+    ECS 报文——family 1 /32 全地址 4 字节（代理注入形态），平台按
+    RFC 7871 解析出完整客户端 IP。
+
+    字节序列与 Go 侧 ecs_test.go 的 Pack 回环输出一致：
+    option = family(2B=1) + src_prefix(1B=32) + scope(1B=0) + addr(4B)
+    """
+    # Go 侧 Address=172.16.3.45 /32 → opt_data 7 字节
+    data = build_query(ecs=(1, 32, bytes([172, 16, 3, 45])))
+    assert extract_client_ip(data) == "172.16.3.45"
+
+
+def test_miekg_injected_ecs_ipv6():
+    """Task #58 IPv6 形态：/128 全 16 字节地址。"""
+    data = build_query(ecs=(2, 128,
+                            bytes.fromhex("fd000000000000000000000000000042")))
+    assert extract_client_ip(data) == "fd00::42"

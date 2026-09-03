@@ -11,8 +11,16 @@ import (
 
 var cfg *Config
 
-// handler 处理每个进入的 DNS 查询：原样转发至平台，回传应答
+// handler 处理每个进入的 DNS 查询：注入客户端 ECS（Task #158）后
+// 转发至平台，回传应答
 func handler(w dns.ResponseWriter, req *dns.Msg) {
+	// Task #158：注入真实客户端源 IP（无 ECS 时附加 /32 或 /128；
+	// 请求已带 ECS 则透传）。平台日志的客户端 IP 由此而来。
+	if cfg.EcsEnabled {
+		injectEcs(req, w.RemoteAddr())
+		ecsDebugLog(cfg.LogEnabled, req, w.RemoteAddr())
+	}
+
 	resp := forward(req, cfg)
 
 	if cfg.LogEnabled {

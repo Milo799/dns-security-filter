@@ -16,6 +16,7 @@ from dnslib import DNSRecord, QTYPE, RR, RCODE
 
 from config import CONFIG
 from detectors import process_query
+import queue_stats
 
 logger = logging.getLogger("platform.dns")
 
@@ -128,6 +129,8 @@ async def handle_request(data: bytes, transport, addr: tuple) -> None:
         None, extract_client_ip, data)
 
     def _process():
+        # Task #160：worker 占用视角（执行开始/结束各计一次 inflight）
+        queue_stats.started()
         try:
             return process_query(request, client_ip=client_ip)
         except Exception:
@@ -136,8 +139,15 @@ async def handle_request(data: bytes, transport, addr: tuple) -> None:
             reply = request.reply()
             reply.header.rcode = RCODE.SERVFAIL
             return reply
+        finally:
+            queue_stats.ended()
 
-    reply = await asyncio.get_running_loop().run_in_executor(None, _process)
+    # Task #160：队列深度观测（提交→完成配对，await 返回/抛出即递减）
+    queue_stats.submitted()
+    try:
+        reply = await asyncio.get_running_loop().run_in_executor(None, _process)
+    finally:
+        queue_stats.completed()
 
     try:
         transport.sendto(reply.pack(), addr)
@@ -164,8 +174,13 @@ async def handle_tcp(reader: asyncio.StreamReader, writer: asyncio.StreamWriter)
             request = DNSRecord.parse(data)
             client_ip = extract_client_ip(data)
             # 检测主流程含同步阻塞 IO，放线程池执行避免阻塞事件循环
-            reply = await asyncio.get_running_loop().run_in_executor(
-                None, process_query, request, client_ip)
+            # Task #160：队列深度观测与 UDP 路径同口径
+            queue_stats.submitted()
+            try:
+                reply = await asyncio.get_running_loop().run_in_executor(
+                    None, process_query, request, client_ip)
+            finally:
+                queue_stats.completed()
             packed = reply.pack()
             writer.write(len(packed).to_bytes(2, "big") + packed)
             await writer.drain()
@@ -194,6 +209,9 @@ async def run_dns_server():
     # （双进程部署下 system_config 热生效 + 三类名单缓存失效，最长 60s）
     import cross_sync
     cross_sync.start()
+    # 查询量统计落库（Task #161："今日请求"全量口径，5s 周期 UPSERT）
+    import query_stats
+    query_stats.start()
 
     addr = (CONFIG.dns.listen_addr, CONFIG.dns.listen_port)
 

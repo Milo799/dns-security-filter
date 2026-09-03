@@ -60,6 +60,9 @@ class ConfigBody(BaseModel):
     cb_open_timeout_s: int | None = None
     degrade_threshold: int | None = None
     degrade_window_s: int | None = None
+    upstream_timeout_s: int | None = None
+    upstream_failure_threshold: int | None = None
+    upstream_open_timeout_s: int | None = None
 
 
 @router.get("/config")
@@ -134,6 +137,18 @@ def update_config(body: ConfigBody, user: str = Depends(get_current_user)):
     if "degrade_window_s" in data and not (10 <= data["degrade_window_s"] <= 86400):
         raise HTTPException(
             status_code=400, detail="degrade_window_s 须在 10~86400 之间（秒）")
+    if "upstream_timeout_s" in data and not (1 <= data["upstream_timeout_s"] <= 10):
+        raise HTTPException(
+            status_code=400, detail="upstream_timeout_s 须在 1~10 之间（秒）")
+    if "upstream_failure_threshold" in data and not (
+            0 <= data["upstream_failure_threshold"] <= 1000):
+        raise HTTPException(
+            status_code=400,
+            detail="upstream_failure_threshold 须在 0~1000 之间（0=禁用上游熔断）")
+    if "upstream_open_timeout_s" in data and not (
+            5 <= data["upstream_open_timeout_s"] <= 86400):
+        raise HTTPException(
+            status_code=400, detail="upstream_open_timeout_s 须在 5~86400 之间（秒）")
     if "http_proxy" in data:
         data["http_proxy"] = _validate_proxy(data["http_proxy"])
 
@@ -147,17 +162,38 @@ def update_config(body: ConfigBody, user: str = Depends(get_current_user)):
 
 @router.get("/status")
 def platform_status(_: str = Depends(get_current_user)):
-    """平台运行状态：检测开关、今日拦截/放行计数、情报源状态。"""
+    """平台运行状态：检测开关、今日拦截/放行计数、情报源状态。
+
+    Task #161：今日请求优先读 dns_query_stats 统计表（DNS 进程内存
+    计数周期落库，全量口径不受放行日志采样影响）；表无数据时回退
+    filter_log 聚合（旧口径，allows 受 allow_log_enabled 采样低估）。
+    """
+    # 优先：查询量统计表（全量口径）
+    import query_stats
+    qs = query_stats.read_today_from_db()
+    if qs is not None:
+        intercepts = qs["intercept"]
+        removes = qs["remove_ip"]
+        allows = qs["allow"]
+        total = qs["total"]
+    else:
+        # 回退：filter_log 聚合（历史形态，首次升级部署过渡期）
+        with db_cursor() as cur:
+            cur.execute(
+                """SELECT
+                     SUM(CASE WHEN action='intercept' THEN 1 ELSE 0 END) AS intercepts,
+                     SUM(CASE WHEN action='remove_ip'  THEN 1 ELSE 0 END) AS removes,
+                     SUM(CASE WHEN action='allow'     THEN 1 ELSE 0 END) AS allows
+                   FROM filter_log
+                   WHERE date(timestamp)=date('now','localtime')"""
+            )
+            row = cur.fetchone()
+        intercepts = row["intercepts"] or 0
+        removes = row["removes"] or 0
+        allows = row["allows"] or 0
+        total = intercepts + removes + allows
+
     with db_cursor() as cur:
-        cur.execute(
-            """SELECT
-                 SUM(CASE WHEN action='intercept' THEN 1 ELSE 0 END) AS intercepts,
-                 SUM(CASE WHEN action='remove_ip'  THEN 1 ELSE 0 END) AS removes,
-                 SUM(CASE WHEN action='allow'     THEN 1 ELSE 0 END) AS allows
-               FROM filter_log
-               WHERE date(timestamp)=date('now','localtime')"""
-        )
-        row = cur.fetchone()
         cur.execute(
             """SELECT name, enabled FROM threatintel_api ORDER BY id"""
         )
@@ -167,15 +203,12 @@ def platform_status(_: str = Depends(get_current_user)):
         cur.execute("SELECT value FROM system_config WHERE key='detection_enabled'")
         detection = cur.fetchone()["value"] == "1"
 
-    intercepts = row["intercepts"] or 0
-    removes = row["removes"] or 0
-    allows = row["allows"] or 0
     return {"code": 0, "message": "ok", "data": {
         "detection_enabled": detection,
         "today_intercepts": intercepts,
         "today_removes": removes,
         "today_allows": allows,
-        "today_total": intercepts + removes + allows,
+        "today_total": total,
         "threatintel_sources": sources,
     }}
 
@@ -335,12 +368,27 @@ def log_retention_stats(_: str = Depends(get_current_user)):
 
 @router.get("/circuit-breaker/stats")
 def circuit_breaker_stats(_: str = Depends(get_current_user)):
-    """熔断降级状态：各情报源熔断器 + 路径级降级窗口（运维巡检用）。"""
+    """熔断降级状态：各情报源熔断器 + 路径级降级 + 上游解析熔断（Task #159）。"""
     import circuit_breaker
     return {"code": 0, "message": "ok", "data": {
         "sources": circuit_breaker.source_states(),
         "degrade": circuit_breaker.degrade_state(),
+        "upstream": circuit_breaker.upstream_state(),
     }}
+
+
+@router.get("/queue-stats")
+def dns_queue_stats(_: str = Depends(get_current_user)):
+    """DNS 检测线程池队列状态（Task #160：executor 队列深度观测）。
+
+    pending/inflight/max_pending 反映检测主池是否供不应求（2026-09-03
+    事故形态：worker 全忙 + 队列无限积压 → 事件循环健康但全网无应答）。
+    注意：Web 与 DNS 为双进程部署时，此接口读取的是 **Web 进程自身**
+    的执行器计数（恒 0）——生产排障请以 DNS 进程 journalctl 告警与
+    py-spy dump 为准；本端点主要服务单进程形态与本地验证。
+    """
+    import queue_stats
+    return {"code": 0, "message": "ok", "data": queue_stats.stats()}
 
 
 @router.post("/circuit-breaker/reset")

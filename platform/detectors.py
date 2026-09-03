@@ -28,6 +28,7 @@ import domain_cache
 import ip_cache
 import circuit_breaker
 import log_writer
+import query_stats
 from config import CONFIG
 from app.db import db_cursor, get_enabled_list
 from app.threat_list import check_domain, check_ip
@@ -37,6 +38,64 @@ logger = logging.getLogger("platform.detectors")
 
 # QTYPE 支持过滤检测的类型：A / AAAA 同等处理
 FILTERABLE_TYPES = {QTYPE.A, QTYPE.AAAA}
+
+# ---------------------------------------------------------------------------
+# 0. 进程级共享线程池（Task #157，生产事故 2026-09-03 加固）
+#
+# 旧实现：每次查询 with ThreadPoolExecutor(...) 新建即销毁。生产 py-spy
+# 证据显示线程单调膨胀（线程号 137562 → 28 万+）——故障期任务堆积、池
+# 关闭阻塞，与 run_in_executor 主池（6 worker）叠加放大为全网瘫。
+#
+# 新设计：两池分层，**单向调用**（外层调内层，反向不存在）——
+#   _ADAPTER_POOL    叶子池：单源适配器查询（DNSBL/HTTP 适配器 IO）
+#   _POSTFILTER_POOL 外层池：IP 后置并发跑 query_threatintel_ip（内部再
+#                    走叶子池并发各源）→ 若共享单池会出现任务互等死锁，
+#                    分层后依赖方向单一，绝无环。
+# worker 上限与压测基线（1000QPS P95=1.86ms）对齐：源数 ≤16、IP 并发 ≤8。
+# 惰性创建：仅首次实际查询时建池，进程退出由 shutdown_thread_pools 收尾。
+# ---------------------------------------------------------------------------
+_ADAPTER_POOL: ThreadPoolExecutor | None = None
+_POSTFILTER_POOL: ThreadPoolExecutor | None = None
+_POOLS_LOCK = threading.Lock()
+_ADAPTER_POOL_WORKERS = 16   # 源级并发上限（注册适配器共 16 个）
+_IP_POOL_WORKERS = 8         # IP 后置并发上限（多 IP 应答并行校验）
+
+
+def _adapter_pool() -> ThreadPoolExecutor:
+    """叶子池（单源适配器查询）惰性单例：进程级复用。"""
+    global _ADAPTER_POOL
+    with _POOLS_LOCK:
+        if _ADAPTER_POOL is None:
+            _ADAPTER_POOL = ThreadPoolExecutor(
+                max_workers=_ADAPTER_POOL_WORKERS,
+                thread_name_prefix="ti-adapter")
+        return _ADAPTER_POOL
+
+
+def _postfilter_pool() -> ThreadPoolExecutor:
+    """IP 后置外层池惰性单例（任务内部调用叶子池，单向依赖不互等）。"""
+    global _POSTFILTER_POOL
+    with _POOLS_LOCK:
+        if _POSTFILTER_POOL is None:
+            _POSTFILTER_POOL = ThreadPoolExecutor(
+                max_workers=_IP_POOL_WORKERS, thread_name_prefix="ti-ip")
+        return _POSTFILTER_POOL
+
+
+def shutdown_thread_pools(wait: bool = False) -> None:
+    """进程退出收尾：释放两个共享池（dns_server 关停钩子/测试 teardown 调用）。
+
+    wait=False 不阻塞等待积压任务（进程退出场景排队任务随进程消亡）；
+    map 已返回的任务早已执行完，此处只回收空闲线程。
+    """
+    global _ADAPTER_POOL, _POSTFILTER_POOL
+    with _POOLS_LOCK:
+        pools = (_ADAPTER_POOL, _POSTFILTER_POOL)
+        _ADAPTER_POOL = None
+        _POSTFILTER_POOL = None
+    for pool in pools:
+        if pool is not None:
+            pool.shutdown(wait=wait)
 
 
 def extract_ptr_ip(ptr_name: str) -> str | None:
@@ -185,8 +244,9 @@ def query_threatintel_domain(domain: str) -> tuple[bool, str]:
             logger.warning("情报源 %s 查询域名异常: %s", adapter.name, e)
             return None
 
-    with ThreadPoolExecutor(max_workers=min(len(adapters), 12)) as pool:
-        raw = list(pool.map(_safe_query, adapters))
+    # Task #157：进程级共享池（叶子层）。pool.map 返回即全部完成，
+    # 不存在悬挂 worker；池跨查询复用，故障期不再随任务堆积膨胀线程数。
+    raw = list(_adapter_pool().map(_safe_query, adapters))
     # 熔断计数：None（无结论/异常）计失败，有结论（含未命中）计成功
     for adapter, r in zip(adapters, raw):
         if r is None:
@@ -254,8 +314,8 @@ def query_threatintel_ip(ip: str) -> tuple[bool, str]:
             logger.warning("情报源 %s 查询 IP 异常: %s", adapter.name, e)
             return None
 
-    with ThreadPoolExecutor(max_workers=min(len(adapters), 12)) as pool:
-        raw = list(pool.map(_safe_query, adapters))
+    # Task #157：进程级共享池（叶子层），与域名路径同池。
+    raw = list(_adapter_pool().map(_safe_query, adapters))
     # 熔断计数：None（无结论/异常）计失败，有结论（含未命中）计成功
     for adapter, r in zip(adapters, raw):
         if r is None:
@@ -318,7 +378,7 @@ def query_upstream(domain: str, qtype: int) -> list[str]:
     try:
         q = DNSRecord.question(domain, _qtype_name(qtype))
         # 注意：dnslib 的 send() 返回原始 bytes，需 parse 后再访问 .rr
-        data = q.send(host, port, timeout=3)
+        data = q.send(host, port, timeout=CONFIG.upstream_timeout_s)
         resp = DNSRecord.parse(data)
         return [str(rr.rdata) for rr in resp.rr if rr.rtype == qtype]
     except Exception as e:
@@ -331,13 +391,29 @@ def query_upstream_reply(request: DNSRecord) -> DNSRecord:
 
     失败时返回 SERVFAIL。
     TODO(AI): 大响应（TC 置位）时需走 TCP 重试。
+
+    上游熔断（Task #159，生产事故 2026-09-03 加固）：
+    - 出站失败（超时/异常）计数，连续达阈值（upstream_failure_threshold）
+      熔断开窗；窗口内不再等待出站超时，直接返回 SERVFAIL（fast-fail）；
+    - 半开探测成功自动关闭（含 NXDOMAIN 等任何合法应答）；
+    - 动机：事故日出站间歇性超时，3s 等待 × 6 个 executor worker 全挂
+      → 检测主池耗尽全网瘫。fast-fail 把故障期单查询代价从 3s → 0ms，
+      worker 立刻回收，白名单/缓存等不受出站影响的路径照常服务。
     """
     host, port = _upstream_target()
+    # 熔断窗口内：fast-fail SERVFAIL（不占用出站等待）
+    if not circuit_breaker.upstream_allows():
+        reply = request.reply()
+        reply.header.rcode = RCODE.SERVFAIL
+        return reply
     try:
         # 注意：dnslib 的 send() 返回原始 bytes，需 parse 后再返回
-        data = request.send(host, port, timeout=3)
-        return DNSRecord.parse(data)
+        data = request.send(host, port, timeout=CONFIG.upstream_timeout_s)
+        resp = DNSRecord.parse(data)
+        circuit_breaker.upstream_record_success()   # 任何合法应答都算成功
+        return resp
     except Exception as e:
+        circuit_breaker.upstream_record_failure()
         logger.warning("上游转发失败: %s", e)
         reply = request.reply()
         reply.header.rcode = RCODE.SERVFAIL
@@ -380,12 +456,9 @@ def ip_postfilter(ips: list[str]) -> tuple[list[str], list[str]]:
         bad, _ = query_threatintel_ip(ip)
         return bad
 
-    # 单 IP 无需线程池开销，直接查
-    if len(pending) == 1:
-        results = {pending[0]: _check(pending[0])}
-    else:
-        with ThreadPoolExecutor(max_workers=min(len(pending), 8)) as pool:
-            results = dict(zip(pending, pool.map(_check, pending)))
+    # 单 IP 无需并发开销，直接查（共享池模式下 1 个任务也走池，
+    # 免去"是否建池"分支判断，行为与多 IP 一致）
+    results = dict(zip(pending, _postfilter_pool().map(_check, pending)))
 
     for ip in pending:
         if results[ip]:
@@ -487,13 +560,18 @@ def write_allow_log(client_ip: str, domain: str, qtype: int) -> None:
 # ---------------------------------------------------------------------------
 
 def process_query(request: DNSRecord, client_ip: str | None = None) -> DNSRecord:
-    """检测主流程入口。返回应答报文（dnslib.DNSRecord）。"""
+    """检测主流程入口。返回应答报文（dnslib.DNSRecord）。
+
+    Task #161：全路径 query_stats 计数（今日请求全量口径，不受放行
+    日志采样影响）——各出口分别计 intercept/remove_ip/allow。
+    """
     q = request.q
     domain = str(q.qname).rstrip(".")
     qtype = q.qtype
 
     # 检测总开关（PRD：管理员可临时关闭全部检测以放行）
     if not CONFIG.detection_enabled:
+        query_stats.record("allow")            # 直通也是请求（全量口径）
         return query_upstream_reply(request)
 
     # 1) PTR 反向解析：按查询的 IP 过滤（白名单→黑名单→威胁情报），不能漏
@@ -502,16 +580,19 @@ def process_query(request: DNSRecord, client_ip: str | None = None) -> DNSRecord
 
     # 2) 非 A/AAAA → 直接转发公网解析（不做过滤）
     if qtype not in FILTERABLE_TYPES:
+        query_stats.record("allow")
         return query_upstream_reply(request)
 
     # 3) 白名单 → 直接放行（写放行日志，若开启）
     if is_whitelisted(domain):
+        query_stats.record("allow")
         if CONFIG.allow_log_enabled:
             write_allow_log(client_ip or "", domain, qtype)
         return query_upstream_reply(request)
 
     # 4) 域名前置检测
     if is_blacklisted(domain):
+        query_stats.record("intercept")
         write_filter_log(client_ip or "", domain, qtype,
                          "local_blacklist", "intercept", [],
                          "alert_ip:" + CONFIG.alert_ip)
@@ -519,6 +600,7 @@ def process_query(request: DNSRecord, client_ip: str | None = None) -> DNSRecord
 
     # 4.5) 离线大名单命中（hagezi/StevenBlack 等导入源，零 API 依赖）
     if check_domain(domain):
+        query_stats.record("intercept")
         write_filter_log(client_ip or "", domain, qtype,
                          "threat_list", "intercept", [],
                          "alert_ip:" + CONFIG.alert_ip)
@@ -526,6 +608,7 @@ def process_query(request: DNSRecord, client_ip: str | None = None) -> DNSRecord
 
     malicious, reason = query_threatintel_domain(domain)
     if malicious:
+        query_stats.record("intercept")
         write_filter_log(client_ip or "", domain, qtype,
                          reason, "intercept", [],
                          "alert_ip:" + CONFIG.alert_ip)
@@ -536,27 +619,32 @@ def process_query(request: DNSRecord, client_ip: str | None = None) -> DNSRecord
     #    全正常直接返回该应答（保留上游 TTL/EDNS0 等原语，省一次重复解析）
     upstream_reply = query_upstream_reply(request)
     if upstream_reply.header.rcode != RCODE.NOERROR:
+        query_stats.record("allow")            # 上游结论透传（SERVFAIL/NXDOMAIN）
         return upstream_reply          # SERVFAIL/NXDOMAIN 原样透传上游结论
     ips = _extract_ips(upstream_reply, qtype)
     if not ips:
         # 上游无应答记录（如 AAAA 无 IPv6）：原样返回，不拦截不误报
+        query_stats.record("allow")
         return upstream_reply
 
     kept, malicious_ips = ip_postfilter(ips)
     if not kept:
         # 全部恶意 → 拦截应答
+        query_stats.record("intercept")
         final = "empty" if qtype == QTYPE.AAAA else "alert_ip:" + CONFIG.alert_ip
         write_filter_log(client_ip or "", domain, qtype,
                          "ip_filter", "intercept", malicious_ips, final)
         return build_intercept_reply(request, qtype)
     if len(kept) < len(ips):
         # 部分恶意 → 剔除恶意、保留正常（写日志）
+        query_stats.record("remove_ip")
         final = "remaining_ips:" + ",".join(kept)
         write_filter_log(client_ip or "", domain, qtype,
                          "ip_filter", "remove_ip", malicious_ips, final)
         return build_remaining_reply(request, qtype, kept)
 
     # 6) 全部正常 → 返回上游原始应答（已在第 5 步取得，不再重复解析）
+    query_stats.record("allow")
     return upstream_reply
 
 
@@ -570,27 +658,33 @@ def _process_ptr(request: DNSRecord, ptr_name: str, client_ip: str) -> DNSRecord
     """
     ip = extract_ptr_ip(ptr_name)
     if ip is None:
+        query_stats.record("allow")
         return query_upstream_reply(request)
 
     if _match_ip(ip, get_enabled_list("whitelist", "ip")):
+        query_stats.record("allow")
         if CONFIG.allow_log_enabled:
             write_allow_log(client_ip, ptr_name, QTYPE.PTR)
         return query_upstream_reply(request)
 
     if _match_ip(ip, get_enabled_list("blacklist", "ip")):
+        query_stats.record("intercept")
         write_filter_log(client_ip, ptr_name, QTYPE.PTR, "local_blacklist",
                          "intercept", [ip], "empty")
         return build_intercept_reply(request, QTYPE.PTR)
 
     if check_ip(ip):
+        query_stats.record("intercept")
         write_filter_log(client_ip, ptr_name, QTYPE.PTR, "threat_list",
                          "intercept", [ip], "empty")
         return build_intercept_reply(request, QTYPE.PTR)
 
     bad, reason = query_threatintel_ip(ip)
     if bad:
+        query_stats.record("intercept")
         write_filter_log(client_ip, ptr_name, QTYPE.PTR, reason,
                          "intercept", [ip], "empty")
         return build_intercept_reply(request, QTYPE.PTR)
 
+    query_stats.record("allow")
     return query_upstream_reply(request)

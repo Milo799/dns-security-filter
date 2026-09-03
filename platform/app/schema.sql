@@ -97,3 +97,15 @@ CREATE INDEX IF NOT EXISTS idx_threat_list_value ON threat_list (value);
 -- 全部由该索引覆盖（无需回表），291 万行统计约 0.5s → 配合进程内缓存仅首次执行；
 -- source_due 的 ORDER BY updated_at DESC LIMIT 1 直接 seek 索引段尾（毫秒级）。
 CREATE INDEX IF NOT EXISTS idx_threat_list_stats ON threat_list (source, updated_at, enabled);
+
+-- 查询量统计（Task #161）：DNS 进程内存计数周期落库（每日本地日期一行）。
+-- /api/status 的"今日请求"优先读本表（filter_log 的 allows 受
+-- allow_log_enabled 采样限制严重低估，本表为全量口径）。
+CREATE TABLE IF NOT EXISTS dns_query_stats (
+    date       VARCHAR PRIMARY KEY,            -- 本地日期 YYYY-MM-DD
+    total      INTEGER NOT NULL DEFAULT 0,     -- 当日总请求数（全量）
+    intercept  INTEGER NOT NULL DEFAULT 0,     -- 拦截（与 filter_log action 口径一致）
+    remove_ip  INTEGER NOT NULL DEFAULT 0,     -- 剔除恶意 IP
+    allow      INTEGER NOT NULL DEFAULT 0,     -- 放行（含白名单/检测放行/直通）
+    updated_at DATETIME NOT NULL DEFAULT (datetime('now','localtime'))
+);

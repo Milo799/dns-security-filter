@@ -16,10 +16,13 @@ platform/ip_cache.py     ← IP 结论缓存（与 domain_cache 同构；TTL 900
 platform/threat_list.py  ← ★离线大名单：SOURCES 定义、导入/自动更新、内存缓存 O(1) 匹配、
                             镜像降级、统计缓存、next_update_schedule() 调度可视化
 platform/auto_update.py  ← 自动更新后台循环：tick = min(用户配置, 各源最小周期)，下限 60s
-platform/circuit_breaker.py ← 单源限流熔断降级（连续失败熔断/半开恢复）
+platform/circuit_breaker.py ← 熔断三层：单源熔断（连续失败熔断/半开恢复）+ 路径级降级 +
+                            上游解析熔断（连续出站失败开窗 fast-fail SERVFAIL，半开探测恢复；Task #159）
 platform/log_writer.py   ← 日志异步批量写入（内存队列削峰；/api/log-writer/stats 观测）
 platform/log_retention.py ← 日志保留期清理（每 6h 分批删 filter_log/audit_log 过期行；/api/log-retention/stats）
 platform/cross_sync.py   ← 跨进程同步：DNS 进程 60s 轮询四表 MAX(updated_at)（双进程部署热生效）
+platform/queue_stats.py  ← executor 队列深度观测（pending/inflight/max_pending + journalctl 告警；Task #160）
+platform/query_stats.py  ← 今日请求全量统计（内存计数 5s UPSERT dns_query_stats；/api/status 优先读；Task #161）
 platform/adapters/       ← 16 个威胁情报适配器（DNSBL/免Key/厂商/URLhaus，三态语义 + last_error）
 platform/app/            ← Web 管理：FastAPI 路由（list/threatintel/threatlist/logs/test/config/audit）
 platform/app/crypto.py   ← api_key 落库 Fernet 加密（密钥由 jwt_secret 派生；存量明文启动自动迁移）
@@ -31,7 +34,7 @@ web/index.html + css/ + js/ ← 多文件 SPA（零构建链）：css/{theme,bas
                             fusion/config/audit）；加载顺序固定：app → charts → pages/* → boot；
                             页面模块末尾 PAGE_LOADERS.xxx = loadXxx 注册
 tools/loadtest.py        ← DNS 压测（QPS/延迟分位；Windows 须 SelectorEventLoop）
-tests/                   ← 314 项 pytest（跑全部，新增功能必须补测试；conftest 已设 DNSF_TESTING=1）
+tests/                   ← 346 项 pytest（跑全部，新增功能必须补测试；conftest 已设 DNSF_TESTING=1）
 ```
 
 ## 2. 开发约定（增量改动按依赖关系）
@@ -102,4 +105,6 @@ python tools/loadtest.py 127.0.0.1 --qps 1000   # 压测（改动性能路径时
 - [x] Go 代理层编译验证 + 端到端四场景（放行/拦截/SERVFAIL 容灾/ECS 透传）
 - [x] 10 万终端前置五项（结论缓存/熔断/压测/采样/削峰）+ 解析速度优化五项（IP 缓存/DNSBL 默认/
       IP 并行/单次上游往返/跨进程同步）——实测 1000QPS P95=1.86ms、检测路径缓存命中 12ms
+- [x] 生产事故加固（2026-09-03）：线程池全局复用 + 上游熔断 fast-fail + 队列深度观测 +
+      代理注入客户端 ECS（过滤日志客户端 IP 恒空修复）+ 今日请求全量口径（dns_query_stats）
 - [ ] 真实 API Key 联调（微步 / IBM / OTX / GreyNoise / URLhaus Auth-Key 等，待用户提供 Key）

@@ -29,13 +29,13 @@ DNS 安全过滤平台（Python，监听 53）
 
 | 目录 | 内容 | 状态 |
 |------|------|------|
-| `proxy/` | Go 代理中间件（main/config/forward + 配置模板） | ✅ 已实现并编译验证（端到端四场景通过） |
-| `platform/` | 平台：dns_server（ECS/PTR）、detectors 五层检测、adapters（16 适配器）、threat_list（离线大名单）、domain_cache/ip_cache（结论缓存）、circuit_breaker（熔断）、log_writer（日志削峰）、log_retention（保留期清理）、cross_sync（跨进程同步）、app(FastAPI+SQLite+crypto)、seed | ✅ 已实现 |
+| `proxy/` | Go 代理中间件（main/config/forward/ecs + 配置模板；转发前注入客户端 ECS，已有 ECS 透传） | ✅ 已实现并编译验证（端到端含 ECS 注入链路） |
+| `platform/` | 平台：dns_server（ECS/PTR）、detectors 五层检测、adapters（16 适配器）、threat_list（离线大名单）、domain_cache/ip_cache（结论缓存）、circuit_breaker（熔断：源级+路径级+上游熔断 fast-fail）、log_writer（日志削峰）、log_retention（保留期清理）、cross_sync（跨进程同步）、queue_stats（线程池队列观测）、query_stats（今日请求全量统计）、app(FastAPI+SQLite+crypto)、seed | ✅ 已实现 |
 | `web/` | 管理前端（多文件 SPA：css/{theme,base,pages} + js/{app,charts,boot} + js/pages/×9；SOC 深浅双主题、安全态势大屏、人工情报源双 Tab） | ✅ 已实现 |
 | `deploy/` | systemd unit ×3 + backup timer + **一键安装脚本 install-proxy.sh / install-platform.sh**；**`deploy/docker/`** 镜像编排 + 网络白名单 | ✅ 已实现 |
 | `tools/` | loadtest.py（DNS 压测：QPS/延迟分位）、backup_db.sh（DB 每日热备+轮转） | ✅ 已实现 |
 | `scripts/` | dev.sh（一键启动）、verify.sh（dig 验证）、fake_upstream.py | ✅ 已实现 |
-| `tests/` | pytest 314 项（融合/拦截/ECS/PTR/大名单/情报源/调度/性能/缓存/并行/跨进程同步） | ✅ 全绿 |
+| `tests/` | pytest 346 项（融合/拦截/ECS/PTR/大名单/情报源/调度/性能/缓存/并行/跨进程同步/线程池复用/上游熔断/队列观测/查询统计） | ✅ 全绿 |
 | `docs/` | 需求说明书 V2.2（需求基线）、开发 PRD V2.1（实现基线）、生产部署方案（Linux 双机） | ✅ |
 
 ## 快速开始

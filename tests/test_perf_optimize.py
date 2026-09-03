@@ -380,3 +380,87 @@ class TestSeedDefaultSources:
             with db_cursor() as cur:
                 cur.execute("DELETE FROM threatintel_api "
                             "WHERE name='spfbl'")
+
+
+# ---------------------------------------------------------------------------
+# Task #157: 情报源查询线程池全局复用（生产事故 2026-09-03 加固）
+#
+# 旧实现每次查询 with ThreadPoolExecutor(...) 新建即销毁，故障期任务
+# 堆积导致线程单调膨胀（py-spy 证据）。新实现为进程级共享池：
+#   - 多次查询复用同一池实例（不再每次建池）
+#   - 两池分层（_ADAPTER_POOL / _POSTFILTER_POOL），单向调用无死锁
+#   - shutdown_thread_pools 收尾后可重建（幂等）
+# ---------------------------------------------------------------------------
+
+class TestSharedThreadPool:
+    def setup_method(self):
+        ip_cache.clear()
+        domain_cache.clear()
+        # 复位共享池（若前序测试已触发惰性创建）
+        detectors.shutdown_thread_pools()
+
+    def teardown_method(self):
+        detectors.shutdown_thread_pools()
+
+    def test_adapter_pool_reused_across_queries(self):
+        """连续多次查询复用同一池实例：不新建池、线程名前缀固定。"""
+        fake = _FakeAdapter()
+        with patch.object(detectors, "get_enabled_adapters",
+                          return_value=[fake]):
+            detectors.query_threatintel_ip("8.8.8.8")
+            pool_a = detectors._ADAPTER_POOL
+            detectors.query_threatintel_ip("114.114.114.114")
+            pool_b = detectors._ADAPTER_POOL
+        assert pool_a is not None and pool_a is pool_b
+        assert fake.calls == 2
+
+    def test_adapter_pool_threads_reused_not_created_per_query(self):
+        """多次查询不新造线程：执行中的线程集合稳定（≤ 池上限）。"""
+        names = {"ti-adapter", "ti-ip"}
+
+        class _ThreadNameAdapter(_FakeAdapter):
+            def query_ip(self, ip):
+                import threading
+                t = threading.current_thread().name
+                assert any(t.startswith(p) for p in names), t
+                return ThreatResult(is_malicious=False, source=self.name)
+
+        fake = _ThreadNameAdapter()
+        with patch.object(detectors, "get_enabled_adapters",
+                          return_value=[fake]):
+            for i in range(20):
+                detectors.query_threatintel_ip(f"10.1.1.{i}")
+        # 惰性单例已建立
+        assert detectors._ADAPTER_POOL is not None
+
+    def test_postfilter_uses_shared_pool_single_and_multi(self):
+        """IP 后置：单/多 IP 均走共享 _POSTFILTER_POOL，行为一致。"""
+        fake = _FakeAdapter()
+        with patch.object(detectors, "get_enabled_adapters",
+                          return_value=[fake]), \
+             patch.object(detectors, "get_enabled_list", return_value=[]):
+            kept, bad = detectors.ip_postfilter(["10.2.0.1"])
+            assert kept == ["10.2.0.1"] and bad == []
+            kept, bad = detectors.ip_postfilter(
+                ["10.2.0.1", "10.2.0.2", "10.2.0.3"])
+            # 10.2.0.1 已写 ip_cache（fail-safe 语义不适用，正常放行缓存）
+            assert kept == ["10.2.0.1", "10.2.0.2", "10.2.0.3"]
+            assert bad == []
+        assert detectors._POSTFILTER_POOL is not None
+
+    def test_shutdown_thread_pools_idempotent(self):
+        """收尾幂等：可多次调用，调用后再查询能重建新池。"""
+        fake = _FakeAdapter()
+        with patch.object(detectors, "get_enabled_adapters",
+                          return_value=[fake]):
+            detectors.query_threatintel_ip("1.0.0.1")
+            first = detectors._ADAPTER_POOL
+            assert first is not None
+        detectors.shutdown_thread_pools()
+        detectors.shutdown_thread_pools()          # 幂等
+        assert detectors._ADAPTER_POOL is None
+        with patch.object(detectors, "get_enabled_adapters",
+                          return_value=[fake]):
+            detectors.query_threatintel_ip("2.0.0.1")
+            assert detectors._ADAPTER_POOL is not None
+            assert detectors._ADAPTER_POOL is not first   # 重建新实例

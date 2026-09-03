@@ -24,7 +24,7 @@ platform:
 verify:
 	@bash scripts/verify.sh
 
-## 运行全部测试（314 项；conftest 已设 DNSF_TESTING=1 隔离公网源）
+## 运行全部测试（346 项；conftest 已设 DNSF_TESTING=1 隔离公网源）
 test:
 	cd platform && $(PYTHON) -m pytest ../tests -v
 

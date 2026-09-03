@@ -42,3 +42,11 @@ forward_timeout: 8          # ★ 等待平台应答的超时（秒）。
 log_enabled: false          # 代理运行日志开关（stdout，由 systemd journal 收集）。
                             #   每条查询一行，10 万终端下量大，生产默认关闭；
                             #   排障时临时开：改 true 后 systemctl restart proxy。
+
+# ── 客户端 IP 注入（Task #158）──────────────────────────────────────────────
+ecs_enabled: true           # 转发前把真实客户端源 IP 写入 EDNS0 Client
+                            #   Subnet（RFC 7871）。平台的过滤日志"客户端 IP"
+                            #   由此而来——Windows 转发器/直连客户端都不发
+                            #   ECS，不注入则日志里客户端 IP 恒为空。
+                            #   请求已带 ECS（如上级转发器已注入）时透传不改写。
+                            #   特殊环境（上游不兼容 OPT 扩展）可改 false 关闭。

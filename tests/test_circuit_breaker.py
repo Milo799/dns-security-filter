@@ -305,3 +305,139 @@ def test_degrade_state_shape(cb_config):
     assert set(st) == {"mode", "degraded", "degrade_remaining_s",
                        "consecutive_failsafes", "degrade_count"}
     assert st["mode"] in ("intercept", "degrade")
+
+
+# ===========================================================================
+# 上游解析熔断（Task #159，生产事故 2026-09-03 加固）
+#
+# 事故根因：出站间歇性超时 + 检测线程全部挂在 3s send() 等待 →
+# executor 主池（6 worker）耗尽 → 全网瘫。本节验证针对性防护：
+#   - 连续失败达阈值 → 熔断开窗，窗口内 query_upstream_reply 直接
+#     SERVFAIL（fast-fail，0ms，不占用出站等待）
+#   - 窗口到期半开探测：成功关闭 / 失败重开
+#   - 任何合法应答（含 NXDOMAIN）都算成功
+#   - 状态接口含上游快照；reset_all 联动复位
+# ===========================================================================
+
+@pytest.fixture
+def upstream_cfg():
+    """快上游熔断参数（阈值 3 / 窗口 10s），测试后还原。"""
+    saved = {k: getattr(CONFIG, k) for k in (
+        "upstream_failure_threshold", "upstream_open_timeout_s",
+        "upstream_timeout_s")}
+    CONFIG.upstream_failure_threshold = 3
+    CONFIG.upstream_open_timeout_s = 10
+    CONFIG.upstream_timeout_s = 3
+    yield CONFIG
+    for k, v in saved.items():
+        setattr(CONFIG, k, v)
+
+
+def _servfail_on_send(monkeypatch, calls=None):
+    """让 DNSRecord.send 全部超时（模拟出站故障），可记录调用次数。"""
+    def _fail(self, *a, **kw):
+        if calls is not None:
+            calls.append(1)
+        raise TimeoutError("模拟出站超时")
+    monkeypatch.setattr(DNSRecord, "send", _fail)
+
+
+def test_upstream_breaker_opens_after_threshold(upstream_cfg, monkeypatch):
+    """连续失败达阈值 → open：后续请求不再出站，直接 SERVFAIL。"""
+    from dnslib import RCODE
+    import detectors
+    calls = []
+    _servfail_on_send(monkeypatch, calls)
+
+    q = DNSRecord.question("x.test", "A")
+    # 阈值 3：前 3 次真实出站（全超时），第 4 次起 fast-fail
+    for _ in range(3):
+        detectors.query_upstream_reply(q)
+    assert circuit_breaker.upstream_state()["state"] == "open"
+    assert calls == [1, 1, 1]                 # 3 次真实出站
+
+    r4 = detectors.query_upstream_reply(q)
+    assert r4.header.rcode == RCODE.SERVFAIL   # fast-fail
+    assert len(calls) == 3                     # 第 4 次没有出站！
+    st = circuit_breaker.upstream_state()
+    assert st["open_count"] == 1 and st["fast_fails"] >= 1
+
+
+def test_upstream_breaker_recovers_on_success(upstream_cfg, monkeypatch):
+    """熔断到期半开探测成功 → 关闭恢复（任何合法应答算成功，含 NXDOMAIN）。"""
+    from dnslib import RCODE
+    import detectors
+    _servfail_on_send(monkeypatch)
+    q = DNSRecord.question("y.test", "A")
+    for _ in range(3):
+        detectors.query_upstream_reply(q)      # 熔断
+
+    # 时间快进 11s：open → half-open（下一次放行探测）
+    with circuit_breaker._LOCK:
+        circuit_breaker._UPSTREAM["opened_at"] -= 11
+
+    def _ok(self, *a, **kw):
+        return q.reply().pack()
+    monkeypatch.setattr(DNSRecord, "send", _ok)
+    r = detectors.query_upstream_reply(q)
+    assert r.header.rcode == RCODE.NOERROR      # 真实应答
+    assert circuit_breaker.upstream_state()["state"] == "closed"
+
+
+def test_upstream_half_open_probe_failure_reopens(upstream_cfg, monkeypatch):
+    """半开探测失败 → 立即重新熔断（不等阈值重新累计）。"""
+    import detectors
+    _servfail_on_send(monkeypatch)
+    q = DNSRecord.question("z.test", "A")
+    for _ in range(3):
+        detectors.query_upstream_reply(q)      # 熔断
+    with circuit_breaker._LOCK:
+        circuit_breaker._UPSTREAM["opened_at"] -= 11   # 进入 half-open
+
+    detectors.query_upstream_reply(q)          # 探测（仍超时）
+    st = circuit_breaker.upstream_state()
+    assert st["state"] == "open"               # 立即重开
+
+
+def test_upstream_disabled_threshold_zero(upstream_cfg, monkeypatch):
+    """阈值 0 = 禁用熔断：失败再多也不 fast-fail。"""
+    from dnslib import RCODE
+    import detectors
+    CONFIG.upstream_failure_threshold = 0
+    calls = []
+    _servfail_on_send(monkeypatch, calls)
+    q = DNSRecord.question("w.test", "A")
+    for _ in range(10):
+        r = detectors.query_upstream_reply(q)
+        assert r.header.rcode == RCODE.SERVFAIL
+    assert len(calls) == 10                    # 每次都真实出站
+    assert circuit_breaker.upstream_state()["state"] == "closed"
+
+
+def test_upstream_state_shape_and_reset(upstream_cfg):
+    st = circuit_breaker.upstream_state()
+    assert set(st) == {"state", "failures", "open_count", "fast_fails"}
+    assert st["state"] in ("closed", "open", "half-open")
+    with circuit_breaker._LOCK:
+        circuit_breaker._UPSTREAM.update(
+            state="open", failures=5, opened_at=0.0, open_count=2, fast_fails=9)
+    circuit_breaker.reset_all()
+    assert circuit_breaker.upstream_state() == {
+        "state": "closed", "failures": 0, "open_count": 0, "fast_fails": 0}
+
+
+def test_upstream_breaker_stats_endpoint(upstream_cfg):
+    """/circuit-breaker/stats 含 upstream 快照（Task #159 接口口径）。"""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    with TestClient(app) as c:
+        r = c.post("/api/auth/login", json={
+            "username": "admin", "password": CONFIG.admin_initial_password})
+        token = r.json()["data"]["token"]
+        r = c.get("/api/circuit-breaker/stats",
+                  headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 200
+        data = r.json()["data"]
+        assert "upstream" in data
+        assert set(data["upstream"]) == {
+            "state", "failures", "open_count", "fast_fails"}
