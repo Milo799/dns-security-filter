@@ -213,26 +213,26 @@ class ThreatIntelAdapter:
 }
 ```
 
-**▲ 内置适配器（16 个）**
+**▲▲ 内置适配器（16 个注册；方案 C 后 seed 仅预置 DNSBL 四源，HTTP 源不预置可手工创建）**
 
 | 类别 | 来源 | 类型 | 需 Key | 说明 |
 |------|------|------|--------|------|
 | DNSBL | spamhaus_zen / spamhaus_dbl | IP / 域名 | 否 | 全球最大反垃圾/恶意源（53/UDP） |
-| DNSBL | dronebl | IP | 否 | 僵尸网络/扫描源 |
-| DNSBL | spfbl | 域名+IP | 否 | 反垃圾/恶意源 |
-| 免费 API | URLhaus | 域名+IP | **是（Auth-Key）**▲ | abuse.ch 活跃恶意分发；官方已强制 HTTP 头 Auth-Key（auth.abuse.ch 免费申请），缺 Key/无效/限流分类诊断 |
-| 免 Key API | PhishTank | 域名 | 否 | 钓鱼站点众包库 |
-| 免 Key API | DShield | IP | 否 | SANS 攻击源情报（可配 min_count/max_age） |
-| 免 Key API | Blocklist.de | IP | 否 | 暴力破解/扫描攻击源 |
-| 厂商 API | ThreatFox | 域名+IP | 是 | abuse.ch C2 专项库 |
-| 厂商 API | 微步威胁情报 | 域名+IP | 是 | 国内厂商，个人免费额度约 50 次/天 |
-| 厂商 API | IBM X-Force | 域名+IP | 是 | 评分制 |
-| 厂商 API | AlienVault OTX | 域名+IP | 是 | 恶意域名/IP 量大 |
-| 厂商 API | GreyNoise | IP | 是 | 扫描器识别，专治误拦扫描 IP |
+| DNSBL | dronebl | IP | 否 | 僵尸网络/扫描源（▲ .10 广告追踪/.11 IRC 滥用忽略不计恶意） |
+| DNSBL | spfbl | 域名+IP | 否 | ▲ 语义修正：邮件信誉评分清单，仅 127.0.0.2 确认垃圾计入拦截，.3/.4/.5 弱信号忽略；默认停用 |
+| 免费 API | URLhaus | 域名+IP | **是（Auth-Key）**▲ | abuse.ch 活跃恶意分发；官方已强制 HTTP 头 Auth-Key（auth.abuse.ch 免费申请），缺 Key/无效/限流分类诊断（▲ 移出预置） |
+| 免 Key API | PhishTank | 域名 | 否 | 钓鱼站点众包库（▲ 移出预置） |
+| 免 Key API | DShield | IP | 否 | SANS 攻击源情报（可配 min_count/max_age）（▲ 移出预置） |
+| 免 Key API | Blocklist.de | IP | 否 | 暴力破解/扫描攻击源（▲ 移出预置） |
+| 厂商 API | ThreatFox | — | — | ▲▲ 转离线承载：threatfox_hosts hostfile 免 Key 每日约 48 万条 C2 域名（HTTP API 适配器保留，移出预置） |
+| 厂商 API | 微步威胁情报 | 域名+IP | 是 | 国内厂商，个人免费额度约 50 次/天（▲ 移出预置） |
+| 厂商 API | IBM X-Force | 域名+IP | 是 | 评分制（▲ 移出预置） |
+| 厂商 API | AlienVault OTX | 域名+IP | 是 | 恶意域名/IP 量大（▲ 移出预置） |
+| 厂商 API | GreyNoise | IP | 是 | 扫描器识别，专治误拦扫描 IP（▲ 移出预置） |
 
-> 360 免费版 20 条/天且需商务申请，未内置。seed 对已存在内置源仅同步描述，不覆盖用户自定义 config/api_key/enabled。
+> 360 免费版 20 条/天且需商务申请，未内置；Feodo Tracker 2026-03 停更不引入。seed 对已存在内置源仅同步描述，不覆盖用户自定义 config/api_key/enabled；退役内置源启动清理（无管理状态删除/有管理状态保留，仅处置 is_builtin=1 行）。
 
-- ★ **seed 出厂默认启用集**：`DEFAULT_ENABLED_SOURCES = {spamhaus_zen, spamhaus_dbl, dronebl, spfbl}`（仅 DNSBL 四源——DNS 协议亚毫秒、无 HTTP 配额；HTTP 类源默认停用，仅测试中心人工核验，对齐部署方案 3.1-A）；存量库不覆盖；测试环境 `DNSF_TESTING=1` 时置空（单测不依赖公网）；
+- ★▲▲ **seed 出厂默认启用集**：`DEFAULT_ENABLED_SOURCES = {spamhaus_zen, spamhaus_dbl, dronebl}`（方案 C：DNSBL 三源默认 + spfbl 语义修正后移出默认启用——DNS 协议亚毫秒、无 HTTP 配额；九个 HTTP 源移出 BUILTIN_THREATINTEL 预置，适配器注册保留可手工创建，存量库退役迁移见 seed._retire_builtin_sources）；存量库不覆盖；测试环境 `DNSF_TESTING=1` 时置空（单测不依赖公网）；
 - ★ **单源限流熔断（circuit_breaker）**：适配器连续失败自动熔断（半开试探恢复）；熔断期间该源不发起请求返回无结论；降级开关跳过全部在线查询（性能兜底）；
 - 检测时按适配器**能力声明**分配域名/IP 查询；未配 Key 的 Key 型源不发请求、直接无结论；
 - ▲ 在线源支持**编辑**（超时/描述/API Key/扩展配置，Key 留空保持不变），适配器类型创建后不可改；
@@ -424,17 +424,18 @@ Web"测试中心"页面，输入域名或 IP（含 PTR 模式）进行**只读�
 | 类别 | 地址 | 用途 |
 |------|------|------|
 | 构建期 | `docker.io` / `pypi.org` / `proxy.golang.org`（或国内镜像） | 基础镜像 / 依赖 / Go module |
-| 离线大名单 | `raw.githubusercontent.com`、`cdn.jsdelivr.net`、`urlhaus.abuse.ch` | 名单主地址 + jsDelivr 镜像 |
-| 在线情报源 | `zen.spamhaus.org`、`dbl.spamhaus.org`、`dnsbl.dronebl.org`、`dnsbl.spfbl.net`（53/UDP）；`urlhaus-api.abuse.ch`▲、`threatfox-api.abuse.ch`、`api.threatbook.cn`、`api.xforce.ibmcloud.com`、`otx.alienvault.com`、`api.greynoise.io`、`checkurl.phishtank.com`、`isc.sans.edu`、`api.blocklist.de`（443/TCP） | DNSBL / 厂商 API |
+| 离线大名单 | `raw.githubusercontent.com`、`cdn.jsdelivr.net`、`urlhaus.abuse.ch`、`threatfox.abuse.ch`▲ | 名单主地址 + jsDelivr 镜像 + ThreatFox hostfile（方案 C） |
+| 在线情报源（默认启用） | `zen.spamhaus.org`、`dbl.spamhaus.org`、`dnsbl.dronebl.org`（53/UDP）；`dnsbl.spfbl.net`（可选默认停用）▲ | DNSBL 查询 |
+| 在线情报源（可选，手工创建后）▲ | `urlhaus-api.abuse.ch`、`threatfox-api.abuse.ch`、`api.threatbook.cn`、`api.xforce.ibmcloud.com`、`otx.alienvault.com`、`api.greynoise.io`、`checkurl.phishtank.com`、`isc.sans.edu`、`api.blocklist.de`（443/TCP） | 厂商 API（方案 C 后不预置） |
 | 上游递归 DNS | `8.8.8.8`、`8.8.4.4` 或 `114.114.114.114`（UDP/TCP 53） | 平台公网解析 |
 
-> 最小出站建议：`raw.githubusercontent.com`、`cdn.jsdelivr.net`、`urlhaus.abuse.ch`、上游 DNS 53。完整清单见 `deploy/docker/README.md`。
+> 最小出站建议：`raw.githubusercontent.com`、`cdn.jsdelivr.net`、`urlhaus.abuse.ch`、`threatfox.abuse.ch`、上游 DNS 53。完整清单见 `deploy/docker/README.md`。
 
 ## 九、非功能要求
 
 - **部署环境**：Linux（64 位）为准，systemd 或 Docker；Windows 仅备用；
 - **纯 IPv4 网络**：A/AAAA/PTR 同等过滤；AAAA 拦截返回空应答；
-- **★ 性能基线（10 万终端，实测）**：检测放行路径缓存命中 **12ms**（DNSBL 四源态，优化前 892~3170ms）；缓存 miss 21~24ms；平台吞吐 1000QPS 全收 P95=1.86ms、拐点约 2200~3000QPS（瓶颈 asyncio 唤醒非 SQLite）；容量模型=代理扛终端全量 + 平台 2200~3000QPS × 缓存命中 95%+；
+- **★ 性能基线（10 万终端，实测）**：检测放行路径缓存命中 **12ms**（DNSBL 四源启用态实测，2026-08-31 优化口径；方案 C 后默认三源同量级，优化前 892~3170ms）；缓存 miss 21~24ms；平台吞吐 1000QPS 全收 P95=1.86ms、拐点约 2200~3000QPS（瓶颈 asyncio 唤醒非 SQLite）；容量模型=代理扛终端全量 + 平台 2200~3000QPS × 缓存命中 95%+；
 - **▲ 平台内存**：启用 hagezi 完整版大名单内存占用较高（291 万条全域约数百 MB），资源受限改选 mini 精简版（约 1/12）；服务启动后台预热线程消除重启后首次查询阻塞（291 万条约 5 秒）；★ 双结论缓存（域名 100 万条约 100MB + IP 20 万条约 30MB）；
 - **▲ 管理界面响应**：源列表等高频接口毫秒级（覆盖索引 + 进程内缓存 + 预热，实测 1.05s → 12~37ms）；
 - **★ 双进程热生效**：Web 改配置/名单/情报源，DNS 进程经 cross_sync 60s 轮询自动感知（最长 60 秒），无需重启服务；
@@ -448,7 +449,7 @@ Web"测试中心"页面，输入域名或 IP（含 PTR 模式）进行**只读�
 | 1 | DNS 代理中间件 | Go 源码 + 配置模板 + systemd/Docker 打包；完整透传 EDNS0；★ 编译验证 + 端到端四场景通过 |
 | 2 | DNS 安全过滤平台服务 | Python 包 + schema.sql + seed + systemd/Docker 打包 |
 | 3 | Web 管理前端 | ★ 多文件 SPA（theme/base/pages CSS + app/charts/pages/boot JS + 9 页面模块，零构建链，SOC 深浅双主题），随平台静态部署 |
-| 4 | 数据库初始化脚本 | 建表 SQL（含 threat_list 与统计覆盖索引）+ 默认管理员 + 默认配置 + 内置情报源 seed（★ 默认启用 DNSBL 四源） |
+| 4 | 数据库初始化脚本 | 建表 SQL（含 threat_list 与统计覆盖索引）+ 默认管理员 + 默认配置 + 内置情报源 seed（★ 方案 C：预置 DNSBL 四源，默认启用三源） |
 | 5 | 威胁情报适配器框架 | 统一接口 + 融合判定 + **16 个内置适配器**（DNSBL 4 / 免 Key 3 / 厂商 5 / URLhaus）+ ★ 单源熔断 |
 | 6 | ▲ 离线大名单模块 | 6 内置源 + 自定义导入 + 自动更新调度 + 镜像降级 + 进度可视化 |
 | 7 | 部署文档 | systemd 安装、★ 一键脚本（install-proxy.sh/install-platform.sh）、Docker 编排、网络白名单、转发器配置、回退步骤 |

@@ -1,7 +1,9 @@
 """威胁情报源配置 + 融合策略（PRD 7.2 威胁情报源）。
 
-内置开源情报源（spamhaus_zen/dbl、dronebl、spfbl、urlhaus）由 seed
-预置（is_builtin=1，免 Key 开箱即用），管理员在界面启停；内置源禁止删除。
+内置开源情报源（spamhaus_zen/dbl、dronebl、spfbl）由 seed 预置
+（is_builtin=1，免 Key 开箱即用），管理员在界面启停；内置源禁止删除。
+方案 C（2026-09-03）后九个 HTTP 源不再预置——适配器注册保留，
+管理员可手工创建（BUILTIN_DESCRIPTIONS 提供默认描述）。
 """
 
 import time
@@ -25,8 +27,9 @@ BUILTIN_DESCRIPTIONS = {
     "spamhaus_zen": "Spamhaus ZEN IP 信誉黑名单（免 Key）",
     "spamhaus_dbl": "Spamhaus DBL 域名黑名单（免 Key）",
     "dronebl": "DroneBL 僵尸网络/滥用 IP 黑名单（免 Key）",
-    "spfbl": "SPFBL 综合黑名单（免 Key）",
+    "spfbl": "SPFBL 邮件信誉评分清单（仅 127.0.0.2 计入拦截；默认停用）",
     "urlhaus": "URLhaus 恶意 URL 分发库（需 Auth-Key，auth.abuse.ch 免费申请）",
+    "threatfox": "ThreatFox C2 指标库（HTTP API 需 Auth-Key；离线名单已内置为 threatfox_hosts 大名单源）",
 }
 
 

@@ -116,6 +116,20 @@ def test_parse_wildcard_to_base():
         "example.com"]
 
 
+def test_parse_threatfox_hostfile_shape():
+    """ThreatFox hostfile（方案 C 离线 C2 源）真实形态：头部注释、
+    127.0.0.1 重定向行、大小写混合、重复条目去重。"""
+    text = "\n".join([
+        "# ThreatFox | abuse.ch | 2026-09-03 00:02 UTC",
+        "# https://threatfox.abuse.ch",
+        "127.0.0.1 c2.bad-server.EXAMPLE",
+        "127.0.0.1 panel.example-bad.org",
+        "127.0.0.1 c2.bad-server.example",    # 大小写归一后重复 → 去重
+    ])
+    vals = threat_list.parse_content(text, "hosts")
+    assert vals == ["c2.bad-server.example", "panel.example-bad.org"]
+
+
 # ---------------- 导入与匹配 ----------------
 
 def test_import_and_match():
@@ -165,9 +179,10 @@ def test_source_stats():
         assert stats["hagezi_ti"]["total"] == 2
         assert stats["hagezi_ti"]["enabled_cnt"] == 2
         assert stats["hagezi_ti"]["updated_at"]
-        # 内置 6 个来源元数据始终存在
+        # 内置 7 个来源元数据始终存在
         assert set(stats) >= {"hagezi_ti", "hagezi_mini", "hagezi_ult",
-                              "stevenblack", "urlhaus", "oisd"}
+                              "stevenblack", "urlhaus", "oisd",
+                              "threatfox_hosts"}
     finally:
         threat_list.delete_source("hagezi_ti")
 
@@ -298,13 +313,16 @@ def test_sources_api(client, token):
     assert r.status_code == 200
     keys = {i["key"] for i in r.json()["data"]["items"]}
     assert keys == {"hagezi_ti", "hagezi_mini", "hagezi_ult",
-                    "stevenblack", "urlhaus", "oisd"}
+                    "stevenblack", "urlhaus", "oisd", "threatfox_hosts"}
     # 新源带更新周期元数据
     by_key = {i["key"]: i for i in r.json()["data"]["items"]}
     assert by_key["urlhaus"]["update_interval_s"] == 30 * 60
     assert by_key["oisd"]["update_interval_s"] == 24 * 3600
     assert by_key["hagezi_mini"]["update_interval_s"] == 24 * 3600
     assert "tif.mini-onlydomains.txt" in by_key["hagezi_mini"]["url"]
+    # ThreatFox hostfile（方案 C：C2 域名情报离线承载）
+    assert by_key["threatfox_hosts"]["update_interval_s"] == 24 * 3600
+    assert "threatfox.abuse.ch/downloads/hostfile" in by_key["threatfox_hosts"]["url"]
 
 
 def test_domains_api(client, token):

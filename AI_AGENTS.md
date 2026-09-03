@@ -23,14 +23,15 @@ platform/cross_sync.py   ← 跨进程同步：DNS 进程 60s 轮询四表 MAX(u
 platform/adapters/       ← 16 个威胁情报适配器（DNSBL/免Key/厂商/URLhaus，三态语义 + last_error）
 platform/app/            ← Web 管理：FastAPI 路由（list/threatintel/threatlist/logs/test/config/audit）
 platform/app/crypto.py   ← api_key 落库 Fernet 加密（密钥由 jwt_secret 派生；存量明文启动自动迁移）
-platform/seed.py         ← 初始化：建表 + 默认管理员 + 默认配置 + 内置情报源（默认仅启用 DNSBL 四源；
+platform/seed.py         ← 初始化：建表 + 默认管理员 + 默认配置 + 内置情报源（默认仅启用 DNSBL 三源 zen/dbl/dronebl；
+                            spfbl 语义修正后默认停用；九个 HTTP 源已退役不预置，存量库启动自动清理迁移；
                             DNSF_TESTING=1 时不启用任何在线源——单测隔离用）
 web/index.html + css/ + js/ ← 多文件 SPA（零构建链）：css/{theme,base,pages} + js/{app,charts,boot}
                             + js/pages/×9（dashboard/logs/lists/testcenter/threatintel/threatlist/
                             fusion/config/audit）；加载顺序固定：app → charts → pages/* → boot；
                             页面模块末尾 PAGE_LOADERS.xxx = loadXxx 注册
 tools/loadtest.py        ← DNS 压测（QPS/延迟分位；Windows 须 SelectorEventLoop）
-tests/                   ← 278 项 pytest（跑全部，新增功能必须补测试；conftest 已设 DNSF_TESTING=1）
+tests/                   ← 310 项 pytest（跑全部，新增功能必须补测试；conftest 已设 DNSF_TESTING=1）
 ```
 
 ## 2. 开发约定（增量改动按依赖关系）
@@ -40,7 +41,9 @@ tests/                   ← 278 项 pytest（跑全部，新增功能必须补�
    IP 后置须并行（先本地黑名单/大名单内存查，再线程池查在线源）；全正常路径返回上游原始应答；
 2. **改离线大名单** → `threat_list.py`：注意 SOURCES 元数据、`invalidate()` 联动（内存缓存 + `_STATS_CACHE`）、
    `_load_cache()` 有 `_CACHE_LOCK`、`warm_cache()` 由 main.py 启动线程调用；
-3. **新增情报源适配器** → `adapters/` 新文件 + `get_adapter_map` 注册 + seed 补内置源（**默认不启用**，仅 DNSBL 四源默认启用）+ 测试（参考 urlhaus.py 的三态 + last_error 模式）；
+3. **新增情报源适配器** → `adapters/` 新文件 + `get_adapter_map` 注册 + 测试（参考 urlhaus.py 的三态 + last_error 模式）；
+   方案 C 后 seed 不再预置新 HTTP 源（内置仅 DNSBL 四源：zen/dbl/dronebl 默认启用 + spfbl 默认停用），
+   需要预置时须评审并同步三处文档；
 4. **改 Web 接口** → `app/routers/*`：统一响应 `{code,message,data}`、鉴权依赖、audit_log 留痕；
    进度类接口注意多源并发轮询约定（`/import/status` 不带 source 返回全部任务 map）；
 5. **改前端** → `web/` 多文件：页面逻辑进 `js/pages/<page>.js`（末尾注册 PAGE_LOADERS），页面独有样式进
@@ -59,7 +62,8 @@ tests/                   ← 278 项 pytest（跑全部，新增功能必须补�
 - 威胁情报**三态语义**：命中→拦截；明确未命中→放行；网络失败/超时/缺 Key→无结论（不参与融合统计）；
   **全部启用源无结论默认拦截**（fail-safe）；适配器异常返回 None 不抛异常，维护 `last_error`
 - 适配器按能力声明（domain/ip）分配查询；Key 型源未配 Key 不发请求
-- **在线源分层**：DNSBL（DNS 协议）进实时检测链路（出厂默认四源）；HTTP 类源不进实时链路（测试中心人工核验），
+- **在线源分层**：DNSBL（DNS 协议）进实时检测链路（出厂默认三源 zen/dbl/dronebl，spfbl 默认停用可选）；
+  HTTP 类源不进实时链路（方案 C 后不预置，手工创建后仅测试中心人工核验），
   避免秒级延迟与免费 Key 配额打满
 - **fail-safe 无结论不写检测缓存**；缓存命中直接返回结论；变更必须联动失效（严禁删除 invalidate 调用）
 - 离线大名单：整源替换导入；写路径（导入/启停/清空）必须调 `invalidate()`；

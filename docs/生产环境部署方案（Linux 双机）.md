@@ -24,7 +24,7 @@
 |------|--------------|---------|
 | 白/黑名单、离线大名单 | 内存 O(1)，<1ms | ✅ 天然不是瓶颈 |
 | 域名/IP 检测结论缓存 | domain_cache + ip_cache 双层 LRU+TTL，命中率稳态 ≥95% | ✅ 热点查询纯内存路径 12ms |
-| 在线情报源限流 | 出厂默认仅启用 DNSBL 四源（DNS 协议无配额）+ 源级熔断 + 路径级降级 | ✅ 不会出现"API 限流→全拦断网" |
+| 在线情报源限流 | 出厂默认仅启用 DNSBL 三源（DNS 协议无配额）+ 源级熔断 + 路径级降级 | ✅ 不会出现"API 限流→全拦断网" |
 | 公网递归解析 | 缓存命中部分不再出网，仅未命中部分走上游 | ✅ 出站量降 90%+ |
 | 平台线程池吞吐 | 缓存吸收 95%+ 后单进程 ~2200-3000 QPS 已满足模型 | ✅ 若需更高，多代理实例分片 |
 | 日志写入 | log_writer 异步批量 + 采样，1000QPS P95=1.86ms | ✅ 峰值不拖慢应答 |
@@ -78,15 +78,16 @@
 | 上游公网 DNS | `223.5.5.5` 主 / `119.29.29.29` 备 | UDP/TCP 53 | 递归解析（缓存未命中部分） |
 | 离线大名单 | `raw.githubusercontent.com` + `cdn.jsdelivr.net`（镜像降级） | 443/TCP | hagezi/StevenBlack/OISD |
 | 离线大名单 | `urlhaus.abuse.ch` | 443/TCP | 哨兵名单（30 分钟更新） |
-| 在线情报 API | `zen.spamhaus.org`、`dbl.spamhaus.org`、`dnsbl.dronebl.org`、`dnsbl.spfbl.net` | UDP 53 | DNSBL 类 |
-| 在线情报 API | `urlhaus-api.abuse.ch`、`threatfox-api.abuse.ch`、`api.threatbook.cn`、`api.xforce.ibmcloud.com`、`otx.alienvault.com`、`api.greynoise.io`、`checkurl.phishtank.com` | 443/TCP | HTTP 类（启用才开） |
+| 离线大名单 | `threatfox.abuse.ch` | 443/TCP | ThreatFox C2 hostfile（每日，方案 C） |
+| 在线情报 API | `zen.spamhaus.org`、`dbl.spamhaus.org`、`dnsbl.dronebl.org`；`dnsbl.spfbl.net`（可选，默认停用） | UDP 53 | DNSBL 类 |
+| 在线情报 API（可选） | `urlhaus-api.abuse.ch`、`threatfox-api.abuse.ch`、`api.threatbook.cn`、`api.xforce.ibmcloud.com`、`otx.alienvault.com`、`api.greynoise.io`、`checkurl.phishtank.com` | 443/TCP | HTTP 类（方案 C 后不预置，管理员手工创建源并启用才需要） |
 
 > 在线情报源在此规模下**必须依赖缓存挡量**：即便缓存命中 95%，未命中的 5% 仍是每分钟数千次 API 调用——**免费 Key 配额根本不够**。两个选择（方案里默认 A）：
 > - **A. 只保留 DNSBL 类源（spamhaus_dbl 等，走 DNS 协议、无次数限制、亚毫秒响应）+ 离线大名单扛主量**，HTTP 类在线源仅用于测试中心人工核验，不参与实时链路；
 > - B. 采购商业情报源的企业配额（微步企业版等），费用另计。
 > **不建议**同时启用多个 HTTP 类免费源跑实时链路。
 >
-> **方案 A 已是出厂默认**：新部署 seed 仅启用 DNSBL 四源（spamhaus_zen/dbl、dronebl、spfbl），HTTP 类默认停用。实测收益（2026-08-31 优化后）：域名+IP 双结论缓存命中路径 **12ms**（优化前 IP 后置每次实时查 13 源为 0.9~3.2s）。
+> **方案 A 已是出厂默认（方案 C 2026-09-03 收敛后为 DNSBL 三源）**：新部署 seed 仅启用 spamhaus_zen/dbl、dronebl（spfbl 语义修正为邮件评分源后移出默认启用），HTTP 类不再预置、适配器保留可手工创建；C2 域名情报由 threatfox_hosts 离线大名单承载。实测收益（2026-08-31 优化后）：域名+IP 双结论缓存命中路径 **12ms**（优化前 IP 后置每次实时查 13 源为 0.9~3.2s）。
 
 ### 3.2 入站规则（最小暴露）
 

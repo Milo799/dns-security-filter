@@ -220,3 +220,50 @@ def test_zen_sbl_xbl_still_malicious():
         a = make(SpamhausZenAdapter, lookup_result=[code])
         r = a.query_ip("1.2.3.4")
         assert r is not None and r.is_malicious is True
+
+
+# ---------------- SPFBL 语义修正（方案 C，2026-09-03） ----------------
+
+def test_spfbl_weak_signal_codes_ignored():
+    # SPFBL 官方语义：.3 疑似/MTA 不合规、.4 NAT/住宅/非邮件服务器、
+    # .5 abuse 处理不可靠——弱信号/名单属性，不计恶意（原实现错标
+    # "恶意软件/钓鱼/僵尸网络"且全码拦截，属语义错配）
+    for code in ["127.0.0.3", "127.0.0.4", "127.0.0.5"]:
+        a = make(SPFBLAdapter, lookup_result=[code])
+        r = a.query_ip("1.2.3.4")
+        assert r is not None and r.is_malicious is False
+        assert "忽略" in r.detail
+
+    # .2（确认垃圾发送源）仍计入拦截
+    a = make(SPFBLAdapter, lookup_result=["127.0.0.2"])
+    r = a.query_ip("1.2.3.4")
+    assert r is not None and r.is_malicious is True
+    assert "确认垃圾" in r.detail
+
+
+def test_spfbl_code_meaning_corrected():
+    # code_map 按官方真实语义标注（评分信号口径，非恶意主机口径）
+    a = make(SPFBLAdapter, lookup_result=["127.0.0.5"])
+    assert a.code_map["127.0.0.5"] == "abuse 处理不可靠"
+    a2 = make(SPFBLAdapter, lookup_result=["127.0.0.3"])
+    assert a2.code_map["127.0.0.3"] == "疑似垃圾（评分信号）"
+
+
+# ---------------- DroneBL 忽略码收紧（方案 C） ----------------
+
+def test_dronebl_ad_tracker_irc_abuse_ignored():
+    # DroneBL .10（广告追踪）/.11（IRC 滥用）属商业/行为属性标注，
+    # 非恶意主机——计入拦截会误伤浏览类正常流量（与 PBL 忽略同理）
+    for code in ["127.0.0.10", "127.0.0.11"]:
+        a = make(DroneBLAdapter, lookup_result=[code])
+        r = a.query_ip("1.2.3.4")
+        assert r is not None and r.is_malicious is False
+        assert "忽略" in r.detail
+
+
+def test_dronebl_malicious_codes_still_hit():
+    # 忽略收紧不影响真实恶意码：.3 暴力破解 / .4 恶意软件照常命中
+    for code in ["127.0.0.3", "127.0.0.4"]:
+        a = make(DroneBLAdapter, lookup_result=[code])
+        r = a.query_ip("1.2.3.4")
+        assert r is not None and r.is_malicious is True

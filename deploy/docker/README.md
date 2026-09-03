@@ -69,13 +69,14 @@ docker exec dnsfilter-platform python -c "import socket;print(socket.getaddrinfo
 | `raw.githubusercontent.com` | hagezi（ti/ult/mini）、StevenBlack、OISD 主地址 | 443/TCP |
 | `cdn.jsdelivr.net` | 上述仓库的镜像降级地址 | 443/TCP |
 | `urlhaus.abuse.ch` | URLhaus 恶意域名哨兵名单 | 443/TCP |
+| `threatfox.abuse.ch` | ThreatFox C2 hostfile（每日，方案 C） | 443/TCP |
 
-### 3. 在线威胁情报 API（启用对应适配器时才需）
+### 3. 在线威胁情报 API（启用对应适配器时才需；方案 C 后 HTTP 类不预置，手工创建源后才需要）
 | 地址 | 适配器 | 端口/协议 |
 |------|--------|-----------|
 | `zen.spamhaus.org` / `dbl.spamhaus.org` | spamhaus_zen / spamhaus_dbl（DNSBL） | 53/UDP |
 | `dnsbl.dronebl.org` | dronebl（DNSBL） | 53/UDP |
-| `dnsbl.spfbl.net` | spfbl（DNSBL） | 53/UDP |
+| `dnsbl.spfbl.net` | spfbl（DNSBL，默认停用可选启用） | 53/UDP |
 | `urlhaus-api.abuse.ch` | URLhaus（在线查询版，需 Auth-Key） | 443/TCP |
 | `threatfox-api.abuse.ch` | ThreatFox | 443/TCP |
 | `api.threatbook.cn` | 微步威胁情报 | 443/TCP |
@@ -92,7 +93,7 @@ docker exec dnsfilter-platform python -c "import socket;print(socket.getaddrinfo
 | `8.8.8.8`、`8.8.4.4`（Google）或 `114.114.114.114`（国内） | `platform.yaml` 的 `upstream_dns`，UDP/TCP 53 出站 |
 
 > 最小出站开通建议（仅用离线大名单 + 默认上游）：`raw.githubusercontent.com`、`cdn.jsdelivr.net`、
-> `urlhaus.abuse.ch`、`8.8.8.8/8.8.4.4:53`。启用在线 API 源时按上表逐项添加。
+> `urlhaus.abuse.ch`、`threatfox.abuse.ch`、`8.8.8.8/8.8.4.4:53`。启用在线 API 源时按上表逐项添加。
 
 ## 六、常见问题
 

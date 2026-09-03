@@ -293,11 +293,90 @@ class TestCrossSync:
 
 class TestSeedDefaultSources:
     def test_default_enabled_set(self):
-        """生产默认 DNSBL 四源；测试环境（DNSF_TESTING=1）不默认启用。"""
+        """生产默认 DNSBL 三源（方案 C：spfbl 移出默认启用）；
+        测试环境（DNSF_TESTING=1）不默认启用。"""
         import os
         from seed import DEFAULT_ENABLED_SOURCES
         if os.environ.get("DNSF_TESTING") == "1":
             assert DEFAULT_ENABLED_SOURCES == set()
         else:
             assert DEFAULT_ENABLED_SOURCES == {
-                "spamhaus_zen", "spamhaus_dbl", "dronebl", "spfbl"}
+                "spamhaus_zen", "spamhaus_dbl", "dronebl"}
+
+    def test_builtin_list_is_pure_dnsbl(self):
+        """方案 C：内置源清单收敛为 4 个 DNSBL（含停用的 spfbl），
+        不再预置任何 HTTP 源；九个 HTTP 源进退役清单。"""
+        from seed import BUILTIN_THREATINTEL, _RETIRED_BUILTIN_SOURCES
+        names = {i["name"] for i in BUILTIN_THREATINTEL}
+        assert names == {"spamhaus_zen", "spamhaus_dbl", "dronebl", "spfbl"}
+        assert all(i["adapter_type"] == "dnsbl" for i in BUILTIN_THREATINTEL)
+        assert set(_RETIRED_BUILTIN_SOURCES) == {
+            "urlhaus", "threatfox", "threatbook", "xforce", "phishtank",
+            "dshield", "blocklist_de", "otx", "greynoise"}
+
+    def test_retire_cleanup_deletes_stateless_keeps_stateful(self):
+        """退役清理迁移：无管理状态（未启用+无 Key）的退役源被删除；
+        有管理状态（配过 Key 或启用中）的保留；管理员手工重建的
+        同名自定义源（is_builtin=0）不在清理范围。"""
+        from seed import _retire_builtin_sources, init_builtin_threatintel
+        from app.db import db_cursor
+
+        def _count(name):
+            with db_cursor() as cur:
+                cur.execute("SELECT COUNT(*) AS c FROM threatintel_api "
+                            "WHERE name=?", (name,))
+                return cur.fetchone()["c"]
+
+        # 造三行退役源：无状态 / 有 Key / 启用中
+        with db_cursor() as cur:
+            cur.executemany(
+                """INSERT INTO threatintel_api
+                   (name, adapter_type, base_url, enabled, is_builtin, api_key)
+                   VALUES (?, 'http', 'https://x.example', ?, 1, ?)""",
+                [("dshield", 0, ""),          # 无管理状态 → 删除
+                 ("otx", 0, "enc:somecipher"),  # 配过 Key → 保留
+                 ("greynoise", 1, "")])       # 启用中 → 保留
+        # 管理员手工重建的同名自定义源（is_builtin=0）→ 不清理
+        with db_cursor() as cur:
+            cur.execute(
+                """INSERT INTO threatintel_api
+                   (name, adapter_type, base_url, enabled, is_builtin)
+                   VALUES ('urlhaus', 'http', 'https://urlhaus-api.abuse.ch',
+                           0, 0)""")
+        try:
+            from app.db import get_conn
+            conn = get_conn()
+            _retire_builtin_sources(conn)
+            assert _count("dshield") == 0      # 无状态 → 已删除
+            assert _count("otx") == 1          # 有 Key → 保留
+            assert _count("greynoise") == 1    # 启用中 → 保留
+            assert _count("urlhaus") == 1      # is_builtin=0 → 不清理
+        finally:
+            with db_cursor() as cur:
+                cur.execute("DELETE FROM threatintel_api "
+                            "WHERE name IN ('dshield','otx','greynoise','urlhaus')")
+
+    def test_spfbl_enabled_row_auto_disabled(self):
+        """SPFBL 语义修正后不再适合默认启用：存量库 enabled=1 的行
+        在启动清理时自动停用（源保留，可手工再启用）。"""
+        from seed import _retire_builtin_sources
+        from app.db import get_conn, db_cursor
+        # TestClient startup 的 seed 可能已插入 spfbl 行（enabled=0），
+        # 先清掉再造 enabled=1 的存量形态
+        with db_cursor() as cur:
+            cur.execute("DELETE FROM threatintel_api WHERE name='spfbl'")
+            cur.execute(
+                """INSERT INTO threatintel_api
+                   (name, adapter_type, base_url, enabled, is_builtin)
+                   VALUES ('spfbl', 'dnsbl', '', 1, 1)""")
+        try:
+            conn = get_conn()
+            _retire_builtin_sources(conn)
+            with db_cursor() as cur:
+                cur.execute("SELECT enabled FROM threatintel_api "
+                            "WHERE name='spfbl'")
+                assert cur.fetchone()["enabled"] == 0
+        finally:
+            with db_cursor() as cur:
+                cur.execute("DELETE FROM threatintel_api "
+                            "WHERE name='spfbl'")

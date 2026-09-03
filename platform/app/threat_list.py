@@ -5,7 +5,7 @@
 
 特性：
   - 内置来源元数据（hagezi 威胁情报完整版 / hagezi 威胁情报精简 mini / hagezi 综合大名单 /
-    StevenBlack hosts / URLhaus 恶意域名 / OISD 综合大名单），
+    StevenBlack hosts / URLhaus 恶意域名 / OISD 综合大名单 / ThreatFox C2 域名），
     支持自定义 URL 导入任意纯域名 / hosts / adblock 格式列表；
   - 导入为"事务内整源替换"：重复导入即增量更新，不留陈旧条目；
   - 来源可整体启停（enabled），停用后不再参与匹配（条目保留，重新启用即恢复）；
@@ -92,6 +92,15 @@ SOURCES = [
         "format": "plain",
         "description": "OISD Big（Block. Don't break.）恶意/广告/追踪综合名单，约 20 万条、2MB，每日更新、低误报，与 hagezi 互为独立交叉验证",
         "max_bytes": 20 * 1024 * 1024,
+        "update_interval_s": 24 * 3600,
+    },
+    {
+        "key": "threatfox_hosts",
+        "name": "ThreatFox C2 域名",
+        "url": "https://threatfox.abuse.ch/downloads/hostfile/",
+        "format": "hosts",
+        "description": "abuse.ch ThreatFox 僵尸网络 C2 指标（hosts 导出），约 48 万条、约 2MB，每日 00:02 UTC 更新、免 Key；方案 C 后 C2 域名情报的离线承载（替代原 HTTP API 源）",
+        "max_bytes": 50 * 1024 * 1024,
         "update_interval_s": 24 * 3600,
     },
 ]

@@ -125,27 +125,27 @@ Windows DNS
 ### 4. 威胁情报 API 配置（▲ 扩展为"内置多源 + 可扩展"）
 
 - 支持对接多个免费威胁情报 API，可独立启用/禁用，支持并行调用与超时控制；
-- **内置源清单**（seed 预置、开箱即用，免 Key 源直接可用；▲ URLhaus 官方已从免 Key 改为强制鉴权）：
+- **内置源清单**（▲▲ 2026-09-03 方案 C 收敛：seed 仅预置 DNSBL 四源，HTTP 源不再预置、适配器保留可手工创建）：
 
 | 类别 | 来源 | 类型 | 需 Key | 说明 |
 |------|------|------|--------|------|
 | DNSBL | spamhaus_zen / spamhaus_dbl | IP / 域名 | 否 | 全球最大反垃圾/恶意源（SBL/XBL/PBL） |
-| DNSBL | dronebl | IP | 否 | 僵尸网络/扫描源 |
-| DNSBL | spfbl | 域名+IP | 否 | 反垃圾/恶意源 |
-| 免费 API | URLhaus | 域名+IP | 是（Auth-Key）▲ | abuse.ch 活跃恶意分发（在线查询版）；官方已强制 HTTP 头 Auth-Key，auth.abuse.ch 免费申请；未配 Key 时测试连通性给出明确提示 |
-| 免 Key API | PhishTank | 域名 | 否 | 钓鱼站点众包库 |
-| 免 Key API | DShield | IP | 否 | SANS 攻击源情报（可配 min_count/max_age） |
-| 免 Key API | Blocklist.de | IP | 否 | 暴力破解/扫描攻击源 |
-| 厂商 API | ThreatFox | 域名+IP | 是 | abuse.ch C2 专项库 |
-| 厂商 API | 微步威胁情报 | 域名+IP | 是 | 国内厂商，个人免费额度约 50 次/天 |
-| 厂商 API | IBM X-Force | 域名+IP | 是 | 评分制，非商业免费 Key |
-| 厂商 API | AlienVault OTX | 域名+IP | 是 | 恶意域名/IP 量大 |
-| 厂商 API | GreyNoise | IP | 是 | 扫描器识别，专治误拦扫描 IP |
+| DNSBL | dronebl | IP | 否 | 僵尸网络/扫描源（▲ .10 广告追踪/.11 IRC 滥用忽略不计恶意） |
+| DNSBL | spfbl | 域名+IP | 否 | ▲ 语义修正：邮件信誉评分清单，仅 127.0.0.2 确认垃圾计入拦截，.3/.4/.5 弱信号忽略；默认停用可手工启用 |
+| 免 Key API | PhishTank | 域名 | 否 | 钓鱼站点众包库（▲ 已移出预置） |
+| 免 Key API | DShield | IP | 否 | SANS 攻击源情报（▲ 已移出预置） |
+| 免 Key API | Blocklist.de | IP | 否 | 暴力破解/扫描攻击源（▲ 已移出预置） |
+| 厂商 API | URLhaus | 域名+IP | 是（Auth-Key）▲ | abuse.ch 活跃恶意分发（在线查询版）；官方已强制 HTTP 头 Auth-Key，auth.abuse.ch 免费申请（▲ 已移出预置） |
+| 厂商 API | ThreatFox | 域名+IP | — | ▲▲ 转离线承载：hostfile 免 Key 每日导出约 48 万条 C2 域名，内置为离线大名单源 threatfox_hosts（原 HTTP API 源移出预置） |
+| 厂商 API | 微步威胁情报 | 域名+IP | 是 | 国内厂商，个人免费额度约 50 次/天（▲ 已移出预置） |
+| 厂商 API | IBM X-Force | 域名+IP | 是 | 评分制，非商业免费 Key（▲ 已移出预置） |
+| 厂商 API | AlienVault OTX | 域名+IP | 是 | 恶意域名/IP 量大（▲ 已移出预置） |
+| 厂商 API | GreyNoise | IP | 是 | 扫描器识别，专治误拦扫描 IP（▲ 已移出预置） |
 
-> 说明：360 威胁情报免费版仅 20 条/天且需商务申请（接口不公开），未内置，后续可按需接入。
+> 说明：360 威胁情报免费版仅 20 条/天且需商务申请（接口不公开），未内置，后续可按需接入；Feodo Tracker 数据自 2026-03 停更，评估后不引入。
 
 - **三态语义**：命中→拦截；明确未命中→放行；网络失败/超时→无结论（fail-safe 默认拦截）；
-- ★ **出厂默认仅启用 DNSBL 四源**（spamhaus_zen / spamhaus_dbl / dronebl / spfbl）——DNS 协议查询亚毫秒、无 HTTP 配额限制，适合 10 万终端实时检测链路；HTTP 类免费/厂商源默认停用，仅测试中心人工核验时按需启用（对齐部署方案 3.1-A 策略）；存量部署不覆盖管理员已有配置；
+- ★▲▲ **出厂默认仅启用 DNSBL 三源**（spamhaus_zen / spamhaus_dbl / dronebl，方案 C 2026-09-03）——DNS 协议查询亚毫秒、无 HTTP 配额限制，适合 10 万终端实时检测链路；SPFBL 语义修正（邮件评分源，仅 .2 计拦截）后移出默认启用，保留内置可手工启用；HTTP 类免费/厂商源不再预置（适配器保留，管理员可手工创建），存量库无管理状态的退役源启动时自动清理、有管理状态的保留；威胁域名/C2 情报由离线大名单承载（新增 threatfox_hosts 源）；存量部署不覆盖管理员已有配置；
 - ★ **单源限流熔断**：适配器连续失败自动熔断（半开试探恢复），熔断期间该源返回无结论不阻塞检测；降级开关可整体跳过在线情报查询（性能兜底）；
 - **能力声明**：每个适配器声明支持域名/IP 维度，检测时按能力分配查询，避免"仅 IP 类源参与域名查询"导致误判；
 - ▲ **诊断信息**：在线源"测试连通性"失败时返回具体原因（缺 Key / Key 无效 / 请求过于频繁 / 网络错误），适配器维护 last_error 供排查；在线源支持**编辑**（超时、描述、API Key 等，Key 留空表示保持不变），适配器类型创建后不可改；
@@ -249,11 +249,12 @@ docker compose -f deploy/docker/docker-compose.yml up -d --build
 | 类别 | 地址 | 用途 |
 |------|------|------|
 | 构建期 | `docker.io` / `registry-1.docker.io`（或内网镜像仓库）、`pypi.org`（或国内镜像）、`proxy.golang.org`（或 goproxy.cn） | 拉取基础镜像 / Python 依赖 / Go module |
-| 离线大名单 | `raw.githubusercontent.com`、`cdn.jsdelivr.net`、`urlhaus.abuse.ch` | hagezi/StevenBlack/OISD 主地址+镜像、URLhaus 名单 |
-| 在线情报源 | `zen.spamhaus.org`、`dbl.spamhaus.org`、`dnsbl.dronebl.org`、`dnsbl.spfbl.net`（53/UDP）；`urlhaus-api.abuse.ch`、`threatfox-api.abuse.ch`、`api.threatbook.cn`、`api.xforce.ibmcloud.com`、`otx.alienvault.com`、`api.greynoise.io`、`checkurl.phishtank.com`、`isc.sans.edu`、`api.blocklist.de`（443/TCP） | DNSBL 查询 / 厂商威胁情报 API |
+| 离线大名单 | `raw.githubusercontent.com`、`cdn.jsdelivr.net`、`urlhaus.abuse.ch`、`threatfox.abuse.ch`▲ | hagezi/StevenBlack/OISD 主地址+镜像、URLhaus 名单、ThreatFox hostfile（方案 C） |
+| 在线情报源（默认启用） | `zen.spamhaus.org`、`dbl.spamhaus.org`、`dnsbl.dronebl.org`（53/UDP）；`dnsbl.spfbl.net`（可选，默认停用）▲ | DNSBL 查询 |
+| 在线情报源（可选，管理员手工创建后）▲ | `urlhaus-api.abuse.ch`、`threatfox-api.abuse.ch`、`api.threatbook.cn`、`api.xforce.ibmcloud.com`、`otx.alienvault.com`、`api.greynoise.io`、`checkurl.phishtank.com`、`isc.sans.edu`、`api.blocklist.de`（443/TCP） | 厂商威胁情报 API（方案 C 后不再预置） |
 | 上游递归 DNS | `8.8.8.8`、`8.8.4.4` 或 `114.114.114.114`（UDP/TCP 53） | 平台公网域名解析 |
 
-> 最小出站建议：`raw.githubusercontent.com`、`cdn.jsdelivr.net`、`urlhaus.abuse.ch`、上游 DNS 53。
+> 最小出站建议：`raw.githubusercontent.com`、`cdn.jsdelivr.net`、`urlhaus.abuse.ch`、`threatfox.abuse.ch`、上游 DNS 53。
 > 完整清单详见 `deploy/docker/README.md`。
 
 ## 七、已实现功能与迭代记录 ▲
@@ -284,6 +285,7 @@ docker compose -f deploy/docker/docker-compose.yml up -d --build
 | ★ 迭代 20 | **CSV 导入消重与冲突提示**：同名单自动消重返回三类计数；跨名单同值返回冲突明细警示；一键部署脚本（install-proxy.sh / install-platform.sh，幂等可重跑，配置已存在永不覆盖）+ 全注释配置模板 + systemd 模板加固 |
 | ★ 迭代 21 | **解析速度优化五项**（评估→确认→实施）：①IP 结论缓存（ip_cache，与域名缓存同构）②seed 出厂默认仅启用 DNSBL 四源（HTTP 类源退出实时链路）③IP 后置过滤线程池并行 ④单次上游往返（全正常返回上游原始应答，保真 TTL/EDNS0）⑤跨进程同步 cross_sync（DNS 进程 60s 轮询四表，Web 变更无需重启即生效）；**实测 DNSBL 四源启用态同域名二查 12ms（优化前 hit 路径 892~3170ms，约百倍）** |
 | ★ 迭代 22 | **生产就绪 P1 三项补齐**（代码级就绪度评估发现文档承诺未实现，全部补齐）：①日志保留期自动清理（log_retention 后台线程，每 6 小时分批删除 filter_log/audit_log 过期行，单批 1 万防长事务锁库；`GET /api/log-retention/stats` 观测）②api_key 落库 Fernet 加密（密钥由 jwt_secret 派生；存量明文启动自动迁移；更换 jwt_secret 后旧密文按未配 Key 处理）③数据库每日备份（tools/backup_db.sh SQLite .backup 热备 + dnsfilter-backup.timer 每日 02:30 + 保留 14 份轮转，安装脚本自动部署）；附带修复 virustotal/abuseipdb 适配器构造缺 config 参数的存量缺陷 |
+| ★ 迭代 23 | **在线情报源方案 C 收敛**（2026-09-03 质量评估驱动）：①SPFBL 语义修正（code_map 按官方真实语义标注；.3 疑似/.4 NAT 住宅/.5 abuse 不可靠为弱信号默认忽略，仅 .2 确认垃圾计入拦截；移出默认启用，存量库启用行启动时自动停用）②DroneBL 忽略码收紧（.10 广告追踪/.11 IRC 滥用不计恶意）③ThreatFox C2 情报转**离线大名单**（threatfox_hosts：hostfile 免 Key 每日导出约 48 万条域名，替代原 HTTP API 源）④九个 HTTP 源移出 seed 预置（适配器注册保留可手工创建；存量库无管理状态自动清理、有管理状态保留）⑤出厂默认启用收敛为 DNSBL 三源（zen/dbl/dronebl）；Feodo Tracker 停更不引入 |
 
 ## 八、待办与后续可选
 
@@ -295,7 +297,7 @@ docker compose -f deploy/docker/docker-compose.yml up -d --build
 
 | 指标 | 实测值 | 说明 |
 |------|--------|------|
-| 检测链路放行路径（缓存命中） | **12ms** | DNSBL 四源启用态同域名二查；优化前 892~3170ms |
+| 检测链路放行路径（缓存命中） | **12ms** | DNSBL 四源启用态同域名二查（2026-08-31 实测口径；方案 C 后默认三源同量级）；优化前 892~3170ms |
 | 检测链路放行路径（缓存 miss） | 21~24ms（P50），公网解析为主 | 在线源并发 + 上游往返 |
 | 平台 DNS 吞吐（削峰后） | 1000 QPS 全收，P95=1.86ms | 优化前饱和约 400 |
 | 平台 DNS 吞吐拐点 | 约 2200~3000 QPS | 瓶颈为 asyncio 唤醒（28.9%），非 SQLite |

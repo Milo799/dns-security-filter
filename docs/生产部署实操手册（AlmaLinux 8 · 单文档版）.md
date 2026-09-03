@@ -145,9 +145,9 @@ sudo bash ./deploy/install-proxy.sh --upstream <机B内网IP> --upstream-port 15
 | 类别 | 地址 | 端口 |
 |------|------|------|
 | 公网递归 DNS | 223.5.5.5 主 / 119.29.29.29 备 | UDP/TCP 53 |
-| 离线大名单 | raw.githubusercontent.com、cdn.jsdelivr.net（镜像降级）、urlhaus.abuse.ch | 443/TCP |
+| 离线大名单 | raw.githubusercontent.com、cdn.jsdelivr.net（镜像降级）、urlhaus.abuse.ch、threatfox.abuse.ch | 443/TCP |
 | DNSBL 在线源 | **无需单独放通**（走上方公网递归 53 出站；不是访问网站，是通过递归查 A 记录） | — |
-| HTTP 在线源（启用才开） | urlhaus-api.abuse.ch、threatfox-api.abuse.ch、api.threatbook.cn、api.xforce.ibmcloud.com、otx.alienvault.com、api.greynoise.io、checkurl.phishtank.com | 443/TCP |
+| HTTP 在线源（可选，手工创建源并启用才开） | urlhaus-api.abuse.ch、threatfox-api.abuse.ch、api.threatbook.cn、api.xforce.ibmcloud.com、otx.alienvault.com、api.greynoise.io、checkurl.phishtank.com | 443/TCP |
 
 **代理出站（可选，简化防火墙策略）**：机 B 无法直连上述公网地址时，可部署一台可达的 HTTP 正向代理，Web → 系统配置 → 情报出站代理填 `http://代理IP:端口` 保存（支持连通性预检按钮）。之后在线情报源查询与离线大名单下载全部经代理转发（DNSBL 走 DNS 协议不经代理，公网递归 53 出站仍需单独放通）；出站白名单收敛为"代理服务器 IP:端口 + 公网递归 53"两条。代理地址修改即时生效（Web 进程立即、DNS 进程约 1 分钟内经轮询同步），清空即恢复直连。
 
