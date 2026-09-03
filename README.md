@@ -35,7 +35,7 @@ DNS 安全过滤平台（Python，监听 53）
 | `deploy/` | systemd unit ×3 + backup timer + **一键安装脚本 install-proxy.sh / install-platform.sh**；**`deploy/docker/`** 镜像编排 + 网络白名单 | ✅ 已实现 |
 | `tools/` | loadtest.py（DNS 压测：QPS/延迟分位）、backup_db.sh（DB 每日热备+轮转） | ✅ 已实现 |
 | `scripts/` | dev.sh（一键启动）、verify.sh（dig 验证）、fake_upstream.py | ✅ 已实现 |
-| `tests/` | pytest 265 项（融合/拦截/ECS/PTR/大名单/情报源/调度/性能/缓存/并行/跨进程同步） | ✅ 全绿 |
+| `tests/` | pytest 314 项（融合/拦截/ECS/PTR/大名单/情报源/调度/性能/缓存/并行/跨进程同步） | ✅ 全绿 |
 | `docs/` | 需求说明书 V2.2（需求基线）、开发 PRD V2.1（实现基线）、生产部署方案（Linux 双机） | ✅ |
 
 ## 快速开始
@@ -103,7 +103,7 @@ dig @<代理IP> example.com A
 - 威胁情报**三态语义**：命中→拦截；明确未命中→放行；网络失败/超时/缺 Key→无结论（不参与融合统计）；**全部源无结论默认拦截**（fail-safe）
 - 适配器按**能力声明**（domain/ip）分配查询；异常/超时返回 None 不抛异常；维护 `last_error` 供诊断
 - **fail-safe 无结论不写检测缓存**（domain_cache/ip_cache）；情报源/融合策略/名单变更必须联动 `threatintel_invalidate()`；**严禁改回无缓存失效的直连查询**
-- 在线源分层：**DNSBL 进实时链路**（出厂默认三源 zen/dbl/dronebl；spfbl 邮件评分语义修正后默认停用）；HTTP 类源不预置（方案 C，适配器保留可手工创建，仅测试中心人工核验）；C2 域名情报由 ThreatFox hostfile 离线大名单承载
+- 在线源分层：**DNSBL 进实时链路**（出厂默认三源 zen/dbl/dronebl；spfbl 邮件评分语义修正后默认停用）；HTTP 类源不预置（方案 C，适配器保留可手工创建，仅测试中心人工核验）；C2 域名情报由 ThreatFox hostfile + C2IntelFeeds（活跃 C2，csv 解析）离线大名单承载
 - 离线大名单：整源替换导入、内存缓存匹配；写路径（导入/启停/清空）必须调 `invalidate()` 联动失效内存缓存与统计缓存
 - 自动更新各源实际周期 = min(源内置 update_interval_s, 用户全局配置间隔)；调度可视化到期判断口径与此一致
 - 日志必录被拦截/剔除请求（filter_log 全字段）；放行日志可选（默认关）+ 采样率控制；写路径走 log_writer 异步批量，**严禁在检测线程内直写 SQLite**

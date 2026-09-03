@@ -66,7 +66,7 @@ docker exec dnsfilter-platform python -c "import socket;print(socket.getaddrinfo
 ### 2. 离线大名单下载（`/api/threatlist/import` 与自动更新）
 | 地址 | 来源 | 端口/协议 |
 |------|------|-----------|
-| `raw.githubusercontent.com` | hagezi（ti/ult/mini）、StevenBlack、OISD 主地址 | 443/TCP |
+| `raw.githubusercontent.com` | hagezi（ti/ult/mini）、StevenBlack、OISD、C2IntelFeeds 主地址 | 443/TCP |
 | `cdn.jsdelivr.net` | 上述仓库的镜像降级地址 | 443/TCP |
 | `urlhaus.abuse.ch` | URLhaus 恶意域名哨兵名单 | 443/TCP |
 | `threatfox.abuse.ch` | ThreatFox C2 hostfile（每日，方案 C） | 443/TCP |

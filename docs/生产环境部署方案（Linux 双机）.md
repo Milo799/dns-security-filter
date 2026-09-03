@@ -76,7 +76,7 @@
 | 类别 | 地址 | 端口 | 用途 |
 |------|------|------|------|
 | 上游公网 DNS | `223.5.5.5` 主 / `119.29.29.29` 备 | UDP/TCP 53 | 递归解析（缓存未命中部分） |
-| 离线大名单 | `raw.githubusercontent.com` + `cdn.jsdelivr.net`（镜像降级） | 443/TCP | hagezi/StevenBlack/OISD |
+| 离线大名单 | `raw.githubusercontent.com` + `cdn.jsdelivr.net`（镜像降级） | 443/TCP | hagezi/StevenBlack/OISD/C2IntelFeeds（▲ 活跃 C2 域名） |
 | 离线大名单 | `urlhaus.abuse.ch` | 443/TCP | 哨兵名单（30 分钟更新） |
 | 离线大名单 | `threatfox.abuse.ch` | 443/TCP | ThreatFox C2 hostfile（每日，方案 C） |
 | 在线情报 API | `zen.spamhaus.org`、`dbl.spamhaus.org`、`dnsbl.dronebl.org`；`dnsbl.spfbl.net`（可选，默认停用） | UDP 53 | DNSBL 类 |

@@ -130,6 +130,59 @@ def test_parse_threatfox_hostfile_shape():
     assert vals == ["c2.bad-server.example", "panel.example-bad.org"]
 
 
+def test_parse_c2intel_csv_shape():
+    """C2IntelFeeds CSV（第八源）真实形态：#domain,ioc 头部注释、
+    域名,描述 两列取第一列、重复条目去重、auto 也能识别 CSV。"""
+    text = "\n".join([
+        "#domain,ioc",
+        "1302768123-l3a4w496qm.ap-shanghai.tencentscf.com,Possible Cobalt Strike C2 Domain",
+        "161-35-173-98.sslip.io,Possible Cobalt Strike C2 Domain",
+        "39nasm720z98q.cfc-execute.bj.baidubce.com,Possible Cobalt Strike C2 Domain",
+        "161-35-173-98.sslip.io,Mythic C2",    # 同域不同描述 → 去重
+    ])
+    # 显式 csv 格式
+    vals = threat_list.parse_content(text, "csv")
+    assert vals == [
+        "1302768123-l3a4w496qm.ap-shanghai.tencentscf.com",
+        "161-35-173-98.sslip.io",
+        "39nasm720z98q.cfc-execute.bj.baidubce.com",
+    ]
+    # auto 自动识别（首行含逗号且首列非 IP → csv）
+    assert threat_list.parse_content(text, "auto") == vals
+
+
+def test_parse_csv_ip_first_column_falls_to_hosts():
+    """CSV 列首列是 IP 的形态（如 IP,ioc）不误判 csv——
+    auto 检测要求首列非 IP 才走 csv，避免误吞 IP 情报行。"""
+    text = "1.2.3.4,Possible C2 IP\n5.6.7.8,Possible C2 IP\n"
+    # auto：首列 IP 且含逗号 → 不是 csv；无空白分隔 → 也不按 hosts 第二列取值，
+    # 整行按 plain 规范化（带逗号 → 非法域名）→ 空
+    assert threat_list.parse_content(text, "auto") == []
+
+
+def test_import_source_with_fmt_csv():
+    """import_source 显式 csv 格式导入 + 匹配（格式贯通链路）。"""
+    text = "#domain,ioc\nc2.evil.example,Cobalt Strike\npanel.bad.example,Mythic\n"
+    threat_list.import_source("c2intel_domains", text, fmt="csv")
+    try:
+        assert threat_list.check_domain("c2.evil.example")
+        assert threat_list.find_domain("x.panel.bad.example") == (
+            "c2intel_domains", "panel.bad.example")
+        assert not threat_list.check_domain("good.example")
+    finally:
+        threat_list.delete_source("c2intel_domains")
+
+
+def test_import_source_fmt_fallback_to_auto():
+    """显式格式解析为空时回退 auto：上游格式漂移不导致导入 0 条
+    （如 urlhaus 源声明 hosts 但临时返回纯域名行）。"""
+    threat_list.import_source("urlhaus", "new.example.com\n", fmt="hosts")
+    try:
+        assert threat_list.check_domain("new.example.com")
+    finally:
+        threat_list.delete_source("urlhaus")
+
+
 # ---------------- 导入与匹配 ----------------
 
 def test_import_and_match():
@@ -179,10 +232,10 @@ def test_source_stats():
         assert stats["hagezi_ti"]["total"] == 2
         assert stats["hagezi_ti"]["enabled_cnt"] == 2
         assert stats["hagezi_ti"]["updated_at"]
-        # 内置 7 个来源元数据始终存在
+        # 内置 8 个来源元数据始终存在
         assert set(stats) >= {"hagezi_ti", "hagezi_mini", "hagezi_ult",
                               "stevenblack", "urlhaus", "oisd",
-                              "threatfox_hosts"}
+                              "threatfox_hosts", "c2intel_domains"}
     finally:
         threat_list.delete_source("hagezi_ti")
 
@@ -205,6 +258,10 @@ def test_mirror_of_rules():
     assert threat_list._mirror_of(
         "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
     ) == "https://cdn.jsdelivr.net/gh/StevenBlack/hosts@master/hosts"
+    # C2IntelFeeds（第八源）同样有 jsDelivr 镜像
+    assert threat_list._mirror_of(
+        "https://raw.githubusercontent.com/drb-ra/C2IntelFeeds/master/feeds/domainC2s-90day-filter-abused.csv"
+    ) == "https://cdn.jsdelivr.net/gh/drb-ra/C2IntelFeeds@master/feeds/domainC2s-90day-filter-abused.csv"
     # 非已知仓库地址无镜像
     assert threat_list._mirror_of(
         "https://example.com/some-list.txt") is None
@@ -313,7 +370,8 @@ def test_sources_api(client, token):
     assert r.status_code == 200
     keys = {i["key"] for i in r.json()["data"]["items"]}
     assert keys == {"hagezi_ti", "hagezi_mini", "hagezi_ult",
-                    "stevenblack", "urlhaus", "oisd", "threatfox_hosts"}
+                    "stevenblack", "urlhaus", "oisd", "threatfox_hosts",
+                    "c2intel_domains"}
     # 新源带更新周期元数据
     by_key = {i["key"]: i for i in r.json()["data"]["items"]}
     assert by_key["urlhaus"]["update_interval_s"] == 30 * 60
@@ -323,6 +381,10 @@ def test_sources_api(client, token):
     # ThreatFox hostfile（方案 C：C2 域名情报离线承载）
     assert by_key["threatfox_hosts"]["update_interval_s"] == 24 * 3600
     assert "threatfox.abuse.ch/downloads/hostfile" in by_key["threatfox_hosts"]["url"]
+    # C2IntelFeeds（第八源：活跃 C2 域名，CSV 格式）
+    assert by_key["c2intel_domains"]["update_interval_s"] == 24 * 3600
+    assert by_key["c2intel_domains"]["format"] == "csv"
+    assert "domainC2s-90day-filter-abused.csv" in by_key["c2intel_domains"]["url"]
 
 
 def test_domains_api(client, token):

@@ -171,7 +171,7 @@ Windows DNS
 
 ### 5.3 ▲ 离线大名单（threat_list，本地导入离线匹配）
 
-**内置来源**（seed 预置、可独立启用/停用/导入更新/清空，支持自定义 URL 导入 plain/hosts/adblock 格式）：
+**内置来源**（seed 预置、可独立启用/停用/导入更新/清空，支持自定义 URL 导入 plain/hosts/csv/adblock 格式）：
 
 | 来源 key | 内容 | 规模 | 自动更新周期 | 定位 |
 |----------|------|------|-------------|------|
@@ -181,11 +181,14 @@ Windows DNS
 | `stevenblack` | 广告/恶意/追踪统一 hosts | 约 15 万条 | 每日 | 经典通用名单 |
 | `urlhaus` | 当前活跃恶意软件分发域名 | 约 300~2000 条 | **30 分钟** | 高及时哨兵，0day 响应 |
 | `oisd` | 恶意/广告/追踪（Big） | 约 20 万条 | 每日 | 低误报，与 hagezi 交叉验证 |
+| `threatfox_hosts` ▲▲ | 僵尸网络 C2 域名（hostfile 导出） | 约 48 万条 | 每日 | 方案 C：C2 域名情报离线承载 |
+| `c2intel_domains` ▲ | 互联网扫描指纹识别活跃 C2 域名（CSV，90 天窗口 filter-abused） | 数百条 | 每日 | 与样本 IOC 互补的活跃基础设施；CC BY-NC-SA 4.0 |
 
 **机制规格**
 - **导入**：整源替换（重复导入即更新，不留陈旧条目）；后台执行，进度三阶段（下载→解析→入库）；**多源并发导入**，进度按源独立轮询，刷新页面可恢复进行中任务的进度；
 - **匹配**：内存缓存 O(1)——域名精确 + 逐级父域后缀匹配（列表含 bad.com 则 a.bad.com 命中）、IP 精确匹配；导入/启停/清空调用 `invalidate()` 自动刷新缓存（含统计缓存联动失效）；
-- **下载容错**：GitHub raw 主地址不可达或中段静默丢弃（读空闲 30 秒）时自动降级 jsDelivr CDN 镜像（hagezi / oisd / stevenblack 已配镜像规则）；连接超时 15 秒；降级前重置进度字节避免回跳；
+- **下载容错**：GitHub raw 主地址不可达或中段静默丢弃（读空闲 30 秒）时自动降级 jsDelivr CDN 镜像（hagezi / oisd / stevenblack / C2IntelFeeds 已配镜像规则）；连接超时 15 秒；降级前重置进度字节避免回跳；
+- **解析格式**▲：plain / hosts / csv（C2IntelFeeds "#domain,ioc" 形态取第一列）/ adblock 四类 + auto 自动识别（含逗号且首列非 IP → csv；有 IP 前缀列 → hosts；否则 plain）；内置源 format 元数据显式声明并贯通手工导入与自动更新链路；显式格式解析为空时回退 auto 再试（防上游格式漂移导入 0 条）；
 - **按源周期自动更新**：各源实际到期周期 = `min(源内置 update_interval_s, 用户全局配置间隔)`；调度 tick = min(用户配置, 各源最小周期)，下限 60 秒；单源失败隔离，不影响其他源与服务；
 - **调度可视化**▲：源列表接口返回 `effective_interval_s` / `next_update_at` / `due` / `seconds_remaining` / `auto_update_on`；前端「下次更新」列展示实际周期、下次更新时间、倒计时（30 秒刷新）、到期/未开启/待导入状态；到期判断口径与自动更新调度完全一致；
 - **查询性能**：覆盖索引 `idx_threat_list_stats(source, updated_at, enabled)`；`source_stats()` 进程内缓存（deepcopy 返回）；服务启动后台预热线程 `warm_cache()`（内存匹配缓存 + 统计缓存双预热，291 万条约 5 秒）；`_load_cache()` 加锁防并发重复建缓存；
@@ -424,7 +427,7 @@ Web"测试中心"页面，输入域名或 IP（含 PTR 模式）进行**只读�
 | 类别 | 地址 | 用途 |
 |------|------|------|
 | 构建期 | `docker.io` / `pypi.org` / `proxy.golang.org`（或国内镜像） | 基础镜像 / 依赖 / Go module |
-| 离线大名单 | `raw.githubusercontent.com`、`cdn.jsdelivr.net`、`urlhaus.abuse.ch`、`threatfox.abuse.ch`▲ | 名单主地址 + jsDelivr 镜像 + ThreatFox hostfile（方案 C） |
+| 离线大名单 | `raw.githubusercontent.com`、`cdn.jsdelivr.net`、`urlhaus.abuse.ch`、`threatfox.abuse.ch`▲ | 名单主地址 + jsDelivr 镜像 + ThreatFox hostfile（方案 C）+ C2IntelFeeds（走 raw/jsDelivr，无新增域名）▲ |
 | 在线情报源（默认启用） | `zen.spamhaus.org`、`dbl.spamhaus.org`、`dnsbl.dronebl.org`（53/UDP）；`dnsbl.spfbl.net`（可选默认停用）▲ | DNSBL 查询 |
 | 在线情报源（可选，手工创建后）▲ | `urlhaus-api.abuse.ch`、`threatfox-api.abuse.ch`、`api.threatbook.cn`、`api.xforce.ibmcloud.com`、`otx.alienvault.com`、`api.greynoise.io`、`checkurl.phishtank.com`、`isc.sans.edu`、`api.blocklist.de`（443/TCP） | 厂商 API（方案 C 后不预置） |
 | 上游递归 DNS | `8.8.8.8`、`8.8.4.4` 或 `114.114.114.114`（UDP/TCP 53） | 平台公网解析 |
@@ -451,7 +454,7 @@ Web"测试中心"页面，输入域名或 IP（含 PTR 模式）进行**只读�
 | 3 | Web 管理前端 | ★ 多文件 SPA（theme/base/pages CSS + app/charts/pages/boot JS + 9 页面模块，零构建链，SOC 深浅双主题），随平台静态部署 |
 | 4 | 数据库初始化脚本 | 建表 SQL（含 threat_list 与统计覆盖索引）+ 默认管理员 + 默认配置 + 内置情报源 seed（★ 方案 C：预置 DNSBL 四源，默认启用三源） |
 | 5 | 威胁情报适配器框架 | 统一接口 + 融合判定 + **16 个内置适配器**（DNSBL 4 / 免 Key 3 / 厂商 5 / URLhaus）+ ★ 单源熔断 |
-| 6 | ▲ 离线大名单模块 | 6 内置源 + 自定义导入 + 自动更新调度 + 镜像降级 + 进度可视化 |
+| 6 | ▲ 离线大名单模块 | 8 内置源 + 自定义导入 + 自动更新调度 + 镜像降级 + 进度可视化 |
 | 7 | 部署文档 | systemd 安装、★ 一键脚本（install-proxy.sh/install-platform.sh）、Docker 编排、网络白名单、转发器配置、回退步骤 |
 | 8 | ▲ 测试基线 | ★ pytest 265 项（融合/拦截/ECS/PTR/大名单/情报源/调度/性能/★缓存/★并行/★跨进程同步），`cd platform && python -m pytest ../tests`；★ 测试隔离：conftest 设 `DNSF_TESTING=1`（seed 检测后不默认启用在线源，单测不依赖公网） |
 | 9 | ★ 性能与压测工具 | `tools/loadtest.py` DNS 压测（QPS/延迟分位；Windows 须 SelectorEventLoop）；观测接口 /api/log-writer/stats |

@@ -5,8 +5,9 @@
 
 特性：
   - 内置来源元数据（hagezi 威胁情报完整版 / hagezi 威胁情报精简 mini / hagezi 综合大名单 /
-    StevenBlack hosts / URLhaus 恶意域名 / OISD 综合大名单 / ThreatFox C2 域名），
-    支持自定义 URL 导入任意纯域名 / hosts / adblock 格式列表；
+    StevenBlack hosts / URLhaus 恶意域名 / OISD 综合大名单 / ThreatFox C2 域名 /
+    C2IntelFeeds 活跃 C2 域名），
+    支持自定义 URL 导入任意纯域名 / hosts / CSV / adblock 格式列表；
   - 导入为"事务内整源替换"：重复导入即增量更新，不留陈旧条目；
   - 来源可整体启停（enabled），停用后不再参与匹配（条目保留，重新启用即恢复）；
   - 自动更新按来源各自周期调度（update_interval_s）：URLhaus 高及时小名单
@@ -103,6 +104,15 @@ SOURCES = [
         "max_bytes": 50 * 1024 * 1024,
         "update_interval_s": 24 * 3600,
     },
+    {
+        "key": "c2intel_domains",
+        "name": "C2IntelFeeds 活跃 C2 域名",
+        "url": "https://raw.githubusercontent.com/drb-ra/C2IntelFeeds/master/feeds/domainC2s-90day-filter-abused.csv",
+        "format": "csv",
+        "description": "drb-ra/C2IntelFeeds 互联网扫描指纹识别的活跃 C2 域名（90 天窗口、已剔除 domain fronting 滥用域），数百条量级、每日更新、免 Key；对国内云上滥用（腾讯云函数/百度云 CFC 等）覆盖突出，与样本 IOC 源互补；CC BY-NC-SA 4.0 许可（非商业防御用途）",
+        "max_bytes": 10 * 1024 * 1024,
+        "update_interval_s": 24 * 3600,
+    },
 ]
 
 # 内部状态：source 元数据表（含数据库统计，运行时刷新）
@@ -175,7 +185,9 @@ def parse_content(text: str, fmt: str = "auto",
 
     - plain: 每行一个域名（hagezi txt）；同时兼容 adblock ||x^ 与 URL 行
     - hosts: StevenBlack 格式 "0.0.0.0 domain"，跳过注释与本地保留项
-    - auto: 按首个有效行内容判断（有 IP 前缀列 → hosts，否则 plain）
+    - csv: 逗号分隔列表（C2IntelFeeds "#domain,ioc" 形态），取第一列域名
+    - auto: 按首个有效行内容判断（含逗号且首列是域名 → csv；有 IP 前缀列 →
+      hosts；否则 plain）
     - progress: 可选进度字典，解析过程中更新 parsed（已处理行数）
     """
     out: list[str] = []
@@ -188,7 +200,10 @@ def parse_content(text: str, fmt: str = "auto",
             if not t or t.startswith("#"):
                 continue
             first = t.split(None, 1)[0]
-            effective = "hosts" if _is_ip(first) else "plain"
+            if "," in t and not _is_ip(first.split(",")[0]):
+                effective = "csv"      # C2IntelFeeds：域名,描述 多列
+            else:
+                effective = "hosts" if _is_ip(first) else "plain"
             break
 
     for i, ln in enumerate(lines):
@@ -204,6 +219,8 @@ def parse_content(text: str, fmt: str = "auto",
             value = parts[1].strip()
             if value.startswith("#"):
                 continue
+        elif effective == "csv":
+            value = raw.split(",", 1)[0].strip()
         else:
             value = raw
         d = _normalize_domain(value)
@@ -227,6 +244,8 @@ _MIRROR_RULES = [
      "https://cdn.jsdelivr.net/gh/sjhgvr/oisd@main/"),
     ("https://raw.githubusercontent.com/StevenBlack/hosts/master/",
      "https://cdn.jsdelivr.net/gh/StevenBlack/hosts@master/"),
+    ("https://raw.githubusercontent.com/drb-ra/C2IntelFeeds/master/",
+     "https://cdn.jsdelivr.net/gh/drb-ra/C2IntelFeeds@master/"),
 ]
 
 
@@ -283,8 +302,8 @@ def download(url: str, max_bytes: int = 100 * 1024 * 1024,
              timeout_s: int = 60, progress: dict | None = None) -> str:
     """下载列表文本；主地址失败（网络/超时/HTTP 错误）自动尝试镜像 URL。
 
-    - 仅已知镜像规则的地址（hagezi / oisd / StevenBlack 仓库）会降级，
-      应对 GitHub raw 偶发连接重置（WinError 10054 等）；
+    - 仅已知镜像规则的地址（hagezi / oisd / StevenBlack / C2IntelFeeds
+      仓库）会降级，应对 GitHub raw 偶发连接重置（WinError 10054 等）；
     - 镜像也失败时抛出最后一次异常，由调用方决定是否报错；
     - progress 透传各阶段字节进度；降级镜像前重置已收字节。
     """
@@ -308,17 +327,24 @@ def download(url: str, max_bytes: int = 100 * 1024 * 1024,
 _IMPORT_WRITE_LOCK = threading.Lock()   # 入库写锁：SQLite 单写者，多源并发导入时串行入库
 
 def import_source(source: str, text: str, enabled: bool = True,
-                  progress: dict | None = None) -> int:
+                  progress: dict | None = None,
+                  fmt: str = "auto") -> int:
     """整源替换导入：DELETE 后批量 INSERT（事务内），返回实际导入条数。
 
     重复导入即增量更新；enabled 仅影响本批次默认启用状态（后续可整体切换）。
+    fmt：解析格式（plain/hosts/csv/auto），内置源元数据可显式指定
+    （如 C2IntelFeeds 的 csv），auto 按内容自动识别。
     progress（可选）：解析后置 total 为总条数，分批入库时更新 inserted。
 
     并发安全：多来源并发导入时，下载/解析可并行，入库段由
     _IMPORT_WRITE_LOCK 串行化（SQLite 单写者 + 线程本地连接，
     避免共享连接交叉事务报错）。
     """
-    values = parse_content(text, progress=progress)
+    values = parse_content(text, fmt, progress=progress)
+    if not values and fmt != "auto":
+        # 显式格式解析为空时回退 auto 再试：上游格式偶发漂移
+        # （如临时改版/错误页），避免整源清空后导入 0 条
+        values = parse_content(text, "auto", progress=progress)
     rows = [(source, v, "domain", int(enabled)) for v in values]
     if progress is not None:
         progress.update(stage="insert", total=len(rows),
@@ -475,7 +501,8 @@ def auto_update_once(user_interval_s: int | None = None) -> dict:
         try:
             text = download(info["url"], info.get("max_bytes", 100 * 1024 * 1024),
                             timeout_s=90)
-            n = import_source(key, text, enabled=True)
+            n = import_source(key, text, enabled=True,
+                              fmt=info.get("format", "auto"))
             results[key] = {"ok": True, "imported": n, "error": None,
                             "skipped": False}
             logger.info("离线大名单自动更新 %s 完成：%d 条", key, n)

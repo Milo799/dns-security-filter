@@ -145,7 +145,7 @@ sudo bash ./deploy/install-proxy.sh --upstream <机B内网IP> --upstream-port 15
 | 类别 | 地址 | 端口 |
 |------|------|------|
 | 公网递归 DNS | 223.5.5.5 主 / 119.29.29.29 备 | UDP/TCP 53 |
-| 离线大名单 | raw.githubusercontent.com、cdn.jsdelivr.net（镜像降级）、urlhaus.abuse.ch、threatfox.abuse.ch | 443/TCP |
+| 离线大名单 | raw.githubusercontent.com、cdn.jsdelivr.net（镜像降级）、urlhaus.abuse.ch、threatfox.abuse.ch | 443/TCP（C2IntelFeeds 走 raw/jsDelivr，无新增域名） |
 | DNSBL 在线源 | **无需单独放通**（走上方公网递归 53 出站；不是访问网站，是通过递归查 A 记录） | — |
 | HTTP 在线源（可选，手工创建源并启用才开） | urlhaus-api.abuse.ch、threatfox-api.abuse.ch、api.threatbook.cn、api.xforce.ibmcloud.com、otx.alienvault.com、api.greynoise.io、checkurl.phishtank.com | 443/TCP |
 

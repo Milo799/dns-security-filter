@@ -60,11 +60,12 @@ def _resolve_source(body: ImportBody) -> tuple[str, str, str]:
 
 
 def _run_import_task(source: str, url: str, enabled: bool,
-                     user: str) -> None:
+                     user: str, fmt: str = "auto") -> None:
     """后台执行完整导入流程，逐步更新任务进度。
 
     任务对象由 POST /import 在请求线程中 begin_import 创建并置 running，
     这里直接取回引用（不再 begin，避免并发保护返回 None）。
+    fmt：解析格式（内置源元数据携带，如 C2IntelFeeds 的 csv）。
     """
     t = threat_list.import_progress(source)
     try:
@@ -72,7 +73,7 @@ def _run_import_task(source: str, url: str, enabled: bool,
         text = threat_list.download(url, timeout_s=90, progress=t)
         t.update(stage="parse", message="解析中…")
         n = threat_list.import_source(source, text, enabled=enabled,
-                                      progress=t)
+                                      progress=t, fmt=fmt)
         if n == 0:
             raise ValueError(
                 "列表解析后无有效域名（格式不支持或内容为空）")
@@ -111,13 +112,13 @@ def import_list(body: ImportBody, user: str = Depends(get_current_user)):
     立即返回 task=started；真实结果通过 /import/status 轮询获取，
     同来源已有进行中任务时返回 409。
     """
-    source, url, _fmt = _resolve_source(body)
+    source, url, fmt = _resolve_source(body)
     t = threat_list.begin_import(source)
     if t is None:
         raise HTTPException(status_code=409,
                             detail=f"来源 {source} 正在导入中，请等待完成后再试")
     threading.Thread(target=_run_import_task,
-                     args=(source, url, body.enabled, user),
+                     args=(source, url, body.enabled, user, fmt),
                      daemon=True, name=f"tl-import-{source}").start()
     return {"code": 0, "message": "ok",
             "data": {"task": "started", "source": source}}
