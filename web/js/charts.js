@@ -105,6 +105,7 @@ window.Charts = (function(){
       el.innerHTML = '<div class="empty-state"><span class="es-ico">🍩</span>暂无拦截数据</div>';
       return;
     }
+    var size = opts.size || 190;
     var W = 210, cx = 105, cy = 105, r = 74, sw = 26;
     var circ = 2 * Math.PI * r;
     var off = 0, segs = '';
@@ -117,7 +118,7 @@ window.Charts = (function(){
               ' transform="rotate(-90 ' + cx + ' ' + cy + ')" opacity=".92" stroke-linecap="butt"/>';
       off += len;
     });
-    var svg = '<svg viewBox="0 0 ' + W + ' ' + W + '" xmlns="http://www.w3.org/2000/svg" style="width:190px;height:190px">' +
+    var svg = '<svg viewBox="0 0 ' + W + ' ' + W + '" xmlns="http://www.w3.org/2000/svg" style="width:' + size + 'px;height:' + size + 'px">' +
               '<circle cx="' + cx + '" cy="' + cy + '" r="' + (r - sw / 2 - 8) + '" fill="none" stroke="' + C.grid() + '" stroke-width="1" stroke-dasharray="2 4" opacity=".5"/>' +
               segs +
               '<text x="' + cx + '" y="' + (cy - 2) + '" text-anchor="middle" font-size="24" font-weight="800" fill="' + C.text() + '">' + total.toLocaleString() + '</text>' +

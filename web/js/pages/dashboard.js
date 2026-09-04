@@ -160,8 +160,10 @@ async function loadDashboard(){
       [{ name: '剔除', color: Charts.cssVar('--warning', '#fbbf24'),
          data: hr.map(function(d){ return d.removes || 0; }) }]);
 
-    /* breakdown：来源构成 + Top5 域名 + 客户端 Top */
-    var bd = (await api('GET', '/api/status/breakdown?days=7&top=5')).data;
+    /* breakdown：来源构成 + Top10 域名 + 客户端 Top（迭代 34：域名榜
+       5→10 条，donut 同步缩至 150px 腾空间；top_clients 与 top_domains
+       共用 top 参数，renderClients 内 slice(0,5) 保持客户端卡 5 条不变） */
+    var bd = (await api('GET', '/api/status/breakdown?days=7&top=10')).data;
     var smap = {};
     (bd.sources || []).forEach(function(x){ smap[x.key] = x.count || 0; });
     var srcItems = [
@@ -174,7 +176,7 @@ async function loadDashboard(){
       { key: 'ip_filter', label: 'IP 后置', value: smap.ip_filter || 0,
         color: Charts.cssVar('--accent', '#38bdf8') }
     ];
-    Charts.donut(document.getElementById('donutChart'), srcItems, { centerLabel: '次拦截/剔除' });
+    Charts.donut(document.getElementById('donutChart'), srcItems, { centerLabel: '次拦截/剔除', size: 150 });
     renderTopMini(bd.top_domains || []);
     renderClients(bd.top_clients || []);
     renderChain(smap);
@@ -390,6 +392,9 @@ function renderTopMini(items){
 function renderClients(items){
   var el = document.getElementById('topClients');
   if (!el) return;
+  /* 迭代 34：breakdown 的 top 参数升 10 后，客户端卡仍保持 5 条
+     （布局不动；如未来要同步 10 条，去掉 slice 即可） */
+  items = (items || []).slice(0, 5);
   if (!items.length){
     el.innerHTML = '<div class="empty-state" style="padding:20px 0"><span class="es-ico">💻</span>近 7 日无拦截记录或缺少客户端 IP</div>';
     return;
