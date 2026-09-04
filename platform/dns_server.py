@@ -8,6 +8,7 @@
 """
 
 import asyncio
+import threading
 import ipaddress
 import logging
 import socket
@@ -212,6 +213,14 @@ async def run_dns_server():
     # 查询量统计落库（Task #161："今日请求"全量口径，5s 周期 UPSERT）
     import query_stats
     query_stats.start()
+    # 离线大名单内存缓存预热（迭代 27）：Web 进程在 app/main.py 有同样
+    # 预热，但 DNS 进程此前没有——重启后首条查询要自己懒加载 291 万行
+    # （约 5s），期间 nslookup/代理 forward_timeout 均超时。后台线程
+    # 预热与监听启动并行，端口先起来，缓存数秒内就绪。
+    from app import threat_list
+    threading.Thread(
+        target=threat_list.warm_cache, name="tl-warmup",
+        daemon=True).start()
 
     addr = (CONFIG.dns.listen_addr, CONFIG.dns.listen_port)
 
