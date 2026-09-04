@@ -203,7 +203,10 @@ async function renderHealth(){
     if (hpSrc) hpSrc.textContent = enabled + ' 启用';
 
     var tl = (await api('GET', '/api/threatlist/sources')).data.items || [];
-    var total = tl.reduce(function(a, b){ return a + (b.count || 0); }, 0);
+    /* Task #175：字段名对齐——后端返回 total/enabled_cnt（count 恒
+       undefined → 旧版恒显示"0 条"）；total 含停用源条目，展示启用数
+       与真实匹配口径一致（生产已停 hagezi_ult/stevenblack 等）。 */
+    var total = tl.reduce(function(a, b){ return a + (b.enabled_cnt || 0); }, 0);
     var nexts = tl.map(function(x){ return x.next_update_at || ''; })
                   .filter(function(x){ return x; }).sort();
     var hpOff = document.getElementById('hpOffline');
@@ -229,7 +232,10 @@ async function loadEventStream(){
   var el = document.getElementById('eventStream');
   if (!el) return;
   try{
-    var d = (await api('GET', '/api/logs?size=8')).data;
+    /* Task #175（迭代 28）：改走轻量事件流端点——只含拦截/剔除，
+       不混 allow 采样日志（旧 /api/logs 会把放行日志渲染成"拦截"），
+       且无 COUNT(*) 全表扫描，3s 高频轮询开销 O(size)。 */
+    var d = (await api('GET', '/api/logs/stream?size=8')).data;
     var items = (d && d.items) || [];
     if (items.length && items[0].id && items[0].id <= evLastId) return;
     evLastId = items.length ? items[0].id : 0;

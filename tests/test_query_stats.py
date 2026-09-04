@@ -315,3 +315,126 @@ def test_breakdown_localtime_window():
         assert by["local_blacklist"] >= 1
         assert any(t["domain"] == "bd-utc.test" for t in d["top_domains"])
         assert any(c["client_ip"] == "10.1.1.1" for c in d["top_clients"])
+
+
+# ---------------- Task #175（迭代 28）：安全态势其余卡片口径 ----------------
+
+def test_stream_excludes_allow():
+    """事件流端点只含拦截/剔除：allow 采样日志混入会被渲染成
+    "拦截"（语义错误），且无 COUNT 全表扫描。"""
+    from fastapi.testclient import TestClient
+    from config import CONFIG
+    from app.main import app
+    from app.db import db_cursor
+
+    with db_cursor() as cur:
+        cur.execute(
+            """INSERT INTO filter_log
+               (client_ip, domain, query_type, filter_reason, action,
+                malicious_ips, final_result, source_api)
+               VALUES ('', 'st-int.test', 'A', 'local_blacklist', 'intercept',
+                       '', '', ''),
+                      ('', 'st-allow.test', 'A', 'allow', 'allow',
+                       '', 'forwarded', ''),
+                      ('', 'st-rm.test', 'A', 'ip_filter', 'remove_ip',
+                       '1.1.1.1', '', '')""")
+    with TestClient(app) as c:
+        r = c.post("/api/auth/login", json={
+            "username": "admin", "password": CONFIG.admin_initial_password})
+        token = r.json()["data"]["token"]
+        r = c.get("/api/logs/stream?size=8", headers={
+            "Authorization": f"Bearer {token}"})
+        assert r.status_code == 200
+        items = r.json()["data"]["items"]
+        actions = {it["action"] for it in items}
+        assert "allow" not in actions
+        assert "intercept" in actions and "remove_ip" in actions
+        assert all(set(it.keys()) == set(
+            ("id", "timestamp", "client_ip", "domain", "query_type",
+             "filter_reason", "action", "malicious_ips", "final_result",
+             "source_api")) for it in items)
+
+
+def test_hourly_fill_zero_gaps():
+    """24h 聚合必须补零连续小时：GROUP BY 只返回有数据的小时，
+    缺行导致前端 X 轴失真（无数据小时被抽掉）。"""
+    from fastapi.testclient import TestClient
+    from config import CONFIG
+    from app.main import app
+    from app.db import db_cursor
+    from datetime import datetime, timedelta
+
+    # 只造 1 小时数据（23 小时静默）
+    ts = (datetime.now() - timedelta(hours=2)).strftime(
+        "%Y-%m-%d %H:%M:%S")
+    with db_cursor() as cur:
+        cur.execute(
+            """INSERT INTO filter_log
+               (client_ip, domain, query_type, filter_reason, action,
+                malicious_ips, final_result, source_api, timestamp)
+               VALUES ('', 'hz-1.test', 'A', 'local_blacklist', 'intercept',
+                       '', '', '', ?)""", (ts,))
+
+    with TestClient(app) as c:
+        r = c.post("/api/auth/login", json={
+            "username": "admin", "password": CONFIG.admin_initial_password})
+        token = r.json()["data"]["token"]
+        r = c.get("/api/status/hourly?hours=24", headers={
+            "Authorization": f"Bearer {token}"})
+        d = r.json()["data"]
+        items = d["items"]
+        assert len(items) == 24
+        # 逐档连续：相邻项小时差恰为 1 小时（字符串比较即时间序）
+        from datetime import datetime as _dt
+        hours = [_dt.strptime(it["hour"], "%Y-%m-%d %H:00")
+                 for it in items]
+        for a, b in zip(hours, hours[1:]):
+            assert (b - a) == timedelta(hours=1)
+        # 缺档补零、有数据档有值
+        hit = [it for it in items if it["intercepts"] >= 1]
+        assert len(hit) >= 1
+        zeros = [it for it in items if it["intercepts"] == 0]
+        assert len(zeros) >= 1
+        # 每档字段完整
+        assert all(it.get("threat_list") is not None
+                   and it.get("threatintel") is not None
+                   and it.get("ip_filter") is not None
+                   for it in items)
+
+
+def test_hourly_window_matches_fill_zero():
+    """补零序列的窗口与聚合窗口一致：序列尾（最新档）必须是当前
+    小时，26h 前的数据行不应出现在 24h 窗口内。"""
+    from fastapi.testclient import TestClient
+    from config import CONFIG
+    from app.main import app
+    from app.db import db_cursor
+    from datetime import datetime, timedelta
+
+    ts = (datetime.now() - timedelta(hours=26)).strftime(
+        "%Y-%m-%d %H:%M:%S")
+    with db_cursor() as cur:
+        cur.execute(
+            """INSERT INTO filter_log
+               (client_ip, domain, query_type, filter_reason, action,
+                malicious_ips, final_result, source_api, timestamp)
+               VALUES ('', 'hz-out.test', 'A', 'local_blacklist', 'intercept',
+                       '', '', '', ?)""", (ts,))
+
+    with TestClient(app) as c:
+        r = c.post("/api/auth/login", json={
+            "username": "admin", "password": CONFIG.admin_initial_password})
+        token = r.json()["data"]["token"]
+        r = c.get("/api/status/hourly?hours=24", headers={
+            "Authorization": f"Bearer {token}"})
+        items = r.json()["data"]["items"]
+        assert len(items) == 24
+        # 24 档 = 当前整点往前推 23 档：首档恰为 (当前小时-23h)，
+        # 26h 前的行不入窗（sum 为 0），窗口边界校准
+        from datetime import datetime as _dt
+        first = _dt.strptime(items[0]["hour"], "%Y-%m-%d %H:00")
+        expect_first = datetime.now().replace(
+            minute=0, second=0, microsecond=0) - timedelta(hours=23)
+        assert first == expect_first
+        vals = [it["intercepts"] for it in items]
+        assert sum(vals) == 0

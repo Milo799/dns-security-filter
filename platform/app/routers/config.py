@@ -319,8 +319,13 @@ def status_trend(days: int = 7, _: str = Depends(get_current_user)):
 def status_hourly(hours: int = 24, _: str = Depends(get_current_user)):
     """近 N 小时拦截/剔除聚合（SOC 大屏：24h 柱线图与热力图共用）。
 
-    hour 为完整 'YYYY-MM-DD HH:00'（跨天不合并），前端取 slice(11,16)。
+    hour 为完整 'YYYY-MM-dd HH:00'（跨天不合并），前端取 slice(11,16)。
     intercepts/removes 供柱线图；四类来源列供小时×来源热力图。
+
+    Task #175（迭代 28）：GROUP BY 只返回"有数据"的小时，静默时段缺行
+    → 前端 X 轴按实际行数等分，无数据小时被抽掉、柱体间距失真，
+    "近 24h"时间轴不成立——这里补零生成连续小时序列（从当前整点起
+    往前推 N-1 档，含跨天），前端无需再对齐。
     """
     hours = max(1, min(hours, 168))
     with db_cursor() as cur:
@@ -341,7 +346,28 @@ def status_hourly(hours: int = 24, _: str = Depends(get_current_user)):
                GROUP BY hour ORDER BY hour""",
             (f"-{hours} hours",),
         )
-        items = [dict(r) for r in cur.fetchall()]
+        rows = {r["hour"]: dict(r) for r in cur.fetchall()}
+        # 补零：递归 CTE 生成连续 N 小时序列（localtime 口径，含跨天）
+        gen = [r["hour"] for r in cur.execute(
+            """WITH RECURSIVE seq(i) AS (
+                 SELECT 0 UNION ALL SELECT i + 1 FROM seq WHERE i < ? - 1)
+               SELECT strftime('%Y-%m-%d %H:00', datetime('now','localtime',
+                       printf('-%d hours', i))) AS hour
+               FROM seq""",
+            (hours,),
+        ).fetchall()]
+    items = []
+    for h in sorted(gen):
+        r = rows.get(h) or {}
+        items.append({
+            "hour": h,
+            "intercepts": r.get("intercepts") or 0,
+            "removes": r.get("removes") or 0,
+            "local_blacklist": r.get("local_blacklist") or 0,
+            "threat_list": r.get("threat_list") or 0,
+            "threatintel": r.get("threatintel") or 0,
+            "ip_filter": r.get("ip_filter") or 0,
+        })
     return {"code": 0, "message": "ok",
             "data": {"hours": hours, "items": items}}
 

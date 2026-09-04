@@ -62,6 +62,30 @@ def query_logs(
     return {"code": 0, "message": "ok", "data": {"total": total, "items": items}}
 
 
+@router.get("/stream")
+def stream_intercepts(size: int = Query(8, ge=1, le=50),
+                      _: str = Depends(get_current_user)):
+    """实时拦截事件流（SOC 大屏 3s 轮询专用，Task #175 迭代 28）。
+
+    与 /api/logs 的差异（为高频轮询专门瘦身）：
+    - 只取拦截/剔除（安全事件），不混 allow 采样日志；
+    - 不做 COUNT(*) 全表统计（大库下 3s 一次不可接受）；
+    - ORDER BY id DESC + 主键索引，开销 O(size)。
+
+    旧口径问题：前端轮询 /api/logs?size=8 无 action 过滤，放行日志
+    开启采样后会混入事件流且被渲染成"拦截"——语义错误。
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            f"""SELECT {','.join(_LOG_COLUMNS)} FROM filter_log
+                WHERE action IN ('intercept','remove_ip')
+                ORDER BY id DESC LIMIT ?""",
+            (size,),
+        )
+        items = [dict(r) for r in cur.fetchall()]
+    return {"code": 0, "message": "ok", "data": {"items": items}}
+
+
 @router.get("/export")
 def export_logs(
     start: str | None = None,
