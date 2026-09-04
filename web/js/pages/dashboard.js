@@ -193,7 +193,12 @@ async function loadDashboard(){
     Charts.heatmap(document.getElementById('hourlyHeat'), hLabels, hmRows, { height: 118 });
 
     renderHealth();
+    /* 健康卡独立 30s 周期（迭代 33）：首轮立即渲染（复用本轮已取的
+       /api/status），此后 _hpTick 自主轮询，不随主数据 10s 刷新 */
     renderPlatformHealth(s);
+    if (!hpTimer){
+      hpTimer = setInterval(_hpTick, 30000);
+    }
   }catch(e){ toast(e.message, true); }
 }
 
@@ -222,32 +227,38 @@ async function renderHealth(){
   }catch(e){ /* 健康信息获取失败不阻塞主视图 */ }
 }
 
-/* ---------- 平台运行健康（原热力图卡位，迭代 32） ----------
-   汇聚既有观测端点：检测开关 + 域名/IP 缓存命中率 + 日志写入队列 +
+/* ---------- 平台运行健康（原热力图卡位，迭代 32；迭代 33 美化+刷新） ----------
+   汇聚既有观测端点：检测开关 + 域名缓存命中率 + 日志写入队列 +
    保留清理 + 线程池队列。所有指标都有明确的"异常判据"，
    正常时显示数值，异常时整格标红——一眼巡检，无需翻系统配置页。
-   注意：双进程部署下 queue-stats 读 Web 进程自身计数（恒 0），
-   该格在 pending>0 时才有意义（单进程形态/本地验证）。 */
-function _hpCell(ok, label, value, warnText){
-  var cls = 'hpg-cell ' + (ok ? 'ok' : 'bad');
-  var tip = warnText ? ' title="' + esc(warnText) + '"' : '';
-  return '<div class="' + cls + '"' + tip + '>' +
-         '<span class="hpg-label">' + esc(label) + '</span>' +
-         '<span class="hpg-value">' + value + '</span></div>';
-}
+   性能设计（迭代 33）：
+   - 独立 30s 定时器（健康指标变化缓慢，无需跟随主数据 10s 周期；
+     4 端点全部 O(1) 内存计数读取，零 SQL）；
+   - 值 diff：无变化跳过 innerHTML 重建，杜绝周期性整卡重绘闪烁；
+     变化的格短暂闪烁高亮，肉眼可感知"刚更新"；
+   - 注意：双进程部署下 queue-stats 读 Web 进程自身计数（恒 0），
+     该格在 pending>0 时才有意义（单进程形态/本地验证）。 */
+var hpTimer = null, hpLast = {};
+
 function _fmtPct(rate){
   return (typeof rate === 'number') ? Math.round(rate * 100) + '%' : '--';
+}
+function _hpCell(key, ok, label, value, sub, color, warnText){
+  var tip = warnText ? ' title="' + esc(warnText) + '"' : '';
+  var badge = ok ? '✓' : '⚠';
+  return '<div class="hpg-cell ' + (ok ? 'ok' : 'bad') + '" data-hp="' + key + '"' + tip + '>' +
+         '<span class="hpg-bar" style="background:' + color + '"></span>' +
+         '<div class="hpg-head"><span class="hpg-dot"></span>' +
+         '<span class="hpg-label">' + esc(label) + '</span>' +
+         '<span class="hpg-badge">' + badge + '</span></div>' +
+         '<span class="hpg-value">' + value + '</span>' +
+         '<span class="hpg-sub">' + sub + '</span></div>';
 }
 async function renderPlatformHealth(status){
   var el = document.getElementById('platformHealth');
   if (!el) return;
   try{
-    var cells = [];
-    /* 检测引擎开关 */
     var det = status && status.detection_enabled;
-    cells.push(_hpCell(det, '检测引擎', det ? '运行中' : '已关闭',
-                      det ? '' : '检测总开关已关闭，全部请求直接放行'));
-    /* 并行拉取四个观测端点（与既有 renderHealth 的请求不重复的部分） */
     var results = await Promise.allSettled([
       api('GET', '/api/domain-cache/stats'),
       api('GET', '/api/log-writer/stats'),
@@ -258,34 +269,67 @@ async function renderPlatformHealth(status){
     var lw = results[1].status === 'fulfilled' ? results[1].value.data : null;
     var qs = results[2].status === 'fulfilled' ? results[2].value.data : null;
     var lr = results[3].status === 'fulfilled' ? results[3].value.data : null;
+    var OK = Charts.cssVar('--success', '#34d399');
+    var AC = Charts.cssVar('--accent', '#38bdf8');
+    var A2 = Charts.cssVar('--accent-2', '#6366f1');
+    var WA = Charts.cssVar('--warning', '#fbbf24');
 
-    if (dc){
-      cells.push(_hpCell(true, '域名缓存',
-        (dc.size || 0).toLocaleString() + ' 条 · ' + _fmtPct(dc.hit_rate)));
+    var cells = [
+      _hpCell('det', det, '检测引擎', det ? '运行中' : '已关闭',
+              det ? '黑白名单+情报源全链路' : '检测关闭 · 全部放行',
+              det ? OK : Charts.cssVar('--danger', '#f43f5e'),
+              det ? '' : '检测总开关已关闭，全部请求直接放行'),
+      _hpCell('dc', true, '域名缓存',
+              dc ? (dc.size || 0).toLocaleString() : '--',
+              dc ? '命中率 ' + _fmtPct(dc.hit_rate) + ' · 容量 ' +
+                   ((dc.max_size || 0) / 10000).toLocaleString() + '万' : '',
+              AC),
+      _hpCell('lw', !lw || !(lw.dropped > 0), '日志写入',
+              lw ? ('队列 ' + (lw.queue_size || 0)) : '--',
+              lw ? ('累计 ' + (lw.flushed || 0).toLocaleString() + ' 条 · 丢 ' + (lw.dropped || 0)) : '',
+              WA,
+              'dropped>0：写入跟不上，需调大批量/缩短间隔或检查磁盘 IO'),
+      _hpCell('qs', !qs || (qs.pending || 0) < 100, '检测队列',
+              qs ? ('待 ' + (qs.pending || 0)) : '--',
+              qs ? ('执行 ' + (qs.inflight || 0) + ' · 峰值 ' + (qs.max_pending || 0)) : '',
+              A2,
+              'pending≥100：检测线程池供不应求（双进程部署读 Web 计数恒 0 属正常）'),
+      _hpCell('lr', !lr || (lr.last_run_at || 0) > 0 || (lr.total_deleted || 0) === 0, '日志清理',
+              lr ? ((lr.total_deleted || 0).toLocaleString() + ' 条') : '--',
+              lr ? ((lr.total_runs || 0) + ' 轮 · 保留天数自动清理') : '',
+              OK,
+              '清理线程未运行且库持续增长时检查保留天数配置'),
+    ];
+
+    /* 值 diff：格子内容（value/sub/ok 三元组）与上次一致则跳过重建 */
+    var sig = cells.join('|');
+    if (sig !== hpLast.sig){
+      hpLast.sig = sig;
+      el.innerHTML = '<div class="hpg-wrap">' + cells.join('') + '</div>';
     }
-    var lwOk = !lw || !(lw.dropped > 0);
-    cells.push(_hpCell(lwOk, '日志写入',
-      lw ? ('队列 ' + (lw.queue_size || 0) + ' · 丢 ' + (lw.dropped || 0)) : '--',
-      'dropped>0：写入跟不上，需调大批量/缩短间隔或检查磁盘 IO'));
-    var qsOk = !qs || (qs.pending || 0) < 100;
-    cells.push(_hpCell(qsOk, '检测队列',
-      qs ? ('待 ' + (qs.pending || 0) + ' · 执行 ' + (qs.inflight || 0)) : '--',
-      'pending≥100：检测线程池供不应求（双进程部署读 Web 计数恒 0 属正常）'));
-    var lrOk = !lr || (lr.last_run_at || 0) > 0 || (lr.total_deleted || 0) === 0;
-    cells.push(_hpCell(lrOk, '日志清理',
-      lr ? ('累计删 ' + (lr.total_deleted || 0).toLocaleString() + ' · ' + (lr.total_runs || 0) + ' 轮') : '--',
-      '清理线程未运行且库持续增长时检查保留天数配置'));
-
-    el.innerHTML = '<div class="hpg-wrap">' + cells.join('') + '</div>';
+    /* 卡头徽标 */
     var tag = document.getElementById('healthTag');
     if (tag){
-      var bad = cells.filter(function(c){ return c.indexOf('hpg-cell bad') >= 0; }).length;
-      tag.className = 'tag ' + (bad ? 'tag-error' : 'tag-success');
-      tag.textContent = bad ? bad + ' 项异常' : '全部正常';
+      var bad = 0;
+      cells.forEach(function(c){ if (c.indexOf('hpg-cell bad') >= 0) bad++; });
+      var tagSig = 'tag' + bad;
+      if (hpLast.tagSig !== tagSig){
+        hpLast.tagSig = tagSig;
+        tag.className = 'tag ' + (bad ? 'tag-error' : 'tag-success');
+        tag.innerHTML = '<span class="dot pulse"></span>' +
+                        (bad ? bad + ' 项异常' : '全部正常');
+      }
     }
   }catch(e){
     el.innerHTML = '<div class="empty-state" style="padding:20px 0"><span class="es-ico">⚠</span>健康数据获取失败</div>';
   }
+}
+/* 独立 30s 刷新（ detached 自 loadDashboard 的 10s 主周期——
+   健康指标变化缓慢，降频 3 倍省请求；与 dashTimer 同生命周期管理） */
+function _hpTick(){
+  api('GET', '/api/status').then(function(r){
+    renderPlatformHealth(r.data);
+  }).catch(function(){ /* 静默等下个周期 */ });
 }
 
 /* ---------- 实时拦截事件流（3s 轮询，新事件置顶） ---------- */

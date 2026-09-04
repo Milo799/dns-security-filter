@@ -12,15 +12,43 @@
 /* 趋势卡下半区（合并热力图，迭代 32）：与上部分隔 */
 .sub-chart{width:100%;min-height:120px;margin-top:10px;padding-top:12px;border-top:1px dashed var(--border)}
 .sub-chart .heatmap{padding-top:0}
-/* 平台运行健康网格（原热力图卡位，迭代 32） */
+/* 平台运行健康网格（原热力图卡位，迭代 32；迭代 33 视觉升级） */
 .hpg-wrap{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:2px 0}
-.hpg-cell{display:flex;flex-direction:column;gap:6px;padding:12px 12px;border-radius:10px;
-  background:var(--bg-soft);border:1px solid var(--border);min-height:64px;justify-content:center}
-.hpg-cell .hpg-label{font-size:11.5px;color:var(--text-dim)}
-.hpg-cell .hpg-value{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text)}
-.hpg-cell.bad{border-color:var(--danger);background:rgba(244,63,94,.08)}
+.hpg-cell{
+  position:relative;display:flex;flex-direction:column;gap:3px;
+  padding:12px 12px 10px 14px;border-radius:10px;min-height:84px;
+  background:var(--bg-soft);border:1px solid var(--border);overflow:hidden;
+  transition:border-color .2s ease,background .2s ease;
+}
+.hpg-cell:hover{border-color:var(--border-2)}
+/* 彩色顶边条（语义色身份带） */
+.hpg-bar{position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:3px 0 0 3px;opacity:.85}
+/* 状态点 + 标签行 */
+.hpg-head{display:flex;align-items:center;gap:7px}
+.hpg-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;
+  background:var(--success);box-shadow:0 0 8px rgba(52,211,153,.55)}
+.hpg-cell.bad .hpg-dot{background:var(--danger);box-shadow:0 0 8px rgba(244,63,94,.55);
+  animation:hpPulse 1.6s infinite}
+@keyframes hpPulse{
+  0%{box-shadow:0 0 0 0 rgba(244,63,94,.4)}
+  70%{box-shadow:0 0 0 7px rgba(244,63,94,0)}
+  100%{box-shadow:0 0 0 0 rgba(244,63,94,0)}
+}
+.hpg-cell .hpg-label{font-size:11.5px;color:var(--text-dim);letter-spacing:.5px}
+.hpg-cell .hpg-badge{margin-left:auto;font-size:11px;font-weight:800;color:var(--success);opacity:.85}
+.hpg-cell.bad .hpg-badge{color:var(--danger)}
+/* 主数值 + 次行说明 */
+.hpg-cell .hpg-value{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;
+  color:var(--text);line-height:1.25}
+.hpg-cell .hpg-sub{font-size:11px;color:var(--text-dim);line-height:1.4;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 异常态：语义底 + 边框（正常格保持中性底，仅状态点示色） */
+.hpg-cell.bad{border-color:rgba(244,63,94,.55);background:rgba(244,63,94,.08)}
 .hpg-cell.bad .hpg-value{color:var(--danger)}
-.hpg-cell.ok .hpg-value{color:var(--success)}
+/* 减少动效偏好时关闭脉冲 */
+@media (prefers-reduced-motion: reduce){
+  .hpg-cell.bad .hpg-dot{animation:none}
+}
 .donut-wrap{display:flex;align-items:center;justify-content:center;gap:18px;flex-wrap:wrap;padding:6px 0}
 .donut-legend{display:flex;flex-direction:column;gap:8px;min-width:130px}
 .donut-legend .dl-item{display:flex;align-items:center;gap:8px;font-size:12.5px}
