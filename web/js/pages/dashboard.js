@@ -149,7 +149,9 @@ async function loadDashboard(){
       riskFoot.textContent = '口径说明：放行日志未全量，精确拦截率不可算';
     }
 
-    /* 近 24h 柱线图（柱=拦截 线=剔除） */
+    /* 近 24h 柱线图（柱=拦截 线=剔除）+ 下半来源热力图（同一 hourly
+       数据源共享 X 轴——趋势看总量走势，热力看各来源的时段分布，
+       两图意图互补合并一卡；原独立热力图卡位让给平台运行健康） */
     var hr = (await api('GET', '/api/status/hourly?hours=24')).data.items || [];
     var hLabels = hr.map(function(d){ return d.hour ? d.hour.slice(11, 16) : ''; });
     Charts.barLineChart(document.getElementById('hourlyChart'), hLabels,
@@ -177,7 +179,7 @@ async function loadDashboard(){
     renderClients(bd.top_clients || []);
     renderChain(smap);
 
-    /* 24h 热力图（小时 × 来源类型） */
+    /* 24h 热力图（小时 × 来源类型）——渲染进趋势卡下半区 */
     var hmRows = [
       { name: '人工黑名单', color: Charts.cssVar('--danger', '#f43f5e'),
         data: hr.map(function(d){ return d.local_blacklist || 0; }) },
@@ -188,9 +190,10 @@ async function loadDashboard(){
       { name: 'IP 后置', color: Charts.cssVar('--accent', '#38bdf8'),
         data: hr.map(function(d){ return d.ip_filter || 0; }) }
     ];
-    Charts.heatmap(document.getElementById('heatmap'), hLabels, hmRows, { height: 150 });
+    Charts.heatmap(document.getElementById('hourlyHeat'), hLabels, hmRows, { height: 118 });
 
     renderHealth();
+    renderPlatformHealth(s);
   }catch(e){ toast(e.message, true); }
 }
 
@@ -217,6 +220,72 @@ async function renderHealth(){
     var hpUp = document.getElementById('hpUpstream');
     if (hpUp) hpUp.textContent = up;
   }catch(e){ /* 健康信息获取失败不阻塞主视图 */ }
+}
+
+/* ---------- 平台运行健康（原热力图卡位，迭代 32） ----------
+   汇聚既有观测端点：检测开关 + 域名/IP 缓存命中率 + 日志写入队列 +
+   保留清理 + 线程池队列。所有指标都有明确的"异常判据"，
+   正常时显示数值，异常时整格标红——一眼巡检，无需翻系统配置页。
+   注意：双进程部署下 queue-stats 读 Web 进程自身计数（恒 0），
+   该格在 pending>0 时才有意义（单进程形态/本地验证）。 */
+function _hpCell(ok, label, value, warnText){
+  var cls = 'hpg-cell ' + (ok ? 'ok' : 'bad');
+  var tip = warnText ? ' title="' + esc(warnText) + '"' : '';
+  return '<div class="' + cls + '"' + tip + '>' +
+         '<span class="hpg-label">' + esc(label) + '</span>' +
+         '<span class="hpg-value">' + value + '</span></div>';
+}
+function _fmtPct(rate){
+  return (typeof rate === 'number') ? Math.round(rate * 100) + '%' : '--';
+}
+async function renderPlatformHealth(status){
+  var el = document.getElementById('platformHealth');
+  if (!el) return;
+  try{
+    var cells = [];
+    /* 检测引擎开关 */
+    var det = status && status.detection_enabled;
+    cells.push(_hpCell(det, '检测引擎', det ? '运行中' : '已关闭',
+                      det ? '' : '检测总开关已关闭，全部请求直接放行'));
+    /* 并行拉取四个观测端点（与既有 renderHealth 的请求不重复的部分） */
+    var results = await Promise.allSettled([
+      api('GET', '/api/domain-cache/stats'),
+      api('GET', '/api/log-writer/stats'),
+      api('GET', '/api/queue-stats'),
+      api('GET', '/api/log-retention/stats'),
+    ]);
+    var dc = results[0].status === 'fulfilled' ? results[0].value.data : null;
+    var lw = results[1].status === 'fulfilled' ? results[1].value.data : null;
+    var qs = results[2].status === 'fulfilled' ? results[2].value.data : null;
+    var lr = results[3].status === 'fulfilled' ? results[3].value.data : null;
+
+    if (dc){
+      cells.push(_hpCell(true, '域名缓存',
+        (dc.size || 0).toLocaleString() + ' 条 · ' + _fmtPct(dc.hit_rate)));
+    }
+    var lwOk = !lw || !(lw.dropped > 0);
+    cells.push(_hpCell(lwOk, '日志写入',
+      lw ? ('队列 ' + (lw.queue_size || 0) + ' · 丢 ' + (lw.dropped || 0)) : '--',
+      'dropped>0：写入跟不上，需调大批量/缩短间隔或检查磁盘 IO'));
+    var qsOk = !qs || (qs.pending || 0) < 100;
+    cells.push(_hpCell(qsOk, '检测队列',
+      qs ? ('待 ' + (qs.pending || 0) + ' · 执行 ' + (qs.inflight || 0)) : '--',
+      'pending≥100：检测线程池供不应求（双进程部署读 Web 计数恒 0 属正常）'));
+    var lrOk = !lr || (lr.last_run_at || 0) > 0 || (lr.total_deleted || 0) === 0;
+    cells.push(_hpCell(lrOk, '日志清理',
+      lr ? ('累计删 ' + (lr.total_deleted || 0).toLocaleString() + ' · ' + (lr.total_runs || 0) + ' 轮') : '--',
+      '清理线程未运行且库持续增长时检查保留天数配置'));
+
+    el.innerHTML = '<div class="hpg-wrap">' + cells.join('') + '</div>';
+    var tag = document.getElementById('healthTag');
+    if (tag){
+      var bad = cells.filter(function(c){ return c.indexOf('hpg-cell bad') >= 0; }).length;
+      tag.className = 'tag ' + (bad ? 'tag-error' : 'tag-success');
+      tag.textContent = bad ? bad + ' 项异常' : '全部正常';
+    }
+  }catch(e){
+    el.innerHTML = '<div class="empty-state" style="padding:20px 0"><span class="es-ico">⚠</span>健康数据获取失败</div>';
+  }
 }
 
 /* ---------- 实时拦截事件流（3s 轮询，新事件置顶） ---------- */

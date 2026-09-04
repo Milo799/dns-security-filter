@@ -9,6 +9,18 @@
 .dash-row + .dash-row{margin-top:18px}
 .chart-box{width:100%;min-height:230px}
 .chart-box svg{display:block;width:100%;height:auto}
+/* 趋势卡下半区（合并热力图，迭代 32）：与上部分隔 */
+.sub-chart{width:100%;min-height:120px;margin-top:10px;padding-top:12px;border-top:1px dashed var(--border)}
+.sub-chart .heatmap{padding-top:0}
+/* 平台运行健康网格（原热力图卡位，迭代 32） */
+.hpg-wrap{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:2px 0}
+.hpg-cell{display:flex;flex-direction:column;gap:6px;padding:12px 12px;border-radius:10px;
+  background:var(--bg-soft);border:1px solid var(--border);min-height:64px;justify-content:center}
+.hpg-cell .hpg-label{font-size:11.5px;color:var(--text-dim)}
+.hpg-cell .hpg-value{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text)}
+.hpg-cell.bad{border-color:var(--danger);background:rgba(244,63,94,.08)}
+.hpg-cell.bad .hpg-value{color:var(--danger)}
+.hpg-cell.ok .hpg-value{color:var(--success)}
 .donut-wrap{display:flex;align-items:center;justify-content:center;gap:18px;flex-wrap:wrap;padding:6px 0}
 .donut-legend{display:flex;flex-direction:column;gap:8px;min-width:130px}
 .donut-legend .dl-item{display:flex;align-items:center;gap:8px;font-size:12.5px}

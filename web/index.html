@@ -106,8 +106,11 @@
         <!-- 第二段：分析维度三列 -->
         <div class="dash-3col">
           <div class="card card-corner">
-            <div class="card-head"><div class="card-title">近 24h 拦截趋势</div><span class="tag tag-neutral">柱=拦截 / 线=剔除</span></div>
-            <div class="card-body"><div class="chart-box" id="hourlyChart"><div class="loading">加载中…</div></div></div>
+            <div class="card-head"><div class="card-title">近 24h 拦截趋势</div><span class="tag tag-neutral">柱=拦截 / 线=剔除 · 下=来源热力</span></div>
+            <div class="card-body">
+              <div class="chart-box" id="hourlyChart"><div class="loading">加载中…</div></div>
+              <div class="sub-chart" id="hourlyHeat"><div class="loading">加载中…</div></div>
+            </div>
           </div>
           <div class="card card-corner">
             <div class="card-head"><div class="card-title">拦截来源构成</div><span class="tag tag-neutral">近 7 日</span></div>
@@ -140,8 +143,10 @@
             <div class="card-body"><div id="topClients"><div class="loading">加载中…</div></div></div>
           </div>
           <div class="card card-corner">
-            <div class="card-head"><div class="card-title">24h 拦截热力图</div><span class="tag tag-neutral">小时 × 来源</span></div>
-            <div class="card-body"><div class="chart-box" id="heatmap" style="min-height:150px"><div class="loading">加载中…</div></div></div>
+            <div class="card-head"><div class="card-title">平台运行健康</div><span class="tag tag-neutral" id="healthTag">10s 刷新</span></div>
+            <div class="card-body">
+              <div class="hp-grid" id="platformHealth"><div class="loading">加载中…</div></div>
+            </div>
           </div>
         </div>
       </div>
@@ -550,17 +555,17 @@
 </div>
 
 <!-- 加载顺序：core → charts → pages → boot -->
-<script src="js/app.js?v=31"></script>
-<script src="js/charts.js?v=31"></script>
-<script src="js/pages/dashboard.js?v=31"></script>
-<script src="js/pages/logs.js?v=31"></script>
-<script src="js/pages/lists.js?v=31"></script>
-<script src="js/pages/testcenter.js?v=31"></script>
-<script src="js/pages/threatintel.js?v=31"></script>
-<script src="js/pages/fusion.js?v=31"></script>
-<script src="js/pages/threatlist.js?v=31"></script>
-<script src="js/pages/config.js?v=31"></script>
-<script src="js/pages/audit.js?v=31"></script>
-<script src="js/boot.js?v=31"></script>
+<script src="js/app.js?v=32"></script>
+<script src="js/charts.js?v=32"></script>
+<script src="js/pages/dashboard.js?v=32"></script>
+<script src="js/pages/logs.js?v=32"></script>
+<script src="js/pages/lists.js?v=32"></script>
+<script src="js/pages/testcenter.js?v=32"></script>
+<script src="js/pages/threatintel.js?v=32"></script>
+<script src="js/pages/fusion.js?v=32"></script>
+<script src="js/pages/threatlist.js?v=32"></script>
+<script src="js/pages/config.js?v=32"></script>
+<script src="js/pages/audit.js?v=32"></script>
+<script src="js/boot.js?v=32"></script>
 </body>
 </html>
