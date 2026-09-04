@@ -34,6 +34,10 @@ _ACTION_LABELS = {
     "fusion_strategy_change": "切换融合策略",
     "detection_toggle": "切换检测开关",
     "config_update": "修改系统配置",
+    # 认证安全（迭代 31）
+    "password_change": "修改密码",
+    "login_lockout": "登录失败锁定",
+    "login_ip_block": "登录失败封禁IP",
 }
 
 _LIST_TYPE_LABELS = {"blacklist": "黑名单", "whitelist": "白名单"}
@@ -50,6 +54,11 @@ _CONFIG_LABELS = {
     "api_timeout_ms": "情报源超时", "threatlist_auto_update": "大名单自动更新",
     "threatlist_auto_interval_hours": "大名单自动更新间隔",
     "admin_initial_password": "管理员初始密码",
+    "login_lockout_threshold": "登录锁定阈值",
+    "login_lockout_minutes": "登录锁定时长",
+    "login_ip_threshold": "登录IP封禁阈值",
+    "login_ip_window_minutes": "登录IP统计窗口",
+    "login_ip_block_minutes": "登录IP封禁时长",
 }
 _FIELD_LABELS = {
     "enabled": "启用状态", "value": "匹配值", "remark": "备注",
@@ -179,6 +188,20 @@ def humanize(action: str, detail: dict, list_map: dict | None = None,
         if action == "detection_toggle":
             en = detail.get("enabled")
             return f"{label}：{'已开启' if en else '已关闭'}"
+
+        if action == "password_change":
+            return f"{label}：{detail.get('username', '?')}"
+
+        if action == "login_lockout":
+            return (f"{label}：{detail.get('username', '?')} 连续失败 "
+                    f"{detail.get('failures', '?')} 次，锁定 "
+                    f"{detail.get('minutes', '?')} 分钟")
+
+        if action == "login_ip_block":
+            return (f"{label}：{detail.get('ip', '?')} 窗口 "
+                    f"{detail.get('window_minutes', '?')} 分钟内失败 "
+                    f"{detail.get('failures', '?')} 次，封禁 "
+                    f"{detail.get('block_minutes', '?')} 分钟")
 
         if action == "config_update":
             parts = []

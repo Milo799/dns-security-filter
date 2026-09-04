@@ -65,6 +65,17 @@ def _migrate(conn: sqlite3.Connection) -> None:
             conn.execute(
                 f"ALTER TABLE threatintel_api ADD COLUMN {name} {ddl}")
 
+    # 迭代 31：认证安全批次（admin_user 新增两列，存量库自动补齐）
+    admin_cols = {
+        "must_change": "BOOLEAN NOT NULL DEFAULT 0",
+        "password_changed_at": "DATETIME",
+    }
+    admin_existing = {r["name"] for r in conn.execute(
+        "PRAGMA table_info(admin_user)").fetchall()}
+    for name, ddl in admin_cols.items():
+        if name not in admin_existing:
+            conn.execute(f"ALTER TABLE admin_user ADD COLUMN {name} {ddl}")
+
 
 @contextmanager
 def db_cursor():

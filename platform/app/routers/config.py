@@ -66,6 +66,11 @@ class ConfigBody(BaseModel):
     upstream_timeout_s: int | None = None
     upstream_failure_threshold: int | None = None
     upstream_open_timeout_s: int | None = None
+    login_lockout_threshold: int | None = None
+    login_lockout_minutes: int | None = None
+    login_ip_threshold: int | None = None
+    login_ip_window_minutes: int | None = None
+    login_ip_block_minutes: int | None = None
 
 
 @router.get("/config")
@@ -154,6 +159,27 @@ def update_config(body: ConfigBody, user: str = Depends(get_current_user)):
             status_code=400, detail="upstream_open_timeout_s 须在 5~86400 之间（秒）")
     if "http_proxy" in data:
         data["http_proxy"] = _validate_proxy(data["http_proxy"])
+    # 登录防爆破（迭代 31；0=禁用对应闸）
+    if "login_lockout_threshold" in data and not (
+            0 <= data["login_lockout_threshold"] <= 1000):
+        raise HTTPException(
+            status_code=400, detail="login_lockout_threshold 须在 0~1000 之间（0=禁用账号闸）")
+    if "login_lockout_minutes" in data and not (
+            1 <= data["login_lockout_minutes"] <= 1440):
+        raise HTTPException(
+            status_code=400, detail="login_lockout_minutes 须在 1~1440 之间（分钟）")
+    if "login_ip_threshold" in data and not (
+            0 <= data["login_ip_threshold"] <= 10000):
+        raise HTTPException(
+            status_code=400, detail="login_ip_threshold 须在 0~10000 之间（0=禁用 IP 闸）")
+    if "login_ip_window_minutes" in data and not (
+            1 <= data["login_ip_window_minutes"] <= 1440):
+        raise HTTPException(
+            status_code=400, detail="login_ip_window_minutes 须在 1~1440 之间（分钟）")
+    if "login_ip_block_minutes" in data and not (
+            1 <= data["login_ip_block_minutes"] <= 1440):
+        raise HTTPException(
+            status_code=400, detail="login_ip_block_minutes 须在 1~1440 之间（分钟）")
 
     changes = {}
     for key, value in data.items():

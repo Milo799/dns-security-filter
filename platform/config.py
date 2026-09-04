@@ -58,6 +58,12 @@ class PlatformConfig:
     threatlist_auto_interval_hours: int = 24  # 自动更新间隔（小时，1~720）
     http_proxy: str = ""                   # 情报出站代理（http://ip:port；空=直连。在线情报源查询+离线大名单下载统一走此代理；DNSBL 走 DNS 协议不经代理）
     admin_initial_password: str = "admin123"  # 首次初始化管理员密码（生产必须改）
+    # --- 登录防爆破（迭代 31，Task #172；均可经 system_config 热生效） ---
+    login_lockout_threshold: int = 5      # 账号闸：连续失败 N 次锁定（0=禁用）
+    login_lockout_minutes: int = 15       # 账号闸：锁定时长（分钟）
+    login_ip_threshold: int = 20          # IP 闸：窗口内累计失败 N 次（0=禁用）
+    login_ip_window_minutes: int = 15     # IP 闸：滑动窗口时长（分钟）
+    login_ip_block_minutes: int = 30      # IP 闸：封禁时长（分钟）
 
     def load(self, path: str = DEFAULT_CONFIG_PATH) -> "PlatformConfig":
         if not os.path.exists(path):

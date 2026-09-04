@@ -35,6 +35,12 @@ DEFAULT_SYSTEM_CONFIG = {
     "threatlist_auto_update": str(int(CONFIG.threatlist_auto_update)),
     "threatlist_auto_interval_hours": str(CONFIG.threatlist_auto_interval_hours),
     "http_proxy": CONFIG.http_proxy,
+    # 登录防爆破（迭代 31，Task #172；0=禁用对应闸）
+    "login_lockout_threshold": str(CONFIG.login_lockout_threshold),
+    "login_lockout_minutes": str(CONFIG.login_lockout_minutes),
+    "login_ip_threshold": str(CONFIG.login_ip_threshold),
+    "login_ip_window_minutes": str(CONFIG.login_ip_window_minutes),
+    "login_ip_block_minutes": str(CONFIG.login_ip_block_minutes),
 }
 
 # ---------------------------------------------------------------------------
@@ -194,7 +200,10 @@ def init_builtin_threatintel(conn) -> None:
 
 
 def init_admin(conn) -> None:
-    """不存在管理员则创建默认管理员（admin / admin_initial_password）。"""
+    """不存在管理员则创建默认管理员（admin / admin_initial_password）。
+
+    迭代 31：新库创建即标记 must_change=1（首次登录强制改密）。
+    """
     cur = conn.execute("SELECT COUNT(*) AS c FROM admin_user")
     if cur.fetchone()["c"] > 0:
         return
@@ -202,12 +211,13 @@ def init_admin(conn) -> None:
         CONFIG.admin_initial_password.encode(), bcrypt.gensalt()
     ).decode()
     conn.execute(
-        "INSERT INTO admin_user (username, password_hash) VALUES (?, ?)",
+        "INSERT INTO admin_user (username, password_hash, must_change) "
+        "VALUES (?, ?, 1)",
         ("admin", password_hash),
     )
     conn.commit()
     logger.warning(
-        "已创建默认管理员 admin，初始密码：%s（生产环境请立即修改！）",
+        "已创建默认管理员 admin，初始密码：%s（首次登录将强制修改密码）",
         CONFIG.admin_initial_password,
     )
 

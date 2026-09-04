@@ -32,6 +32,7 @@
       <span id="statusBadge" class="tag tag-success"><span class="dot pulse"></span>检测运行中</span>
       <button class="theme-toggle" id="themeToggle" title="切换深浅主题" onclick="toggleTheme()">☾</button>
       <div class="avatar" id="avatar">AD</div>
+      <button class="btn btn-subtle btn-compact" onclick="openPwdModal(false)" title="修改当前账号密码">修改密码</button>
       <button class="btn btn-subtle btn-compact" onclick="doLogout()">退出</button>
     </div>
   </div>
@@ -527,18 +528,39 @@
 
 <div id="toast"></div>
 
+<!-- ==================== 修改密码弹窗（迭代 31） ==================== -->
+<div class="modal-mask" id="pwdModal">
+  <div class="modal" style="width:420px">
+    <div class="modal-head"><span id="pwdModalTitle">修改密码</span><button class="icon-btn" id="pwdModalClose" onclick="closePwdModal()">✕</button></div>
+    <div class="modal-body">
+      <div id="pwdForceTip" style="display:none" class="pwd-force-tip">
+        当前仍在使用初始密码，安全要求必须先修改密码后才能进入管理界面。
+      </div>
+      <div class="field"><label>旧密码</label><input id="pwdOld" type="password" autocomplete="off" placeholder="输入当前密码"></div>
+      <div class="field"><label>新密码</label><input id="pwdNew" type="password" autocomplete="off" placeholder="至少 8 位，须包含字母和数字" oninput="pwdPrecheck()"></div>
+      <div class="field"><label>确认新密码</label><input id="pwdNew2" type="password" autocomplete="off" placeholder="再次输入新密码" oninput="pwdPrecheck()"></div>
+      <div class="pwd-hint" id="pwdHint"></div>
+      <div class="login-err" id="pwdErr"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-normal" id="pwdCancelBtn" onclick="closePwdModal()">取消</button>
+      <button class="btn btn-emphasized" onclick="doChangePassword()">确认修改</button>
+    </div>
+  </div>
+</div>
+
 <!-- 加载顺序：core → charts → pages → boot -->
-<script src="js/app.js?v=30"></script>
-<script src="js/charts.js?v=30"></script>
-<script src="js/pages/dashboard.js?v=30"></script>
-<script src="js/pages/logs.js?v=30"></script>
-<script src="js/pages/lists.js?v=30"></script>
-<script src="js/pages/testcenter.js?v=30"></script>
-<script src="js/pages/threatintel.js?v=30"></script>
-<script src="js/pages/fusion.js?v=30"></script>
-<script src="js/pages/threatlist.js?v=30"></script>
-<script src="js/pages/config.js?v=30"></script>
-<script src="js/pages/audit.js?v=30"></script>
-<script src="js/boot.js?v=30"></script>
+<script src="js/app.js?v=31"></script>
+<script src="js/charts.js?v=31"></script>
+<script src="js/pages/dashboard.js?v=31"></script>
+<script src="js/pages/logs.js?v=31"></script>
+<script src="js/pages/lists.js?v=31"></script>
+<script src="js/pages/testcenter.js?v=31"></script>
+<script src="js/pages/threatintel.js?v=31"></script>
+<script src="js/pages/fusion.js?v=31"></script>
+<script src="js/pages/threatlist.js?v=31"></script>
+<script src="js/pages/config.js?v=31"></script>
+<script src="js/pages/audit.js?v=31"></script>
+<script src="js/boot.js?v=31"></script>
 </body>
 </html>

@@ -23,10 +23,16 @@ _INT_KEYS = {"alert_ttl", "log_retention_days", "api_timeout_ms",
              "upstream_timeout_s", "upstream_failure_threshold",
              "upstream_open_timeout_s",
              "allow_log_sample_rate", "log_flush_interval_s",
-             "log_batch_size"}
+             "log_batch_size",
+             # 登录防爆破（迭代 31）
+             "login_lockout_threshold", "login_lockout_minutes",
+             "login_ip_threshold", "login_ip_window_minutes",
+             "login_ip_block_minutes"}
 
 
 def _apply(key: str, value: str) -> None:
+    # login_*（防爆破参数）也经 CONFIG 热生效：login_guard 每次读 CONFIG
+    # 即时取新值，且属于 Web 进程独享配置，不影响 DNS 检测引擎。
     if not hasattr(CONFIG, key):
         return
     try:

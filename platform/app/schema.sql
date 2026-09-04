@@ -58,7 +58,9 @@ CREATE TABLE IF NOT EXISTS admin_user (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     username      VARCHAR NOT NULL UNIQUE,
     password_hash VARCHAR NOT NULL,           -- bcrypt
-    created_at    DATETIME NOT NULL DEFAULT (datetime('now','localtime'))
+    created_at    DATETIME NOT NULL DEFAULT (datetime('now','localtime')),
+    must_change   BOOLEAN NOT NULL DEFAULT 0, -- 首次登录/初始密码强制改密标记（迭代 31）
+    password_changed_at DATETIME              -- 最近一次改密时间（审计/展示）
 );
 
 -- 6.5 系统配置（Key-Value，运行时可改）

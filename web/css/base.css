@@ -360,3 +360,12 @@ table.sap tbody tr:last-child td{border-bottom:none}
 
 /* ================= 倒计时 ================= */
 .tl-rem{font-variant-numeric:tabular-nums;color:var(--warning)}
+
+/* ================= 修改密码弹窗（迭代 31） ================= */
+.pwd-force-tip{
+  background:rgba(230,162,60,.12);border:1px solid rgba(230,162,60,.45);
+  color:var(--warning);border-radius:8px;padding:10px 14px;
+  font-size:12.5px;line-height:1.6;margin-bottom:14px;
+}
+.pwd-hint{font-size:12px;min-height:16px;margin:-2px 0 10px;color:var(--text-dim)}
+.pwd-hint:empty{margin:0}
