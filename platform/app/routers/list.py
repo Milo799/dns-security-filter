@@ -1,4 +1,9 @@
-"""黑白名单 CRUD + 导入导出（PRD 7.2 黑白名单）。"""
+"""黑白名单 CRUD + 导入导出（PRD 7.2 黑白名单）。
+
+Task #176（迭代 29）：域名层级防护——入口拒绝 *.com 这类顶层通配
+（白名单=绕过全部检测，黑名单=全网瘫痪），列表支持按层级筛选
+（tld/registrable/subdomain）与通配符过滤，主域级通配标黄警示。
+"""
 
 import csv
 import io
@@ -9,11 +14,13 @@ from pydantic import BaseModel
 from app.auth import get_current_user
 from app.audit import write_audit
 from app.db import db_cursor
+from app.domain_level import classify_entry
 
 router = APIRouter(prefix="/api/list", tags=["list"])
 
 VALID_LIST_TYPES = {"blacklist", "whitelist"}
 VALID_TARGETS = {"domain", "ip"}
+VALID_LEVELS = {"tld", "registrable", "subdomain"}
 
 
 class ListBody(BaseModel):
@@ -32,6 +39,10 @@ def _validate(list_type: str, target: str, value: str) -> None:
     value = (value or "").strip()
     if not value or len(value) > 255:
         raise HTTPException(status_code=400, detail="value 不能为空且不超过 255 字符")
+    # 域名条目：顶层通配（*.com 等）拒绝入库（Task #176）
+    info = classify_entry(target, value)
+    if info["risk"] == "blocked":
+        raise HTTPException(status_code=400, detail=info["risk_note"])
 
 
 @router.get("")
@@ -39,11 +50,28 @@ def list_items(
     list_type: str | None = None,
     target: str | None = None,
     keyword: str | None = None,
+    domain_level: str | None = None,
+    wildcard: bool | None = None,
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=200),
     _: str = Depends(get_current_user),
 ):
-    """分页查询 filter_list，支持类型/目标/关键字过滤。"""
+    """分页查询 filter_list，支持类型/目标/关键字/域名层级过滤。
+
+    Task #176 新增：
+    - domain_level：tld（一级/公共后缀）/ registrable（主域/可注册域）/
+      subdomain（子域）——仅对 target=domain 条目有意义；
+    - wildcard：true/false 只看通配符/非通配符条目；
+    - 每条目附加 level / wildcard / risk / risk_note（前端标黄警示
+      主域级通配、排查存量过宽条目）。
+    层级过滤在 Python 侧完成（分页前）：SQLite 无 PSL 语义，
+      且人工名单量级（千~万）远低于需要 SQL 过滤的规模。
+    """
+    if domain_level is not None and domain_level not in VALID_LEVELS:
+        raise HTTPException(
+            status_code=400,
+            detail="domain_level 必须为 tld/registrable/subdomain")
+
     where, params = [], []
     if list_type:
         where.append("list_type=?"); params.append(list_type)
@@ -56,12 +84,34 @@ def list_items(
     with db_cursor() as cur:
         cur.execute(f"SELECT COUNT(*) AS c FROM filter_list {cond}", params)
         total = cur.fetchone()["c"]
+        # 层级/通配过滤需全量读（千~万级，无性能压力），分页在内存侧
         cur.execute(
             f"""SELECT * FROM filter_list {cond}
-                ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?""",
-            params + [size, (page - 1) * size],
+                ORDER BY updated_at DESC, id DESC""",
+            params,
         )
-        items = [dict(r) for r in cur.fetchall()]
+        rows = [dict(r) for r in cur.fetchall()]
+
+    enriched = []
+    for r in rows:
+        info = classify_entry(r["target"], r["value"])
+        r["level"] = info["level"]
+        r["wildcard"] = info["wildcard"]
+        r["risk"] = info["risk"]
+        r["risk_note"] = info["risk_note"]
+        enriched.append(r)
+
+    if domain_level is not None:
+        enriched = [r for r in enriched
+                    if r["target"] == "domain" and r["level"] == domain_level]
+    if wildcard is not None:
+        enriched = [r for r in enriched
+                    if r["target"] == "domain"
+                    and bool(r["wildcard"]) == bool(wildcard)]
+
+    total = len(enriched)
+    start = (page - 1) * size
+    items = enriched[start:start + size]
     return {"code": 0, "message": "ok", "data": {"total": total, "items": items}}
 
 

@@ -17,11 +17,42 @@ function refreshListTab(){
 }
 function loadManualintel(){ switchListTab(listTab); }
 
+/* ---------- 域名层级标签（Task #176：层级筛选与过宽通配警示） ---------- */
+var LEVEL_LABEL = {
+  tld:         { text: '一级 · 公共后缀', cls: 'tag tag-error' },
+  registrable: { text: '主域 · 可注册域', cls: 'tag tag-warning' },
+  subdomain:   { text: '子域', cls: 'tag tag-neutral' },
+  ip:          { text: 'IP / 网段', cls: 'tag tag-neutral' }
+};
+function levelTag(x){
+  if (x.target !== 'domain') {
+    return '<span class="tag tag-neutral">IP / 网段</span>';
+  }
+  var lv = LEVEL_LABEL[x.level];
+  var html = lv ? '<span class="' + lv.cls + '">' + lv.text + '</span>' : '';
+  if (x.wildcard){
+    html += ' <span class="tag tag-blue">通配</span>';
+  }
+  /* 主域级通配警示：影响整站，黄点提示（入口已拒绝更危险的顶层通配） */
+  if (x.risk === 'warn'){
+    html += ' <span class="tag tag-warning" title="' + esc(x.risk_note || '') + '">⚠ 影响整站</span>';
+  }
+  /* 存量数据可能存在顶层通配（防护上线前入库的）：红标提示尽快删除 */
+  if (x.risk === 'blocked'){
+    html += ' <span class="tag tag-error" title="' + esc(x.risk_note || '') + '">⛔ 极高风险 · 建议立即删除</span>';
+  }
+  return html;
+}
+
 function loadListData(page, listType, ids){
   if (page) ids.page = page;
   var q = new URLSearchParams({page: ids.page, size: 20, list_type: listType});
   var t = document.getElementById(ids.target).value;
   if (t) q.set('target', t);
+  var lv = document.getElementById(ids.level).value;
+  if (lv) q.set('domain_level', lv);
+  var wc = document.getElementById(ids.wild).value;
+  if (wc !== '') q.set('wildcard', wc === '1');
   var kw = document.getElementById(ids.kw).value.trim();
   if (kw) q.set('keyword', kw);
   api('GET', '/api/list?' + q).then(function(d){
@@ -31,6 +62,7 @@ function loadListData(page, listType, ids){
         '<td>' + (x.target === 'domain'
           ? '<span class="tag tag-blue">域名</span>'
           : '<span class="tag tag-neutral">IP/CIDR</span>') + '</td>' +
+        '<td>' + levelTag(x) + '</td>' +
         '<td>' + (x.enabled
           ? '<span class="tag tag-success"><span class="dot"></span>启用</span>'
           : '<span class="tag tag-neutral">停用</span>') + '</td>' +
@@ -41,14 +73,14 @@ function loadListData(page, listType, ids){
         '<button class="icon-btn" title="编辑备注" onclick="editListItem(' + x.id + ',\'' + listType + '\')">✎</button>' +
         '<button class="icon-btn danger" title="删除" onclick="delListItem(' + x.id + ',\'' + esc(x.value).replace(/'/g, '') + '\',\'' + listType + '\')">🗑</button>' +
         '</div></td></tr>';
-    }).join('') : '<tr><td colspan="7"><div class="empty-state"><span class="es-ico">📭</span>暂无条目</div></td></tr>';
+    }).join('') : '<tr><td colspan="8"><div class="empty-state"><span class="es-ico">📭</span>暂无条目</div></td></tr>';
     pager(document.getElementById(ids.pager), d.data.total, ids.page, 20, ids.loader);
   }).catch(function(e){ toast(e.message, true); });
 }
 
 var wlPage = 1, blPage = 1;
-var WL_IDS = {page: 1, target: 'wlTarget', kw: 'wlKw', count: 'wlCount', rows: 'wlRows', pager: 'wlPager', loader: 'loadWhitelist'};
-var BL_IDS = {page: 1, target: 'blTarget', kw: 'blKw', count: 'blCount', rows: 'blRows', pager: 'blPager', loader: 'loadBlacklist'};
+var WL_IDS = {page: 1, target: 'wlTarget', level: 'wlLevel', wild: 'wlWild', kw: 'wlKw', count: 'wlCount', rows: 'wlRows', pager: 'wlPager', loader: 'loadWhitelist'};
+var BL_IDS = {page: 1, target: 'blTarget', level: 'blLevel', wild: 'blWild', kw: 'blKw', count: 'blCount', rows: 'blRows', pager: 'blPager', loader: 'loadBlacklist'};
 function loadWhitelist(page){ loadListData(page, 'whitelist', WL_IDS); }
 function loadBlacklist(page){ loadListData(page, 'blacklist', BL_IDS); }
 
@@ -56,6 +88,38 @@ function openListDialog(listType){
   document.getElementById('mListType').value = listType;
   document.getElementById('mListTypeLabel').textContent = listType === 'whitelist' ? '🟢 白名单 · 放行豁免' : '🔴 黑名单 · 直接拦截';
   document.getElementById('listModal').classList.add('show');
+}
+
+/* ---------- 前端预校验：顶层通配提前拦截（后端 _validate 为准） ---------- */
+var TLD_RE = /^\*\.[a-z]+(\.[a-z]+)?$/i;
+function precheckListValue(){
+  var target = document.getElementById('mTarget').value;
+  var v = document.getElementById('mValue').value.trim().toLowerCase();
+  var hint = document.getElementById('mValueHint');
+  if (!hint) return true;
+  if (target === 'domain' && v === '*'){
+    hint.textContent = '⛔ 裸通配符 * 会命中所有域名，禁止添加';
+    hint.style.color = 'var(--danger)';
+    return false;
+  }
+  if (target === 'domain' && v.indexOf('*.') === 0){
+    /* 顶层通配（后缀段数 ≤2 且形如 *.tld / *.tld.tld 常见公共后缀）*/
+    var suffix = v.slice(2).replace(/\.$/, '');
+    var COMMON_TLD = ['com','net','org','cn','edu','gov','info','biz','io','co','xyz','top','app','dev','ai','me','tv','cc','uk','jp','hk','tw','mo'];
+    var parts = suffix.split('.');
+    var twoPart = parts.length === 2 && COMMON_TLD.indexOf(parts[1]) >= 0;
+    var onePart = parts.length === 1 && COMMON_TLD.indexOf(parts[0]) >= 0;
+    if (onePart || twoPart){
+      hint.textContent = '⛔ *.' + suffix + ' 是顶层通配——白名单等于放行整个互联网、黑名单等于拦截整个互联网，禁止添加';
+      hint.style.color = 'var(--danger)';
+      return false;
+    }
+    hint.textContent = '⚠ 父域级通配：' + suffix + ' 下全部子域都会命中此规则，请确认影响范围';
+    hint.style.color = 'var(--warning)';
+    return true;
+  }
+  hint.textContent = '';
+  return true;
 }
 
 async function saveListEntry(){
@@ -66,6 +130,7 @@ async function saveListEntry(){
     remark: document.getElementById('mRemark').value.trim()
   };
   if (!body.value){ toast('请填写"值"', true); return; }
+  if (!precheckListValue()){ return; }
   try{
     await api('POST', '/api/list', body);
     closeModal('listModal');

@@ -203,13 +203,15 @@
             <div class="card-body">
               <div class="filter-bar">
                 <div class="f-item"><label>目标类型</label><select id="wlTarget" onchange="wlPage=1;loadWhitelist()"><option value="">全部</option><option value="domain">域名</option><option value="ip">IP / CIDR</option></select></div>
+                <div class="f-item"><label>域名层级</label><select id="wlLevel" onchange="wlPage=1;loadWhitelist()"><option value="">全部层级</option><option value="tld">一级（公共后缀）</option><option value="registrable">主域（可注册域）</option><option value="subdomain">子域</option></select></div>
+                <div class="f-item"><label>通配符</label><select id="wlWild" onchange="wlPage=1;loadWhitelist()"><option value="">全部</option><option value="1">仅通配符</option><option value="0">仅精确</option></select></div>
                 <div class="f-item"><label>关键字</label><input id="wlKw" placeholder="域名或 IP 片段" onkeydown="if(event.key==='Enter'){wlPage=1;loadWhitelist()}"></div>
                 <button class="btn btn-emphasized btn-compact" onclick="wlPage=1;loadWhitelist()">查询</button>
                 <span class="count-note" id="wlCount"></span>
               </div>
               <div class="table-wrap">
-                <table class="sap"><thead><tr><th>值</th><th>类型</th><th>状态</th><th>备注</th><th>创建人</th><th>更新时间</th><th>操作</th></tr></thead>
-                <tbody id="wlRows"><tr><td colspan="7"><div class="loading">加载中…</div></td></tr></tbody></table>
+                <table class="sap"><thead><tr><th>值</th><th>类型</th><th>层级</th><th>状态</th><th>备注</th><th>创建人</th><th>更新时间</th><th>操作</th></tr></thead>
+                <tbody id="wlRows"><tr><td colspan="8"><div class="loading">加载中…</div></td></tr></tbody></table>
               </div>
               <div class="pager" id="wlPager"></div>
             </div>
@@ -231,13 +233,15 @@
             <div class="card-body">
               <div class="filter-bar">
                 <div class="f-item"><label>目标类型</label><select id="blTarget" onchange="blPage=1;loadBlacklist()"><option value="">全部</option><option value="domain">域名</option><option value="ip">IP / CIDR</option></select></div>
+                <div class="f-item"><label>域名层级</label><select id="blLevel" onchange="blPage=1;loadBlacklist()"><option value="">全部层级</option><option value="tld">一级（公共后缀）</option><option value="registrable">主域（可注册域）</option><option value="subdomain">子域</option></select></div>
+                <div class="f-item"><label>通配符</label><select id="blWild" onchange="blPage=1;loadBlacklist()"><option value="">全部</option><option value="1">仅通配符</option><option value="0">仅精确</option></select></div>
                 <div class="f-item"><label>关键字</label><input id="blKw" placeholder="域名或 IP 片段" onkeydown="if(event.key==='Enter'){blPage=1;loadBlacklist()}"></div>
                 <button class="btn btn-emphasized btn-compact" onclick="blPage=1;loadBlacklist()">查询</button>
                 <span class="count-note" id="blCount"></span>
               </div>
               <div class="table-wrap">
-                <table class="sap"><thead><tr><th>值</th><th>类型</th><th>状态</th><th>备注</th><th>创建人</th><th>更新时间</th><th>操作</th></tr></thead>
-                <tbody id="blRows"><tr><td colspan="7"><div class="loading">加载中…</div></td></tr></tbody></table>
+                <table class="sap"><thead><tr><th>值</th><th>类型</th><th>层级</th><th>状态</th><th>备注</th><th>创建人</th><th>更新时间</th><th>操作</th></tr></thead>
+                <tbody id="blRows"><tr><td colspan="8"><div class="loading">加载中…</div></td></tr></tbody></table>
               </div>
               <div class="pager" id="blPager"></div>
             </div>
@@ -466,7 +470,7 @@
         <div class="form-row"><label class="req">名单类型</label><input type="hidden" id="mListType" value="whitelist"><span id="mListTypeLabel" style="line-height:36px;font-weight:600"></span></div>
         <div class="form-row"><label class="req">目标类型</label><select id="mTarget"><option value="domain">域名（支持通配符）</option><option value="ip">IP / CIDR</option></select></div>
       </div>
-      <div class="form-row"><label class="req">值</label><input id="mValue" placeholder="如 *.example.com 或 93.184.216.0/24"></div>
+      <div class="form-row"><label class="req">值</label><input id="mValue" placeholder="如 *.example.com 或 93.184.216.0/24" oninput="precheckListValue()" onchange="precheckListValue()"><div id="mValueHint" style="font-size:12px;min-height:16px;margin-top:4px"></div></div>
       <div class="form-row"><label>备注</label><input id="mRemark" placeholder="选填"></div>
     </div>
     <div class="modal-foot"><button class="btn btn-normal" onclick="closeModal('listModal')">取消</button><button class="btn btn-emphasized" onclick="saveListEntry()">保 存</button></div>
