@@ -17,19 +17,24 @@ function refreshListTab(){
 }
 function loadManualintel(){ switchListTab(listTab); }
 
-/* ---------- 域名层级标签（Task #176：层级筛选与过宽通配警示） ---------- */
+/* ---------- 域名层级标签（Task #177：用户口径——顶级/二级/三级） ---------- */
 var LEVEL_LABEL = {
-  tld:         { text: '一级 · 公共后缀', cls: 'tag tag-error' },
-  registrable: { text: '主域 · 可注册域', cls: 'tag tag-warning' },
-  subdomain:   { text: '子域', cls: 'tag tag-neutral' },
+  tld:         { text: '顶级', cls: 'tag tag-error' },
+  registrable: { text: '二级', cls: 'tag tag-warning' },
+  subdomain:   { text: '三级及以下', cls: 'tag tag-neutral' },
   ip:          { text: 'IP / 网段', cls: 'tag tag-neutral' }
+};
+var LEVEL_TIP = {
+  tld: '公共后缀本身或其通配（*.com / *.cn / com）',
+  registrable: '可注册的主域（baidu.com / qq.com / example.com.cn）',
+  subdomain: '主域下的子域（www.baidu.com / mail.qq.com）'
 };
 function levelTag(x){
   if (x.target !== 'domain') {
     return '<span class="tag tag-neutral">IP / 网段</span>';
   }
   var lv = LEVEL_LABEL[x.level];
-  var html = lv ? '<span class="' + lv.cls + '">' + lv.text + '</span>' : '';
+  var html = lv ? '<span class="' + lv.cls + '" title="' + (LEVEL_TIP[x.level] || '') + '">' + lv.text + '</span>' : '';
   if (x.wildcard){
     html += ' <span class="tag tag-blue">通配</span>';
   }
@@ -37,8 +42,7 @@ function levelTag(x){
   if (x.risk === 'warn'){
     html += ' <span class="tag tag-warning" title="' + esc(x.risk_note || '') + '">⚠ 影响整站</span>';
   }
-  /* 顶层通配（手工刻意添加的整域管控，如 *.jp）：红标客观提示
-     影响面——白名单=该后缀全部绕过检测、黑名单=该后缀全部拦截 */
+  /* 顶层通配（手工刻意添加的整域管控，如 *.jp）：红标客观提示影响面 */
   if (x.risk === 'blocked'){
     html += ' <span class="tag tag-error" title="' + esc(x.risk_note || '') + '">⚠⚠ 顶层通配 · 影响整个后缀</span>';
   }
@@ -74,7 +78,11 @@ function loadListData(page, listType, ids){
         '<button class="icon-btn" title="编辑备注" onclick="editListItem(' + x.id + ',\'' + listType + '\')">✎</button>' +
         '<button class="icon-btn danger" title="删除" onclick="delListItem(' + x.id + ',\'' + esc(x.value).replace(/'/g, '') + '\',\'' + listType + '\')">🗑</button>' +
         '</div></td></tr>';
-    }).join('') : '<tr><td colspan="8"><div class="empty-state"><span class="es-ico">📭</span>暂无条目</div></td></tr>';
+    }).join('') : ('<tr><td colspan="8"><div class="empty-state"><span class="es-ico">📭</span>' +
+      (ids.level && document.getElementById(ids.level).value
+        ? '当前筛选（' + LEVEL_LABEL[document.getElementById(ids.level).value].text +
+          '）下没有条目。顶级域名（如 *.' + 'com）只能通过"新建"手工添加，批量导入会被拒绝'
+        : '暂无条目') + '</div></td></tr>');
     pager(document.getElementById(ids.pager), d.data.total, ids.page, 20, ids.loader);
   }).catch(function(e){ toast(e.message, true); });
 }
