@@ -160,9 +160,10 @@ async function loadDashboard(){
       [{ name: '剔除', color: Charts.cssVar('--warning', '#fbbf24'),
          data: hr.map(function(d){ return d.removes || 0; }) }]);
 
-    /* breakdown：来源构成 + Top10 域名 + 客户端 Top（迭代 34：域名榜
-       5→10 条，donut 同步缩至 150px 腾空间；top_clients 与 top_domains
-       共用 top 参数，renderClients 内 slice(0,5) 保持客户端卡 5 条不变） */
+    /* breakdown：来源构成 + Top10 域名（迭代 35：客户端 Top 卡因
+       client_ip 依赖 EDNS0 ECS 而生产链路不附带，恒无数据——已改为
+       "近 7 日拦截趋势"卡（复用本函数上方已拉的 tr 数据，零新增请求）；
+       top_clients 仍返回但不再渲染） */
     var bd = (await api('GET', '/api/status/breakdown?days=7&top=10')).data;
     var smap = {};
     (bd.sources || []).forEach(function(x){ smap[x.key] = x.count || 0; });
@@ -178,7 +179,9 @@ async function loadDashboard(){
     ];
     Charts.donut(document.getElementById('donutChart'), srcItems, { centerLabel: '次拦截/剔除', size: 150 });
     renderTopMini(bd.top_domains || []);
-    renderClients(bd.top_clients || []);
+    /* 近 7 日趋势卡（迭代 35）：复用本函数上方已拉的 tr（/api/status/trend
+       ?days=7），零新增请求；24h 卡是小时粒度，此卡是日粒度，维度互补 */
+    renderWeekTrend(items);
     renderChain(smap);
 
     /* 24h 热力图（小时 × 来源类型）——渲染进趋势卡下半区 */
@@ -388,25 +391,25 @@ function renderTopMini(items){
   }).join('') + '</div>';
 }
 
-/* ---------- 客户端 Top（内网 IP） ---------- */
-function renderClients(items){
-  var el = document.getElementById('topClients');
+/* ---------- 近 7 日拦截趋势（迭代 35：替换客户端 Top 卡） ----------
+   原客户端 Top 卡恒空——client_ip 仅能从 EDNS0 Client Subnet 提取，
+   生产链路（终端→Windows 转发器→proxy→platform）转发器不附带
+   ECS，日志 client_ip 恒为空。改显周粒度趋势：数据复用 loadDashboard
+   已拉的 trend（零新增请求），与 24h 卡（小时粒度）维度互补不重复。 */
+function renderWeekTrend(items){
+  var el = document.getElementById('weekTrend');
   if (!el) return;
-  /* 迭代 34：breakdown 的 top 参数升 10 后，客户端卡仍保持 5 条
-     （布局不动；如未来要同步 10 条，去掉 slice 即可） */
-  items = (items || []).slice(0, 5);
+  items = items || [];
   if (!items.length){
-    el.innerHTML = '<div class="empty-state" style="padding:20px 0"><span class="es-ico">💻</span>近 7 日无拦截记录或缺少客户端 IP</div>';
+    el.innerHTML = '<div class="empty-state" style="padding:20px 0"><span class="es-ico">📈</span>暂无趋势数据</div>';
     return;
   }
-  var max = items[0].count || 1;
-  el.innerHTML = '<div class="toplist clients">' + items.map(function(it, i){
-    var w = Math.max(4, Math.round((it.count / max) * 100));
-    return '<div class="tl-item"><span class="tl-rank ' + (i < 3 ? 'r' + (i + 1) : '') + '">' + (i + 1) + '</span>' +
-           '<span class="tl-domain" style="max-width:150px" title="' + esc(it.client_ip) + '">' + esc(it.client_ip) + '</span>' +
-           '<span class="tl-bar"><i style="width:' + w + '%"></i></span>' +
-           '<span class="tl-count">' + it.count.toLocaleString() + '</span></div>';
-  }).join('') + '</div>';
+  var labels = items.map(function(d){ return (d.date || '').slice(5); });
+  Charts.barLineChart(el, labels,
+    [{ name: '拦截', color: Charts.cssVar('--danger', '#f43f5e'),
+       data: items.map(function(d){ return d.intercept || 0; }) }],
+    [{ name: '剔除', color: Charts.cssVar('--warning', '#fbbf24'),
+       data: items.map(function(d){ return d.remove_ip || 0; }) }]);
 }
 
 /* ---------- 五层检测链路（纵向流水线，命中层发光） ---------- */

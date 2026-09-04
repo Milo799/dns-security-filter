@@ -247,13 +247,14 @@
 .hp-dot.warn{background:var(--warning);box-shadow:0 0 8px rgba(251,191,36,.55)}
 .hp-dot.info{background:var(--accent);box-shadow:0 0 8px rgba(56,189,248,.55)}
 
-/* ---- Top 榜紧凑变体（卡片内；迭代 34：10 条列表 gap 收紧 6→4） ---- */
+/* ---- Top 榜紧凑变体（卡片内；迭代 34：10 条列表 gap 收紧 6→4；
+     迭代 35：字号调大提升可读性 11.5→13） ---- */
 .toplist.mini{gap:4px;padding:2px 0}
 .toplist.mini .tl-item{gap:8px}
-.toplist.mini .tl-rank{width:19px;height:19px;font-size:10px}
-.toplist.mini .tl-domain{font-size:11.5px}
+.toplist.mini .tl-rank{width:21px;height:21px;font-size:11px}
+.toplist.mini .tl-domain{font-size:13px}
 .toplist.mini .tl-bar{height:6px}
-.toplist.mini .tl-count{font-size:11px;min-width:30px}
+.toplist.mini .tl-count{font-size:13px;min-width:34px}
 
 /* ---- 24h 拦截热力图（行头绝对定位需容器 relative） ---- */
 .heatmap{position:relative;padding-top:6px}
