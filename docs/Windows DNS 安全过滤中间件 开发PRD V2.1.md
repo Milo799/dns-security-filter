@@ -398,7 +398,7 @@ Web"测试中心"页面，输入域名或 IP（含 PTR 模式）进行**只读�
 
 **★ 观测**：`GET /api/log-writer/stats`（日志写入队列/累计/丢弃——dropped>0 需调采样率或保留周期）、`GET /api/circuit-breaker/stats`（源级熔断 + 路径降级 + **上游熔断**）、`GET /api/queue-stats`（检测线程池队列深度 pending/inflight/max_pending）
 
-**★ 状态口径（迭代 25）**：`GET /api/status` 的今日请求数优先读 `dns_query_stats` 统计表（DNS 进程内存计数 5s 周期 UPSERT，全量含放行/直通，不受放行日志采样影响；进程重启恢复当日基数）
+**★ 状态口径（迭代 25/26）**：`GET /api/status` 的今日请求数优先读 `dns_query_stats` 统计表（DNS 进程内存计数 5s 周期 UPSERT，全量含放行/直通，不受放行日志采样影响；进程重启恢复当日基数）；响应含 `stats_source` 标记（query_stats=精确 / filter_log=估算，前端据此标注口径防误导）。`/api/status/trend` 同口径升级（优先统计表、回退 filter_log 聚合、本地时区窗口），并新增环比专用字段 `today`/`yesterday`/`today_elapsed_hours`/`full_days`（今日进行中不与昨日整天直接对比，前端按同时刻折算环比）；`/api/status/breakdown` 时间窗统一 localtime（旧实现 sources/top_domains 用 UTC 起点，UTC+8 边界偏 8h）
 
 **审计**：`GET /api/audit`
 

@@ -29,14 +29,24 @@ function countUpIfChanged(id, val){
   countUp(el, val);
 }
 
-/* ---------- 环比芯片：涨红跌绿（国内习惯） ---------- */
-function trendChip(cur, prev){
+/* ---------- 环比芯片：涨红跌绿（国内习惯） ----------
+   Task #166（迭代 26）：今日是进行中的部分天，直接与昨日整天对比
+   必虚降（上午看永远大降）——改为"今日当前值 vs 昨日同时刻折算"：
+   昨日全天值 × (今日已过时长/24) 作基准，并标注"按同时刻折算"。 */
+function trendChip(cur, prev, elapsedH){
   if (cur == null || prev == null || !prev) return '<span class="kpi-trend flat">较上一日 --</span>';
-  var delta = cur - prev;
-  var pct = (prev === 0) ? (delta > 0 ? 100 : 0) : Math.round(delta / prev * 1000) / 10;
-  if (delta > 0) return '<span class="kpi-trend up">↑ ' + pct + '%</span><span class="kpi-note">较上一日</span>';
-  if (delta < 0) return '<span class="kpi-trend down">↓ ' + (-pct) + '%</span><span class="kpi-note">较上一日</span>';
-  return '<span class="kpi-trend flat">持平</span><span class="kpi-note">较上一日</span>';
+  var base = prev;
+  var note = '较上一日';
+  if (elapsedH && elapsedH > 0 && elapsedH < 24){
+    base = prev * (elapsedH / 24);
+    note = '较昨日同时刻';
+  }
+  if (base <= 0) base = 0.001; /* 防零除：昨日折算为零但有今日量时按新增计 */
+  var delta = cur - base;
+  var pct = Math.round(delta / base * 1000) / 10;
+  if (delta > 0) return '<span class="kpi-trend up">↑ ' + pct + '%</span><span class="kpi-note">' + note + '</span>';
+  if (delta < 0) return '<span class="kpi-trend down">↓ ' + (-pct) + '%</span><span class="kpi-note">' + note + '</span>';
+  return '<span class="kpi-trend flat">持平</span><span class="kpi-note">' + note + '</span>';
 }
 
 /* ---------- 风险等级：由今日拦截率推导 ---------- */
@@ -47,24 +57,31 @@ function riskLevel(rate, total){
   return { label: '低', color: Charts.cssVar('--success', '#34d399'), desc: '拦截率 <1%' };
 }
 
-/* ---------- 半环风险仪表 ---------- */
+/* ---------- 半环风险仪表 ----------
+   rate 为数字时渲染精确仪表；rate 为 null/非数字（估算口径不给
+   误导性数字）时渲染 "?" 占位 + 中性色。 */
 function renderGauge(rate, risk){
   var el = document.getElementById('riskGauge');
   if (!el) return;
-  var maxRate = 20, p = Math.min(1, rate / maxRate);
+  var numeric = (typeof rate === 'number' && isFinite(rate));
+  var p = numeric ? Math.min(1, rate / 20) : 0;
   var cx = 80, cy = 84, r = 56, w = 11;
   var circ = Math.PI * r;
-  var len = Math.max(2, circ * p);
+  var len = numeric ? Math.max(2, circ * p) : 2;
+  var arcColor = numeric ? (risk ? risk.color : Charts.cssVar('--accent', '#38bdf8'))
+                         : Charts.cssVar('--text', '#e6edf7');
   var sweep = 1; /* 起点左 终点右，经过上方 */
+  var mainText = numeric ? rate + '%' : '?';
+  var subText = numeric ? ((risk ? risk.label : '') + ' 风险') : '口径不足';
   el.innerHTML =
     '<svg viewBox="0 0 160 104" xmlns="http://www.w3.org/2000/svg" role="img" style="width:132px;height:auto">' +
     '<path d="M ' + (cx - r) + ' ' + cy + ' A ' + r + ' ' + r + ' 0 0 ' + sweep + ' ' + (cx + r) + ' ' + cy + '"' +
     ' fill="none" stroke="' + Charts.cssVar('--border', '#1f2b47') + '" stroke-width="' + w + '" stroke-linecap="round"/>' +
     '<path d="M ' + (cx - r) + ' ' + cy + ' A ' + r + ' ' + r + ' 0 0 ' + sweep + ' ' + (cx + r) + ' ' + cy + '"' +
-    ' fill="none" stroke="' + risk.color + '" stroke-width="' + w + '" stroke-linecap="round"' +
+    ' fill="none" stroke="' + arcColor + '" stroke-width="' + w + '" stroke-linecap="round"' +
     ' stroke-dasharray="' + len.toFixed(1) + ' ' + (circ + 4).toFixed(1) + '" opacity=".92"/>' +
-    '<text x="' + cx + '" y="' + (cy - 6) + '" text-anchor="middle" font-size="22" font-weight="500" fill="' + Charts.cssVar('--text', '#e6edf7') + '">' + rate + '%</text>' +
-    '<text x="' + cx + '" y="' + (cy + 12) + '" text-anchor="middle" font-size="11" fill="' + risk.color + '">' + risk.label + ' 风险</text>' +
+    '<text x="' + cx + '" y="' + (cy - 6) + '" text-anchor="middle" font-size="22" font-weight="500" fill="' + Charts.cssVar('--text', '#e6edf7') + '">' + mainText + '</text>' +
+    '<text x="' + cx + '" y="' + (cy + 12) + '" text-anchor="middle" font-size="11" fill="' + arcColor + '">' + subText + '</text>' +
     '</svg>';
 }
 
@@ -83,8 +100,14 @@ async function loadDashboard(){
       badge.innerHTML = '<span class="dot pulse"></span>' + (s.detection_enabled ? '检测运行中' : '检测已关闭');
     }
 
-    var tr = (await api('GET', '/api/status/trend?days=7')).data.items || [];
-    var last = tr[tr.length - 1] || {}, prev = tr[tr.length - 2] || {};
+    var tr = (await api('GET', '/api/status/trend?days=7')).data;
+    var items = tr.items || [];
+    var last = items[items.length - 1] || {}, prev = items[items.length - 2] || {};
+    var elapsedH = tr.today_elapsed_hours || 0;
+    /* 环比用"已完成整天"链：items 末位是今日（进行中），其前一位
+       才是昨日整天——trendChip 内部按同时刻折算对比 */
+    var today = tr.today || last;
+    var yesterday = tr.yesterday || (items.length >= 2 ? items[items.length - 2] : null);
     var sum = (s.today_intercepts || 0) + (s.today_removes || 0) + (s.today_allows || 0);
     var rate = sum ? Math.round((s.today_intercepts || 0) / sum * 100) : 0;
 
@@ -94,14 +117,37 @@ async function loadDashboard(){
     countUpIfChanged('hkRem', s.today_removes || 0);
     countUpIfChanged('hkAllow', s.today_allows || 0);
     document.getElementById('hkInterFoot').innerHTML =
-      trendChip(last.intercepts || 0, prev.intercepts || 0);
+      trendChip((today ? today.intercept : 0) || 0,
+                (yesterday ? yesterday.intercept : 0) || 0, elapsedH);
     document.getElementById('hkRemFoot').innerHTML =
-      trendChip(last.removes || 0, prev.removes || 0);
+      trendChip((today ? today.remove_ip : 0) || 0,
+                (yesterday ? yesterday.remove_ip : 0) || 0, elapsedH);
 
-    /* 风险等级半环仪表 */
-    var risk = riskLevel(rate, sum);
-    renderGauge(rate, risk);
-    document.getElementById('riskFoot').textContent = risk.desc;
+    /* 今日请求卡脚注：标注口径来源（filter_log=估算时不给"决策数"
+       的精确暗示，防误导） */
+    var hkTotalFoot = document.getElementById('hkTotalFoot');
+    if (hkTotalFoot){
+      hkTotalFoot.textContent = (s.stats_source === 'query_stats')
+        ? '今日 DNS 查询总量（全量口径）'
+        : '估算口径（放行日志未全量，数值偏低）';
+    }
+    var hkAllowFoot = document.getElementById('hkAllowFoot');
+    if (hkAllowFoot){
+      hkAllowFoot.textContent = (s.stats_source === 'query_stats')
+        ? '检测放行（全量计数）'
+        : '估算：仅采样命中的 allow 日志';
+    }
+    var riskFoot = document.getElementById('riskFoot');
+    if (s.stats_source === 'query_stats'){
+      var risk = riskLevel(rate, sum);
+      renderGauge(rate, risk);
+      riskFoot.textContent = risk.desc;
+    } else {
+      /* filter_log 估算口径：allows 被采样低估，拦截率必然虚高，
+         精确数字有误导性——只给定性档位不给数字 */
+      renderGauge('?');
+      riskFoot.textContent = '口径说明：放行日志未全量，精确拦截率不可算';
+    }
 
     /* 近 24h 柱线图（柱=拦截 线=剔除） */
     var hr = (await api('GET', '/api/status/hourly?hours=24')).data.items || [];
@@ -116,7 +162,7 @@ async function loadDashboard(){
     var bd = (await api('GET', '/api/status/breakdown?days=7&top=5')).data;
     var smap = {};
     (bd.sources || []).forEach(function(x){ smap[x.key] = x.count || 0; });
-    var items = [
+    var srcItems = [
       { key: 'local_blacklist', label: '人工黑名单', value: smap.local_blacklist || 0,
         color: Charts.cssVar('--danger', '#f43f5e') },
       { key: 'threat_list', label: '离线情报源', value: smap.threat_list || 0,
@@ -126,7 +172,7 @@ async function loadDashboard(){
       { key: 'ip_filter', label: 'IP 后置', value: smap.ip_filter || 0,
         color: Charts.cssVar('--accent', '#38bdf8') }
     ];
-    Charts.donut(document.getElementById('donutChart'), items, { centerLabel: '次拦截/剔除' });
+    Charts.donut(document.getElementById('donutChart'), srcItems, { centerLabel: '次拦截/剔除' });
     renderTopMini(bd.top_domains || []);
     renderClients(bd.top_clients || []);
     renderChain(smap);

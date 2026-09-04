@@ -4,7 +4,10 @@
 DNS 引擎（detectors 每次查询读 CONFIG）立即热生效。
 """
 
+import time
 import urllib.parse
+
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -209,26 +212,107 @@ def platform_status(_: str = Depends(get_current_user)):
         "today_removes": removes,
         "today_allows": allows,
         "today_total": total,
+        # 统计口径来源（前端据此展示口径标记，避免误导）：
+        #   query_stats → 全量精确（DNS 进程内存计数落库）
+        #   filter_log  → 估算（allows 受采样低估，仅拦截/剔除可靠）
+        "stats_source": "query_stats" if qs is not None else "filter_log",
         "threatintel_sources": sources,
     }}
 
 
 @router.get("/status/trend")
 def status_trend(days: int = 7, _: str = Depends(get_current_user)):
-    """近 N 日拦截/剔除趋势（仪表盘图表用）。"""
+    """近 N 日拦截/剔除趋势（仪表盘趋势图与环比芯片用）。
+
+    Task #166（口径修正迭代 26）：
+    - 统计源优先 dns_query_stats（全量口径），无数据回退 filter_log
+      （拦截/剔除可靠，allows 受采样低估）；
+    - 时间窗口统一本地时区（filter_log.timestamp 存 localtime，
+      旧实现 UTC 起点，UTC+8 环境窗口边界偏 8h）；
+    - 今日为进行中的部分天，与昨日整天不可比——环比专用字段
+      yesterday_* 由前端展示"较上一日"，只拿"已完成整天"对比，
+      杜绝"上午看永远大降"的系统性误导（迭代 25 后首日新增）。
+    """
     days = max(1, min(days, 90))
     with db_cursor() as cur:
-        cur.execute(
-            """SELECT date(timestamp) AS day,
-                 SUM(CASE WHEN action='intercept' THEN 1 ELSE 0 END) AS intercepts,
-                 SUM(CASE WHEN action='remove_ip'  THEN 1 ELSE 0 END) AS removes
-               FROM filter_log
-               WHERE timestamp >= datetime('now', ?)
-               GROUP BY date(timestamp) ORDER BY day""",
-            (f"-{days} days",),
-        )
-        items = [dict(r) for r in cur.fetchall()]
-    return {"code": 0, "message": "ok", "data": {"days": days, "items": items}}
+        # 主口径：dns_query_stats（每日本地日期一行，全量计数）
+        rows = cur.execute(
+            """SELECT date, intercept, remove_ip, allow FROM dns_query_stats
+               WHERE date >= date('now','localtime', ?)
+               ORDER BY date""",
+            (f"-{days - 1} days",),
+        ).fetchall()
+        items = [dict(r) for r in rows]
+        have_stats = bool(items)
+
+        if not have_stats:
+            # 回退（升级过渡期 / 统计表尚未落任何行）：filter_log 聚合
+            rows = cur.execute(
+                """SELECT date(timestamp) AS date,
+                     SUM(CASE WHEN action='intercept' THEN 1 ELSE 0 END) AS intercept,
+                     SUM(CASE WHEN action='remove_ip'  THEN 1 ELSE 0 END) AS remove_ip,
+                     SUM(CASE WHEN action='allow'     THEN 1 ELSE 0 END) AS allow
+                   FROM filter_log
+                   WHERE timestamp >= datetime('now','localtime', ?)
+                   GROUP BY date(timestamp) ORDER BY date""",
+                (f"-{days - 1} days",),
+            ).fetchall()
+            items = [dict(r) for r in rows]
+
+        # 环比基准（较上一日）：今日 vs 昨日整天。今日是进行中部分天，
+        # 直接对比必虚降——改为"今日当前值 vs 昨日同时刻"更可比，但
+        # filter_log 无分时基线，这里取数"昨日全天"供前端标注口径；
+        # 同时提供 today_elapsed_hours 供前端按时间折算（如显示
+        # "截至今日 09:23"）。
+        yesterday = None
+        today = None
+        _today_s = date.today().isoformat()
+        if have_stats:
+            cur.execute(
+                "SELECT date, intercept, remove_ip, allow FROM dns_query_stats "
+                "WHERE date IN (date('now','localtime'), date('now','localtime','-1 day'))"
+            )
+            for r in cur.fetchall():
+                d = dict(r)
+                if d["date"] == _today_s:
+                    today = d
+                else:
+                    yesterday = d
+        else:
+            cur.execute(
+                """SELECT date(timestamp) AS date,
+                     SUM(CASE WHEN action='intercept' THEN 1 ELSE 0 END) AS intercept,
+                     SUM(CASE WHEN action='remove_ip'  THEN 1 ELSE 0 END) AS remove_ip,
+                     SUM(CASE WHEN action='allow'     THEN 1 ELSE 0 END) AS allow
+                   FROM filter_log
+                   WHERE date(timestamp) IN (date('now','localtime'), date('now','localtime','-1 day'))
+                   GROUP BY date(timestamp)"""
+            )
+            for r in cur.fetchall():
+                d = dict(r)
+                if d["date"] == _today_s:
+                    today = d
+                else:
+                    yesterday = d
+
+        # 已完成整天的列表（今日进行中，不入环比）
+        full_days = [it["date"] for it in items if it["date"] < _today_s]
+        cur_hour = time.localtime()
+        elapsed = cur_hour.tm_hour + cur_hour.tm_min / 60.0
+
+    return {"code": 0, "message": "ok", "data": {
+        "days": days,
+        "items": items,
+        "stats_source": "query_stats" if have_stats else "filter_log",
+        # 环比专用：已完成昨天（今日进行中，其自身不入环比）
+        "today": today,
+        "yesterday": yesterday,
+        "today_elapsed_hours": round(elapsed, 2),
+        "full_days": full_days,
+    }}
+
+
+
 
 
 @router.get("/status/hourly")
@@ -273,6 +357,8 @@ def status_breakdown(days: int = 7, top: int = 10,
     """
     days = max(1, min(days, 90))
     top = max(1, min(top, 50))
+    # 时间窗口统一本地时区（filter_log.timestamp 存 localtime；
+    # 旧实现 UTC 起点，UTC+8 环境窗口边界偏 8h——迭代 26 修正）
     with db_cursor() as cur:
         cur.execute(
             """SELECT
@@ -285,7 +371,7 @@ def status_breakdown(days: int = 7, top: int = 10,
                  SUM(CASE WHEN filter_reason='ip_filter'
                      THEN 1 ELSE 0 END) AS ip_filter
                FROM filter_log
-               WHERE timestamp >= datetime('now', ?)""",
+               WHERE timestamp >= datetime('now','localtime', ?)""",
             (f"-{days} days",),
         )
         row = cur.fetchone()
@@ -301,7 +387,7 @@ def status_breakdown(days: int = 7, top: int = 10,
         ]
         cur.execute(
             """SELECT domain, COUNT(*) AS cnt FROM filter_log
-               WHERE timestamp >= datetime('now', ?)
+               WHERE timestamp >= datetime('now','localtime', ?)
                  AND action IN ('intercept','remove_ip')
                GROUP BY domain ORDER BY cnt DESC LIMIT ?""",
             (f"-{days} days", top),

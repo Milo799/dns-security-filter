@@ -204,3 +204,114 @@ def test_status_reads_query_stats_first():
         assert data["today_total"] == 4
         assert data["today_allows"] == 3
         assert data["today_intercepts"] == 1
+        # Task #166：口径来源标记（前端据此展示口径，防误导）
+        assert data["stats_source"] == "query_stats"
+
+
+# ---------------- Task #166：trend 口径修正 ----------------
+
+def test_trend_stats_source_and_prioritized_table():
+    """trend 优先读 dns_query_stats；表空回退 filter_log 并标记来源。"""
+    from fastapi.testclient import TestClient
+    from config import CONFIG
+    from app.main import app
+    from datetime import date, timedelta
+
+    with TestClient(app) as c:
+        r = c.post("/api/auth/login", json={
+            "username": "admin", "password": CONFIG.admin_initial_password})
+        token = r.json()["data"]["token"]
+        h = {"Authorization": f"Bearer {token}"}
+
+        # 场景 1：无统计行 → filter_log 回退
+        r = c.get("/api/status/trend", headers=h)
+        assert r.status_code == 200
+        d = r.json()["data"]
+        assert d["stats_source"] == "filter_log"
+
+        # 场景 2：有统计行 → query_stats 口径 + 环比专用字段
+        from app.db import db_cursor
+        today = date.today().isoformat()
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+        with db_cursor() as cur:
+            cur.execute(
+                "INSERT INTO dns_query_stats (date,total,intercept,remove_ip,allow) "
+                "VALUES (?,?,?,?,?)",
+                (yesterday, 100, 80, 5, 15))
+            cur.execute(
+                "INSERT INTO dns_query_stats (date,total,intercept,remove_ip,allow) "
+                "VALUES (?,?,?,?,?)",
+                (today, 40, 30, 2, 8))
+        r = c.get("/api/status/trend", headers=h)
+        d = r.json()["data"]
+        assert d["stats_source"] == "query_stats"
+        assert d["today"]["date"] == today
+        assert d["today"]["intercept"] == 30
+        assert d["yesterday"]["date"] == yesterday
+        assert d["yesterday"]["intercept"] == 80
+        # 已过时长在 [0,24)
+        assert 0 <= d["today_elapsed_hours"] < 24
+        # 今日是进行中的部分天：full_days 不含今日，含昨日
+        assert today not in d["full_days"]
+        assert yesterday in d["full_days"]
+
+
+def test_trend_localtime_window_no_utc_drift():
+    """UTC+8 环境下窗口边界必须用 localtime：UTC 起点会把
+    '昨天的本地晚间数据'排除在 N 日窗口外（迭代 26 修正回归锚）。"""
+    from fastapi.testclient import TestClient
+    from config import CONFIG
+    from app.main import app
+    from datetime import datetime, timedelta
+
+    # 直接造一条 26 小时前的本地时间日志（7 日窗口必须包含）
+    ts = (datetime.now() - timedelta(hours=26)).strftime("%Y-%m-%d %H:%M:%S")
+    from app.db import db_cursor
+    with db_cursor() as cur:
+        cur.execute(
+            """INSERT INTO filter_log
+               (client_ip, domain, query_type, filter_reason, action,
+                malicious_ips, final_result, source_api, timestamp)
+               VALUES ('', 'trend-utc.test', 'A', 'local_blacklist',
+                       'intercept', '', '', '', ?)""", (ts,))
+
+    with TestClient(app) as c:
+        r = c.post("/api/auth/login", json={
+            "username": "admin", "password": CONFIG.admin_initial_password})
+        token = r.json()["data"]["token"]
+        r = c.get("/api/status/trend?days=7", headers={
+            "Authorization": f"Bearer {token}"})
+        d = r.json()["data"]
+        # filter_log 回退口径下（无统计行）26h 前的行必须被聚合到
+        total_intercepts = sum(it["intercept"] for it in d["items"])
+        assert total_intercepts >= 1
+
+
+def test_breakdown_localtime_window():
+    """breakdown 的 sources/top_domains 窗口也须 localtime（旧实现
+    UTC 起点，与同端点 top_clients 的 localtime 不一致）。"""
+    from fastapi.testclient import TestClient
+    from config import CONFIG
+    from app.main import app
+    from datetime import datetime, timedelta
+
+    ts = (datetime.now() - timedelta(hours=26)).strftime("%Y-%m-%d %H:%M:%S")
+    from app.db import db_cursor
+    with db_cursor() as cur:
+        cur.execute(
+            """INSERT INTO filter_log
+               (client_ip, domain, query_type, filter_reason, action,
+                malicious_ips, final_result, source_api, timestamp)
+               VALUES ('10.1.1.1', 'bd-utc.test', 'A', 'local_blacklist',
+                       'intercept', '', '', '', ?)""", (ts,))
+    with TestClient(app) as c:
+        r = c.post("/api/auth/login", json={
+            "username": "admin", "password": CONFIG.admin_initial_password})
+        token = r.json()["data"]["token"]
+        r = c.get("/api/status/breakdown?days=7", headers={
+            "Authorization": f"Bearer {token}"})
+        d = r.json()["data"]
+        by = {s["key"]: s["count"] for s in d["sources"]}
+        assert by["local_blacklist"] >= 1
+        assert any(t["domain"] == "bd-utc.test" for t in d["top_domains"])
+        assert any(c["client_ip"] == "10.1.1.1" for c in d["top_clients"])
