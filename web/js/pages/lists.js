@@ -90,25 +90,28 @@ function openListDialog(listType){
   document.getElementById('listModal').classList.add('show');
 }
 
-/* ---------- 前端预校验：顶层通配提前拦截（后端 _validate 为准） ---------- */
-var TLD_RE = /^\*\.[a-z]+(\.[a-z]+)?$/i;
+/* ---------- 前端预校验：顶层通配提前拦截（后端 _validate 为准） ----------
+   与后端口径对齐：两段式必须整串命中多级公共后缀（*.com.cn 拦，
+   *.mysite.cn 是合法主域通配 → 放行并黄字警示）。前端表只是常见
+   子集预检，最终以后端 classify_entry（PSL 感知）为准。 */
+var COMMON_TLD = ['com','net','org','cn','edu','gov','info','biz','io','co','xyz','top','app','dev','ai','me','tv','cc','uk','jp','hk','tw','mo','name','pro','mobi','asia','int','mil','arpa','site','online','shop','store','tech','cloud','live','ltd','group','team','work','wiki','fun','red','win','icu','link'];
+var MULTI_TLD = ['com.cn','net.cn','org.cn','gov.cn','edu.cn','ac.cn','co.uk','org.uk','ac.uk','gov.uk','com.hk','com.tw','com.mo','com.sg','com.my','com.jp','co.jp','or.jp','co.kr','com.au','net.au','org.au','com.br','com.mx','com.ar','com.tr','com.ru','com.vn','com.ph','com.pk','com.in','co.in','com.co','com.sa','com.eg','co.nz','idv.tw','org.tw','net.au','edu.au','gov.au','gov.cn','mil.cn','bj.cn','sh.cn','tj.cn','cq.cn','zj.cn','js.cn','gd.cn','sc.cn'];
 function precheckListValue(){
   var target = document.getElementById('mTarget').value;
   var v = document.getElementById('mValue').value.trim().toLowerCase();
   var hint = document.getElementById('mValueHint');
   if (!hint) return true;
-  if (target === 'domain' && v === '*'){
+  if (target === 'domain' && (v === '*' || v === '*.')){
     hint.textContent = '⛔ 裸通配符 * 会命中所有域名，禁止添加';
     hint.style.color = 'var(--danger)';
     return false;
   }
   if (target === 'domain' && v.indexOf('*.') === 0){
-    /* 顶层通配（后缀段数 ≤2 且形如 *.tld / *.tld.tld 常见公共后缀）*/
     var suffix = v.slice(2).replace(/\.$/, '');
-    var COMMON_TLD = ['com','net','org','cn','edu','gov','info','biz','io','co','xyz','top','app','dev','ai','me','tv','cc','uk','jp','hk','tw','mo'];
     var parts = suffix.split('.');
-    var twoPart = parts.length === 2 && COMMON_TLD.indexOf(parts[1]) >= 0;
+    /* 顶层通配：单段=公共后缀本身；两段=整串命中多级公共后缀 */
     var onePart = parts.length === 1 && COMMON_TLD.indexOf(parts[0]) >= 0;
+    var twoPart = parts.length === 2 && MULTI_TLD.indexOf(suffix) >= 0;
     if (onePart || twoPart){
       hint.textContent = '⛔ *.' + suffix + ' 是顶层通配——白名单等于放行整个互联网、黑名单等于拦截整个互联网，禁止添加';
       hint.style.color = 'var(--danger)';
