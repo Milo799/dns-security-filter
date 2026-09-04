@@ -179,10 +179,11 @@ def classify_entry(target: str, value: str) -> dict:
         "risk_note": str           # 提示文案
       }
 
-    风险口径：
-      blocked  *.com / *.com.cn 等裸公共后缀通配（白名单=绕过全部
-               检测，黑名单=全网瘫痪，一律拒绝）；
-               以及 * 裸星号、*.（空后缀）这类笔误形态。
+    风险口径（Task #177 调整）：
+      blocked  ①裸 * / *.（空后缀）等无效语法——全入口拒绝；
+               ②*.com / *.jp 等顶层通配——仅 CSV 批量导入拒绝
+               （批量无逐条确认环节）；手工添加属管理员明确意图
+               （如 *.jp 入黑名单整域管控）放行，列表红标警示。
       warn     *.example.com 主域级通配（影响整站，保留但列表标黄）
       （子域级通配/精确域名/普通 IP 与 CIDR 无附加风险）
     """
@@ -205,11 +206,14 @@ def classify_entry(target: str, value: str) -> dict:
         return out
     ps = public_suffix(d)
     labels = d.split(".")
-    # ---- 顶层通配拒绝：*.<公共后缀> ----
+    # ---- 顶层通配：*.<公共后缀>（Task #177：仅批量导入拒绝，
+    #      手工添加属管理员明确意图放行，列表红标警示影响面） ----
     if out["wildcard"] and (d == ps):
         out.update(level="tld", risk="blocked",
-                   risk_note=f"*.{ps} 是顶层通配——白名单等于放行整个 "
-                             f"互联网、黑名单等于拦截整个互联网，禁止添加")
+                   risk_note=f"*.{ps} 是顶层通配——白名单等于放行该后缀"
+                             f"下所有域名（绕过全部检测）、黑名单等于拦"
+                             f"截该后缀下所有域名；批量导入会被拒绝，"
+                             f"手工添加请确认是刻意的整域管控")
         return out
     # ---- 层级归类 ----
     if d == ps:

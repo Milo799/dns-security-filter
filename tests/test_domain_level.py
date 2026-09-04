@@ -1,15 +1,17 @@
-"""人工名单域名层级防护测试 —— Task #176（迭代 29）。
+"""人工名单域名层级防护测试 —— Task #176/#177（迭代 29/30）。
 
-背景：名单支持 *.xxx.com 通配（后缀匹配全部子域），*.com 这类
-顶层通配在白名单=绕过全部检测、黑名单=全网瘫痪，都必须在入口拒绝。
+背景：名单支持 *.xxx.com 通配（后缀匹配全部子域）。Task #177 定稿
+口径：顶层通配（*.com / *.jp）只在**CSV 批量导入**时拒绝（批量无
+逐条确认环节）；手工创建/编辑放行（管理员明确意图，如 *.jp 入
+黑名单整域管控），列表红标警示；裸 */*.（无效语法）全入口拒绝。
 
 覆盖：
-  - domain_level 分级核心（PSL 感知：*.com / *.com.cn 拒绝，
-    *.example.com 警示，子域/精确/多级后缀归类正确）
-  - 创建/更新入口拒绝（400 + 明确文案）
-  - 导入链路跳过顶层通配行并汇总原因
+  - domain_level 分级核心（PSL 感知：*.com / *.com.cn 归 blocked，
+    *.example.com 归 warn，子域/精确/多级后缀归类正确）
+  - 创建/更新入口：顶层通配放行 + 无效语法拒绝
+  - 导入链路：顶层通配行跳过并汇总原因
   - /api/list 层级筛选（tld/registrable/subdomain）与 wildcard 过滤
-  - 存量脏数据展示口径（risk=blocked 标红，不炸接口）
+  - 存量数据展示口径（risk=blocked 红标，不炸接口）
 """
 
 import pytest
@@ -80,14 +82,19 @@ def client():
 
 
 def test_create_rejects_top_level_wildcard(client):
-    """创建 *.com / *.com.cn → 400 拒绝（白黑名单都拒绝）。"""
+    """Task #177 口径：手工创建**放行**顶层通配（管理员明确意图，
+    如 *.jp 入黑名单整域管控）；但裸 */*.（无效语法）仍拒绝。"""
+    # 手工创建顶层通配：两个名单都放行（带审计）
     for lt in ("whitelist", "blacklist"):
         r = client.post("/api/list", json={
             "list_type": lt, "target": "domain", "value": "*.com"})
-        assert r.status_code == 400
-        assert "顶层通配" in r.json()["detail"]
+        assert r.status_code == 200, r.json()
+        item_id = r.json()["data"]["id"]
+        client.delete(f"/api/list/{item_id}")
+    # 无效语法仍全入口拒绝
+    for bad in ("*", "*.", "*."):
         r = client.post("/api/list", json={
-            "list_type": lt, "target": "domain", "value": "*.com.cn"})
+            "list_type": "blacklist", "target": "domain", "value": bad})
         assert r.status_code == 400
 
 
@@ -102,15 +109,17 @@ def test_create_allows_domain_wildcard(client):
     assert r.status_code == 200
 
 
-def test_update_rejects_top_level_wildcard(client):
-    """更新已有条目为 *.com 同样拒绝（防绕过：先建合法再改恶）。"""
+def test_update_allows_top_level_wildcard(client):
+    """Task #177：手工更新为顶层通配放行（同创建口径）；
+    更新为无效语法（裸 *）仍拒绝。"""
     r = client.post("/api/list", json={
         "list_type": "blacklist", "target": "domain",
         "value": "safe.example.com"})
     item_id = r.json()["data"]["id"]
-    r = client.put(f"/api/list/{item_id}", json={"value": "*.net"})
+    r = client.put(f"/api/list/{item_id}", json={"value": "*.jp"})
+    assert r.status_code == 200, r.json()
+    r = client.put(f"/api/list/{item_id}", json={"value": "*"})
     assert r.status_code == 400
-    assert "顶层通配" in r.json()["detail"]
     client.delete(f"/api/list/{item_id}")
 
 

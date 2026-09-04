@@ -33,13 +33,14 @@ function levelTag(x){
   if (x.wildcard){
     html += ' <span class="tag tag-blue">通配</span>';
   }
-  /* 主域级通配警示：影响整站，黄点提示（入口已拒绝更危险的顶层通配） */
+  /* 主域级通配警示：影响整站，黄点提示 */
   if (x.risk === 'warn'){
     html += ' <span class="tag tag-warning" title="' + esc(x.risk_note || '') + '">⚠ 影响整站</span>';
   }
-  /* 存量数据可能存在顶层通配（防护上线前入库的）：红标提示尽快删除 */
+  /* 顶层通配（手工刻意添加的整域管控，如 *.jp）：红标客观提示
+     影响面——白名单=该后缀全部绕过检测、黑名单=该后缀全部拦截 */
   if (x.risk === 'blocked'){
-    html += ' <span class="tag tag-error" title="' + esc(x.risk_note || '') + '">⛔ 极高风险 · 建议立即删除</span>';
+    html += ' <span class="tag tag-error" title="' + esc(x.risk_note || '') + '">⚠⚠ 顶层通配 · 影响整个后缀</span>';
   }
   return html;
 }
@@ -90,32 +91,41 @@ function openListDialog(listType){
   document.getElementById('listModal').classList.add('show');
 }
 
-/* ---------- 前端预校验：顶层通配提前拦截（后端 _validate 为准） ----------
-   与后端口径对齐：两段式必须整串命中多级公共后缀（*.com.cn 拦，
-   *.mysite.cn 是合法主域通配 → 放行并黄字警示）。前端表只是常见
-   子集预检，最终以后端 classify_entry（PSL 感知）为准。 */
+/* ---------- 前端预校验（Task #177 口径：手工添加允许顶层通配） ----------
+   - 无效语法（裸 * / *.）：拦截；
+   - 顶层通配（*.com / *.jp 等）：不拦——手工添加属管理员明确意图
+     （如 *.jp 入黑名单整域管控），红字强提示 + 保存时二次确认弹窗；
+   - 主域级通配（*.example.com）：黄字提示影响范围。
+   后端手工链路同样放行（仅 CSV 导入拒绝），前端预检与后端口径对齐。 */
 var COMMON_TLD = ['com','net','org','cn','edu','gov','info','biz','io','co','xyz','top','app','dev','ai','me','tv','cc','uk','jp','hk','tw','mo','name','pro','mobi','asia','int','mil','arpa','site','online','shop','store','tech','cloud','live','ltd','group','team','work','wiki','fun','red','win','icu','link'];
 var MULTI_TLD = ['com.cn','net.cn','org.cn','gov.cn','edu.cn','ac.cn','co.uk','org.uk','ac.uk','gov.uk','com.hk','com.tw','com.mo','com.sg','com.my','com.jp','co.jp','or.jp','co.kr','com.au','net.au','org.au','com.br','com.mx','com.ar','com.tr','com.ru','com.vn','com.ph','com.pk','com.in','co.in','com.co','com.sa','com.eg','co.nz','idv.tw','org.tw','net.au','edu.au','gov.au','gov.cn','mil.cn','bj.cn','sh.cn','tj.cn','cq.cn','zj.cn','js.cn','gd.cn','sc.cn'];
+/* 顶层通配检测结果缓存：saveListEntry 二次确认时复用，避免重复计算 */
+var _precheckState = { topWildcard: false, suffix: '' };
+
 function precheckListValue(){
   var target = document.getElementById('mTarget').value;
   var v = document.getElementById('mValue').value.trim().toLowerCase();
   var hint = document.getElementById('mValueHint');
   if (!hint) return true;
+  _precheckState.topWildcard = false;
+  _precheckState.suffix = '';
   if (target === 'domain' && (v === '*' || v === '*.')){
-    hint.textContent = '⛔ 裸通配符 * 会命中所有域名，禁止添加';
+    hint.textContent = '⛔ 裸通配符 * / *.（空后缀）是无效条目，禁止添加';
     hint.style.color = 'var(--danger)';
     return false;
   }
   if (target === 'domain' && v.indexOf('*.') === 0){
     var suffix = v.slice(2).replace(/\.$/, '');
     var parts = suffix.split('.');
-    /* 顶层通配：单段=公共后缀本身；两段=整串命中多级公共后缀 */
     var onePart = parts.length === 1 && COMMON_TLD.indexOf(parts[0]) >= 0;
     var twoPart = parts.length === 2 && MULTI_TLD.indexOf(suffix) >= 0;
     if (onePart || twoPart){
-      hint.textContent = '⛔ *.' + suffix + ' 是顶层通配——白名单等于放行整个互联网、黑名单等于拦截整个互联网，禁止添加';
+      /* 顶层通配：不拦截（管理员明确意图），红字强提示 + 保存二次确认 */
+      _precheckState.topWildcard = true;
+      _precheckState.suffix = suffix;
+      hint.textContent = '⚠⚠ *.' + suffix + ' 是顶层通配——影响整个互联网域段。确认是刻意的整域管控再保存（批量导入仍会被拒绝）';
       hint.style.color = 'var(--danger)';
-      return false;
+      return true;
     }
     hint.textContent = '⚠ 父域级通配：' + suffix + ' 下全部子域都会命中此规则，请确认影响范围';
     hint.style.color = 'var(--warning)';
@@ -134,11 +144,20 @@ async function saveListEntry(){
   };
   if (!body.value){ toast('请填写"值"', true); return; }
   if (!precheckListValue()){ return; }
+  /* 顶层通配二次确认：明确展示影响后果（Task #177） */
+  if (_precheckState.topWildcard){
+    var ltName = body.list_type === 'whitelist' ? '白名单（放行豁免）' : '黑名单（直接拦截）';
+    var consequence = body.list_type === 'whitelist'
+      ? '*.' + _precheckState.suffix + ' 将绕过全部检测放行该后缀下所有域名'
+      : '*.' + _precheckState.suffix + ' 将拦截该后缀下所有域名，可能造成业务中断';
+    if (!confirm('确认把 *.' + _precheckState.suffix + ' 加入' + ltName + '？\n\n' + consequence + '。\n\n此操作影响面极大，确定继续吗？')) return;
+  }
   try{
     await api('POST', '/api/list', body);
     closeModal('listModal');
     document.getElementById('mValue').value = '';
     document.getElementById('mRemark').value = '';
+    document.getElementById('mValueHint').textContent = '';
     toast('已创建（已记入审计）');
     (body.list_type === 'whitelist' ? loadWhitelist : loadBlacklist)(1);
   }catch(e){ toast(e.message, true); }

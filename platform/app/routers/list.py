@@ -1,8 +1,13 @@
 """黑白名单 CRUD + 导入导出（PRD 7.2 黑白名单）。
 
-Task #176（迭代 29）：域名层级防护——入口拒绝 *.com 这类顶层通配
-（白名单=绕过全部检测，黑名单=全网瘫痪），列表支持按层级筛选
-（tld/registrable/subdomain）与通配符过滤，主域级通配标黄警示。
+Task #176/#177（迭代 29/30）：域名层级防护——
+  - 顶层通配（*.com / *.jp 等）只在**批量导入**时拒绝（批量无逐条
+    确认环节，一条 *.com 混在几百行 CSV 里极易误入；手工单条添加
+    属管理员明确意图——如把 *.jp 入黑名单做整域管控——放行但列表
+    红标警示）；
+  - 裸 * / *.（空后缀）无效语法全入口拒绝；
+  - 列表支持按层级筛选（tld/registrable/subdomain）与通配符过滤，
+    主域级通配标黄警示、顶层通配标红警示。
 """
 
 import csv
@@ -31,7 +36,15 @@ class ListBody(BaseModel):
     remark: str = ""
 
 
-def _validate(list_type: str, target: str, value: str) -> None:
+def _validate(list_type: str, target: str, value: str,
+              strict_tld: bool = False) -> None:
+    """条目校验（创建/更新/导入共用）。
+
+    - 无效语法（裸 * / *. 空后缀等）：一律 400 拒绝；
+    - 顶层通配（*.com / *.jp 等）：仅 strict_tld=True（CSV 批量导入）
+      时拒绝——批量无逐条确认，*.com 混入即事故；手工添加是管理员
+      明确意图（如 *.jp 整域管控），放行交由前端确认弹窗把关。
+    """
     if list_type not in VALID_LIST_TYPES:
         raise HTTPException(status_code=400, detail="list_type 必须为 blacklist/whitelist")
     if target not in VALID_TARGETS:
@@ -39,10 +52,14 @@ def _validate(list_type: str, target: str, value: str) -> None:
     value = (value or "").strip()
     if not value or len(value) > 255:
         raise HTTPException(status_code=400, detail="value 不能为空且不超过 255 字符")
-    # 域名条目：顶层通配（*.com 等）拒绝入库（Task #176）
     info = classify_entry(target, value)
     if info["risk"] == "blocked":
-        raise HTTPException(status_code=400, detail=info["risk_note"])
+        # 无效语法（裸星号/空后缀）全入口拒绝
+        if info["level"] != "tld" or not info["wildcard"]:
+            raise HTTPException(status_code=400, detail=info["risk_note"])
+        # 顶层通配：仅批量导入拒绝（Task #177）
+        if strict_tld:
+            raise HTTPException(status_code=400, detail=info["risk_note"])
 
 
 @router.get("")
@@ -228,7 +245,9 @@ async def import_items(request: Request, user: str = Depends(get_current_user)):
         enabled = row[3].strip().lower() not in ("0", "false", "no", "off", "") if len(row) > 3 else True
         remark = row[4].strip() if len(row) > 4 else ""
         try:
-            _validate(list_type, target, value)
+            # strict_tld=True：批量导入拒绝顶层通配（Task #177——
+            # 批量无逐条确认环节，*.com 混在几百行里极易误入）
+            _validate(list_type, target, value, strict_tld=True)
         except HTTPException as e:
             errors.append(f"第 {lineno} 行（{value or '空'}）：{e.detail}"); continue
         key = _key(list_type, target, value)
