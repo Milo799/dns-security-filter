@@ -56,7 +56,6 @@ class ConfigBody(BaseModel):
     http_proxy: str | None = None
     domain_cache_ttl_s: int | None = None
     domain_cache_size: int | None = None
-    query_dedup_window_s: float | None = None
     ip_cache_ttl_s: int | None = None
     ip_cache_size: int | None = None
     failsafe_mode: str | None = None
@@ -124,10 +123,6 @@ def update_config(body: ConfigBody, user: str = Depends(get_current_user)):
         raise HTTPException(
             status_code=400,
             detail="domain_cache_size 须在 1024~10000000 之间（条）")
-    if "query_dedup_window_s" in data and not (0 <= data["query_dedup_window_s"] <= 60):
-        raise HTTPException(
-            status_code=400,
-            detail="query_dedup_window_s 须在 0~60 之间（秒；0=禁用去重）")
     if "ip_cache_ttl_s" in data and not (1 <= data["ip_cache_ttl_s"] <= 86400):
         raise HTTPException(
             status_code=400, detail="ip_cache_ttl_s 须在 1~86400 之间（秒）")
@@ -532,18 +527,6 @@ def dns_queue_stats(_: str = Depends(get_current_user)):
     """
     import queue_stats
     return {"code": 0, "message": "ok", "data": queue_stats.stats()}
-
-
-@router.get("/query-dedup/stats")
-def query_dedup_stats(_: str = Depends(get_current_user)):
-    """重复查询计数消解观测（迭代 36）。
-
-    deduped = 窗口内被消解的重发计数次数（Windows 转发器超时重发
-    的直接量化）；passed = 正常计数次数。双进程部署下计数发生在
-    DNS 进程，Web 进程读自身计数为 0 属正常（与 queue-stats 同理）。
-    """
-    import query_dedup
-    return {"code": 0, "message": "ok", "data": query_dedup.stats()}
 
 
 @router.post("/circuit-breaker/reset")
