@@ -49,6 +49,10 @@
         <svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
         过滤日志
       </div>
+      <div class="nav-item" data-page="aggdomains">
+        <svg viewBox="0 0 24 24"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
+        域名分析
+      </div>
       <div class="nav-group-title">策略管理</div>
       <div class="nav-item" data-page="fusion">
         <svg viewBox="0 0 24 24"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M6 9v6"/><path d="M9 6h6a3 3 0 0 1 3 3v6"/></svg>
@@ -171,6 +175,32 @@
             <tbody id="logRows"><tr><td colspan="9"><div class="loading">加载中…</div></td></tr></tbody></table>
           </div>
           <div class="pager" id="lgPager"></div>
+        </div>
+      </div>
+
+      <!-- ========== 域名分析（迭代 37：过滤日志按域名聚合） ========== -->
+      <div class="page" id="page-aggdomains">
+        <div class="page-head">
+          <div><div class="page-title">域名分析</div><div class="page-sub">过滤日志按域名聚合 · 快速定位高频被拦域名并针对性排查</div></div>
+          <div class="toolbar"><button class="btn btn-normal btn-compact" onclick="loadAggDomains()">↻ 刷新</button></div>
+        </div>
+        <div class="card">
+          <div class="filter-bar">
+            <div class="f-item"><label>开始时间</label><input id="agStart" placeholder="YYYY-MM-DD HH:MM:SS"></div>
+            <div class="f-item"><label>结束时间</label><input id="agEnd" placeholder="YYYY-MM-DD HH:MM:SS"></div>
+            <div class="f-item"><label>域名</label><input id="agDomain" placeholder="支持模糊"></div>
+            <div class="f-item"><label>动作</label><select id="agAction"><option value="">全部</option><option value="intercept">intercept 拦截</option><option value="remove_ip">remove_ip 剔除IP</option><option value="allow">allow 放行</option></select></div>
+            <button class="btn btn-emphasized btn-compact" onclick="aggQuick('custom')">查询</button>
+            <button class="btn btn-normal btn-compact" onclick="aggQuick('1h')">近 1 时</button>
+            <button class="btn btn-normal btn-compact" onclick="aggQuick('24h')">近 24 时</button>
+            <button class="btn btn-normal btn-compact" onclick="aggQuick('7d')">近 7 日</button>
+            <span class="count-note" id="agCount"></span>
+          </div>
+          <div class="table-wrap">
+            <table class="sap"><thead><tr><th>#</th><th>域名</th><th>总次数</th><th>拦截</th><th>剔除IP</th><th>放行</th><th>拦截来源构成</th><th>首次出现</th><th>最近出现</th><th>操作</th></tr></thead>
+            <tbody id="aggRows"><tr><td colspan="10"><div class="loading">加载中…</div></td></tr></tbody></table>
+          </div>
+          <div class="pager" id="aggPager"></div>
         </div>
       </div>
 
@@ -555,17 +585,18 @@
 </div>
 
 <!-- 加载顺序：core → charts → pages → boot -->
-<script src="js/app.js?v=35"></script>
-<script src="js/charts.js?v=35"></script>
-<script src="js/pages/dashboard.js?v=35"></script>
-<script src="js/pages/logs.js?v=35"></script>
-<script src="js/pages/lists.js?v=35"></script>
-<script src="js/pages/testcenter.js?v=35"></script>
-<script src="js/pages/threatintel.js?v=35"></script>
-<script src="js/pages/fusion.js?v=35"></script>
-<script src="js/pages/threatlist.js?v=35"></script>
-<script src="js/pages/config.js?v=35"></script>
-<script src="js/pages/audit.js?v=35"></script>
-<script src="js/boot.js?v=35"></script>
+<script src="js/app.js?v=36"></script>
+<script src="js/charts.js?v=36"></script>
+<script src="js/pages/dashboard.js?v=36"></script>
+<script src="js/pages/logs.js?v=36"></script>
+<script src="js/pages/aggdomains.js?v=36"></script>
+<script src="js/pages/lists.js?v=36"></script>
+<script src="js/pages/testcenter.js?v=36"></script>
+<script src="js/pages/threatintel.js?v=36"></script>
+<script src="js/pages/fusion.js?v=36"></script>
+<script src="js/pages/threatlist.js?v=36"></script>
+<script src="js/pages/config.js?v=36"></script>
+<script src="js/pages/audit.js?v=36"></script>
+<script src="js/boot.js?v=36"></script>
 </body>
 </html>

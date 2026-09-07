@@ -390,7 +390,7 @@ Web"测试中心"页面，输入域名或 IP（含 PTR 模式）进行**只读�
 
 **▲ 测试中心**：`POST /api/test/domain`、`POST /api/test/ip`（只读探测，含逐源结果与最终裁决）
 
-**过滤日志**：`GET /api/logs`、`GET /api/logs/export`
+**过滤日志**：`GET /api/logs`、`GET /api/logs/export`、`GET /api/logs/agg/domains` ▲（域名分析页：按域名聚合计数/首末次时间/Top3 拦截原因，支持时间窗+域名模糊+动作过滤）
 
 **系统配置 / 状态**：`GET/PUT /api/config`、`GET /api/status`、`GET /api/status/trend` ▲、`POST /api/detection/toggle`
 

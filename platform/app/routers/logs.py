@@ -86,6 +86,89 @@ def stream_intercepts(size: int = Query(8, ge=1, le=50),
     return {"code": 0, "message": "ok", "data": {"items": items}}
 
 
+@router.get("/agg/domains")
+def aggregate_domains(
+    start: str | None = None,
+    end: str | None = None,
+    domain: str | None = None,
+    action: str | None = None,
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    _: str = Depends(get_current_user),
+):
+    """按域名聚合的过滤统计（迭代 37 域名分析页）。
+
+    用途：过滤日志日增几十万条，明细难定位——本视图按域名 GROUP BY
+    给出拦截/剔除/放行计数、拦截来源构成、首末次时间，支撑"某域名
+    为什么被拦 / 拦了多少"的针对性排查。
+
+    实现说明：
+    - 复用 /api/logs 的筛选语义（start/end 时间窗、domain 模糊、action）；
+    - WHERE + GROUP BY domain 走 idx_log_domain/domain 索引扫描，
+      时间窗过滤后聚合（生产 90 天 4500 万行场景建议收窄时间窗）；
+    - reason_top：GROUP BY 域内取该域名计数最高的 3 个 filter_reason，
+      用窗口函数 row_number()（SQLite 3.25+），展示"它因什么被拦"；
+    - 分页在聚合结果上进行（HAVING 后 LIMIT/OFFSET）。
+    """
+    cond, params = _build_condition(start, end, None, domain, action, None)
+    with db_cursor() as cur:
+        # 聚合主体：每域名一行
+        cur.execute(
+            f"""SELECT domain,
+                       COUNT(*)                       AS total,
+                       SUM(CASE WHEN action='intercept'  THEN 1 ELSE 0 END) AS intercepts,
+                       SUM(CASE WHEN action='remove_ip' THEN 1 ELSE 0 END) AS removes,
+                       SUM(CASE WHEN action='allow'     THEN 1 ELSE 0 END) AS allows,
+                       MIN(timestamp)                 AS first_seen,
+                       MAX(timestamp)                 AS last_seen
+                FROM filter_log {cond}
+                GROUP BY domain
+                ORDER BY total DESC, domain ASC
+                LIMIT ? OFFSET ?""",
+            params + [size, (page - 1) * size],
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+
+        # 每域名 Top3 拦截原因（一次查询取回后内存分组，避免逐行 N+1）
+        if rows:
+            domains = [r["domain"] for r in rows]
+            ph = ",".join("?" * len(domains))
+            cond2 = (cond + " AND" if cond else "WHERE") + f" domain IN ({ph})"
+            cur.execute(
+                f"""SELECT domain, filter_reason, COUNT(*) AS c,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY domain
+                               ORDER BY COUNT(*) DESC, filter_reason ASC
+                           ) AS rn
+                    FROM filter_log {cond2}
+                    GROUP BY domain, filter_reason
+                    ORDER BY domain, c DESC
+                    """,
+                params + domains,
+            )
+            reason_map: dict[str, list] = {}
+            for r in cur.fetchall():
+                if r["rn"] <= 3:
+                    reason_map.setdefault(r["domain"], []).append(
+                        {"reason": r["filter_reason"], "count": r["c"]})
+        else:
+            reason_map = {}
+
+        # 聚合行数（分页总数）：聚合后再数一遍，仅 GROUP BY 无排序开销
+        cur.execute(
+            f"SELECT COUNT(*) AS c FROM (SELECT domain FROM filter_log {cond} GROUP BY domain)",
+            params,
+        )
+        agg_total = cur.fetchone()["c"]
+
+    items = []
+    for r in rows:
+        r["reason_top"] = reason_map.get(r["domain"], [])
+        items.append(r)
+    return {"code": 0, "message": "ok",
+            "data": {"total": agg_total, "items": items}}
+
+
 @router.get("/export")
 def export_logs(
     start: str | None = None,
