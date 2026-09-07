@@ -60,6 +60,9 @@ function fmtTlRemaining(ms){
 function tlNextCell(x){
   if (!x.auto_update_on) return '<span class="tag tag-neutral" title="自动更新开关未开启，请在上方开启">未开启</span>';
   if (!x.total) return '<span class="tag tag-neutral">待导入</span>';
+  // 已停用的源不参与自动更新调度（enabled_source_keys 只取 enabled=1），
+  // 即使 updated_at 已超周期也不更新——显式提示，避免"已到期·待调度"误导
+  if (!x.enabled_cnt) return '<span class="tag tag-neutral" title="来源整体停用，调度器跳过，不消耗下载流量">已停用 · 不自动更新</span>';
   var iv = fmtTlInterval(x.effective_interval_s);
   if (x.due) return '<span class="tag tag-warning">已到期 · 待调度</span>' +
     '<div class="form-hint" style="margin-bottom:0">周期 ' + esc(iv) + '，下轮调度自动更新</div>';
