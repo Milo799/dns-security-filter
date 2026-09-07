@@ -25,6 +25,7 @@ DEFAULT_SYSTEM_CONFIG = {
     "detection_enabled": str(int(CONFIG.detection_enabled)),
     "domain_cache_ttl_s": str(CONFIG.domain_cache_ttl_s),
     "domain_cache_size": str(CONFIG.domain_cache_size),
+    "query_dedup_window_s": str(CONFIG.query_dedup_window_s),
     "ip_cache_ttl_s": str(CONFIG.ip_cache_ttl_s),
     "ip_cache_size": str(CONFIG.ip_cache_size),
     "failsafe_mode": CONFIG.failsafe_mode,

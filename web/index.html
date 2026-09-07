@@ -397,6 +397,8 @@
           <div class="card-body"><div class="form-grid">
             <div class="form-row"><label>缓存 TTL（秒）</label><input id="cfgCacheTtl" type="number"><div class="form-hint">在线情报域名结论的缓存时长，默认 300。</div></div>
             <div class="form-row"><label>缓存容量（条）</label><input id="cfgCacheSize" type="number"><div class="form-hint">LRU 上限，默认 1000000（约 200MB 内存）。</div></div>
+            <div class="form-row"><label>重复查询去重窗口（秒）</label><input id="cfgDedupWindow" type="number" step="0.5" min="0"><div class="form-hint">Windows 转发器超时重发的同一查询在窗口内只计 1 次数（今日请求口径），默认 3，0=禁用。</div></div>
+            <div class="form-row"><label>去重状态</label><div class="form-hint" id="cfgDedupStats">加载中…</div></div>
             <div class="form-row"><label>缓存状态</label><div class="form-hint" id="cfgCacheStats">加载中…</div></div>
           </div></div>
         </div>
@@ -555,17 +557,17 @@
 </div>
 
 <!-- 加载顺序：core → charts → pages → boot -->
-<script src="js/app.js?v=35"></script>
-<script src="js/charts.js?v=35"></script>
-<script src="js/pages/dashboard.js?v=35"></script>
-<script src="js/pages/logs.js?v=35"></script>
-<script src="js/pages/lists.js?v=35"></script>
-<script src="js/pages/testcenter.js?v=35"></script>
-<script src="js/pages/threatintel.js?v=35"></script>
-<script src="js/pages/fusion.js?v=35"></script>
-<script src="js/pages/threatlist.js?v=35"></script>
-<script src="js/pages/config.js?v=35"></script>
-<script src="js/pages/audit.js?v=35"></script>
-<script src="js/boot.js?v=35"></script>
+<script src="js/app.js?v=36"></script>
+<script src="js/charts.js?v=36"></script>
+<script src="js/pages/dashboard.js?v=36"></script>
+<script src="js/pages/logs.js?v=36"></script>
+<script src="js/pages/lists.js?v=36"></script>
+<script src="js/pages/testcenter.js?v=36"></script>
+<script src="js/pages/threatintel.js?v=36"></script>
+<script src="js/pages/fusion.js?v=36"></script>
+<script src="js/pages/threatlist.js?v=36"></script>
+<script src="js/pages/config.js?v=36"></script>
+<script src="js/pages/audit.js?v=36"></script>
+<script src="js/boot.js?v=36"></script>
 </body>
 </html>

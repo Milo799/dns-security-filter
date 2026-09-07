@@ -564,35 +564,47 @@ def process_query(request: DNSRecord, client_ip: str | None = None) -> DNSRecord
 
     Task #161：全路径 query_stats 计数（今日请求全量口径，不受放行
     日志采样影响）——各出口分别计 intercept/remove_ip/allow。
+
+    迭代 36：入口按 (client_ip, domain, qtype) 做窗口去重——Windows
+    转发器超时重发的同一查询只计 1 次数（检测与应答行为完全不变），
+    治"今日请求/放行"虚高。窗口内重复时 _record 直接 no-op。
     """
     q = request.q
     domain = str(q.qname).rstrip(".")
     qtype = q.qtype
 
+    import query_dedup
+    _skip_count = query_dedup.check_and_count(client_ip or "", domain, qtype)
+
+    def _record(action: str) -> None:
+        """计数包装：窗口内重复查询跳过（检测路径照常执行）。"""
+        if not _skip_count:
+            query_stats.record(action)
+
     # 检测总开关（PRD：管理员可临时关闭全部检测以放行）
     if not CONFIG.detection_enabled:
-        query_stats.record("allow")            # 直通也是请求（全量口径）
+        _record("allow")            # 直通也是请求（全量口径）
         return query_upstream_reply(request)
 
     # 1) PTR 反向解析：按查询的 IP 过滤（白名单→黑名单→威胁情报），不能漏
     if qtype == QTYPE.PTR:
-        return _process_ptr(request, domain, client_ip or "")
+        return _process_ptr(request, domain, client_ip or "", _record)
 
     # 2) 非 A/AAAA → 直接转发公网解析（不做过滤）
     if qtype not in FILTERABLE_TYPES:
-        query_stats.record("allow")
+        _record("allow")
         return query_upstream_reply(request)
 
     # 3) 白名单 → 直接放行（写放行日志，若开启）
     if is_whitelisted(domain):
-        query_stats.record("allow")
+        _record("allow")
         if CONFIG.allow_log_enabled:
             write_allow_log(client_ip or "", domain, qtype)
         return query_upstream_reply(request)
 
     # 4) 域名前置检测
     if is_blacklisted(domain):
-        query_stats.record("intercept")
+        _record("intercept")
         write_filter_log(client_ip or "", domain, qtype,
                          "local_blacklist", "intercept", [],
                          "alert_ip:" + CONFIG.alert_ip)
@@ -600,7 +612,7 @@ def process_query(request: DNSRecord, client_ip: str | None = None) -> DNSRecord
 
     # 4.5) 离线大名单命中（hagezi/StevenBlack 等导入源，零 API 依赖）
     if check_domain(domain):
-        query_stats.record("intercept")
+        _record("intercept")
         write_filter_log(client_ip or "", domain, qtype,
                          "threat_list", "intercept", [],
                          "alert_ip:" + CONFIG.alert_ip)
@@ -608,7 +620,7 @@ def process_query(request: DNSRecord, client_ip: str | None = None) -> DNSRecord
 
     malicious, reason = query_threatintel_domain(domain)
     if malicious:
-        query_stats.record("intercept")
+        _record("intercept")
         write_filter_log(client_ip or "", domain, qtype,
                          reason, "intercept", [],
                          "alert_ip:" + CONFIG.alert_ip)
@@ -619,72 +631,77 @@ def process_query(request: DNSRecord, client_ip: str | None = None) -> DNSRecord
     #    全正常直接返回该应答（保留上游 TTL/EDNS0 等原语，省一次重复解析）
     upstream_reply = query_upstream_reply(request)
     if upstream_reply.header.rcode != RCODE.NOERROR:
-        query_stats.record("allow")            # 上游结论透传（SERVFAIL/NXDOMAIN）
+        _record("allow")            # 上游结论透传（SERVFAIL/NXDOMAIN）
         return upstream_reply          # SERVFAIL/NXDOMAIN 原样透传上游结论
     ips = _extract_ips(upstream_reply, qtype)
     if not ips:
         # 上游无应答记录（如 AAAA 无 IPv6）：原样返回，不拦截不误报
-        query_stats.record("allow")
+        _record("allow")
         return upstream_reply
 
     kept, malicious_ips = ip_postfilter(ips)
     if not kept:
         # 全部恶意 → 拦截应答
-        query_stats.record("intercept")
+        _record("intercept")
         final = "empty" if qtype == QTYPE.AAAA else "alert_ip:" + CONFIG.alert_ip
         write_filter_log(client_ip or "", domain, qtype,
                          "ip_filter", "intercept", malicious_ips, final)
         return build_intercept_reply(request, qtype)
     if len(kept) < len(ips):
         # 部分恶意 → 剔除恶意、保留正常（写日志）
-        query_stats.record("remove_ip")
+        _record("remove_ip")
         final = "remaining_ips:" + ",".join(kept)
         write_filter_log(client_ip or "", domain, qtype,
                          "ip_filter", "remove_ip", malicious_ips, final)
         return build_remaining_reply(request, qtype, kept)
 
     # 6) 全部正常 → 返回上游原始应答（已在第 5 步取得，不再重复解析）
-    query_stats.record("allow")
+    _record("allow")
     return upstream_reply
 
 
-def _process_ptr(request: DNSRecord, ptr_name: str, client_ip: str) -> DNSRecord:
+def _process_ptr(request: DNSRecord, ptr_name: str, client_ip: str,
+                 _record=None) -> DNSRecord:
     """PTR 反向解析过滤：从查询名提取 IP，按 IP 走白名单→黑名单→威胁情报。
 
     - 非标准 PTR 名（无法提取 IP）→ 直接转发上游，不误拦；
     - 白名单 IP 命中 → 放行（最高优先级）；
     - 本地 IP 黑名单命中 / 威胁情报判定恶意 → 拦截（空应答 NOERROR）；
-    - 拦截记录写过滤日志（domain 存 PTR 查询名，malicious_ips 存提取的 IP）。
+    - 拦截记录写过滤日志（domain 存 PTR 查询名，malicious_ips 存提取的 IP）；
+    - _record：计数包装（迭代 36 去重；None 时直连 query_stats 兜底）。
     """
+    if _record is None:
+        _record = query_stats.record
+
     ip = extract_ptr_ip(ptr_name)
     if ip is None:
-        query_stats.record("allow")
+        _record("allow")
         return query_upstream_reply(request)
 
     if _match_ip(ip, get_enabled_list("whitelist", "ip")):
-        query_stats.record("allow")
+        _record("allow")
         if CONFIG.allow_log_enabled:
             write_allow_log(client_ip, ptr_name, QTYPE.PTR)
         return query_upstream_reply(request)
 
     if _match_ip(ip, get_enabled_list("blacklist", "ip")):
-        query_stats.record("intercept")
+        _record("intercept")
         write_filter_log(client_ip, ptr_name, QTYPE.PTR, "local_blacklist",
                          "intercept", [ip], "empty")
         return build_intercept_reply(request, QTYPE.PTR)
 
     if check_ip(ip):
-        query_stats.record("intercept")
+        _record("intercept")
         write_filter_log(client_ip, ptr_name, QTYPE.PTR, "threat_list",
                          "intercept", [ip], "empty")
         return build_intercept_reply(request, QTYPE.PTR)
 
     bad, reason = query_threatintel_ip(ip)
     if bad:
-        query_stats.record("intercept")
+        _record("intercept")
         write_filter_log(client_ip, ptr_name, QTYPE.PTR, reason,
                          "intercept", [ip], "empty")
         return build_intercept_reply(request, QTYPE.PTR)
 
-    query_stats.record("allow")
+    _record("allow")
     return query_upstream_reply(request)

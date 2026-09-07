@@ -28,6 +28,8 @@ _INT_KEYS = {"alert_ttl", "log_retention_days", "api_timeout_ms",
              "login_lockout_threshold", "login_lockout_minutes",
              "login_ip_threshold", "login_ip_window_minutes",
              "login_ip_block_minutes"}
+# 浮点键（迭代 36：去重窗口支持小数秒 granularity）
+_FLOAT_KEYS = {"query_dedup_window_s"}
 
 
 def _apply(key: str, value: str) -> None:
@@ -40,6 +42,8 @@ def _apply(key: str, value: str) -> None:
             setattr(CONFIG, key, str(value).strip().lower() in ("1", "true", "yes", "on"))
         elif key in _INT_KEYS:
             setattr(CONFIG, key, int(value))
+        elif key in _FLOAT_KEYS:
+            setattr(CONFIG, key, float(value))
         else:
             setattr(CONFIG, key, str(value))
         # 情报出站代理变更：联动共享 HTTP 客户端（日志提示 + Client 惰性重建）

@@ -47,6 +47,7 @@ class PlatformConfig:
     api_timeout_ms: int = 2000             # 威胁情报源单次调用超时（毫秒）
     domain_cache_ttl_s: int = 300          # 域名检测结论缓存 TTL（秒，1~86400）
     domain_cache_size: int = 1_000_000     # 域名检测结论缓存容量上限（条）
+    query_dedup_window_s: float = 3.0      # 重复查询计数消解窗口（秒，0=禁用；迭代 36 治 Windows 转发器重发致"今日请求"虚高）
     ip_cache_ttl_s: int = 900              # IP 检测结论缓存 TTL（秒，1~86400；IP 情报变化慢于域名可略长）
     ip_cache_size: int = 200_000           # IP 检测结论缓存容量上限（条）
     failsafe_mode: str = "intercept"       # fail-safe 模式：intercept 拦截 / degrade 降级放行

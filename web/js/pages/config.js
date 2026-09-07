@@ -17,6 +17,7 @@ async function loadConfig(){
     document.getElementById('cfgLogBatchSize').value = v('log_batch_size', '500');
     document.getElementById('cfgCacheTtl').value = v('domain_cache_ttl_s', '300');
     document.getElementById('cfgCacheSize').value = v('domain_cache_size', '1000000');
+    document.getElementById('cfgDedupWindow').value = v('query_dedup_window_s', '3');
     document.getElementById('cfgDegradeMode').checked = v('failsafe_mode', 'intercept') === 'degrade';
     document.getElementById('cfgCbThreshold').value = v('cb_failure_threshold', '5');
     document.getElementById('cfgCbTimeout').value = v('cb_open_timeout_s', '60');
@@ -26,9 +27,26 @@ async function loadConfig(){
     var ptEl = document.getElementById('cfgProxyTestResult');
     if (ptEl) ptEl.textContent = v('http_proxy', '') ? '已配置（未测试）' : '未配置（直连）';
     loadCacheStats();
+    loadDedupStats();
     loadCbStats();
     loadLogWriterStats();
   }catch(e){ toast(e.message, true); }
+}
+
+/* 迭代 36：去重窗口状态（消解了多少转发器重发计数） */
+async function loadDedupStats(){
+  try{
+    var s = (await api('GET', '/api/query-dedup/stats')).data;
+    var txt = (s.window_s > 0 ? '窗口 ' + s.window_s + 's' : '已禁用') +
+      '，正常计数 ' + (s.passed || 0).toLocaleString() +
+      '，消解重发 ' + (s.deduped || 0).toLocaleString() + ' 次';
+    if (s.deduped > 0 && s.passed > 0){
+      txt += '（占比 ' + (s.deduped * 100 / (s.deduped + s.passed)).toFixed(1) + '%）';
+    }
+    document.getElementById('cfgDedupStats').textContent = txt;
+  }catch(e){
+    document.getElementById('cfgDedupStats').textContent = '状态不可用';
+  }
 }
 
 async function loadLogWriterStats(){
@@ -91,6 +109,7 @@ async function saveConfig(){
     log_retention_days: parseInt(document.getElementById('cfgRetention').value) || 90,
     domain_cache_ttl_s: parseInt(document.getElementById('cfgCacheTtl').value) || 300,
     domain_cache_size: parseInt(document.getElementById('cfgCacheSize').value) || 1000000,
+    query_dedup_window_s: parseFloat(document.getElementById('cfgDedupWindow').value),
     failsafe_mode: document.getElementById('cfgDegradeMode').checked ? 'degrade' : 'intercept',
     cb_failure_threshold: parseInt(document.getElementById('cfgCbThreshold').value),
     cb_open_timeout_s: parseInt(document.getElementById('cfgCbTimeout').value) || 60,
@@ -113,6 +132,7 @@ async function saveConfig(){
     toast('配置已保存，立即生效');
     loadDashboard();
     loadCacheStats();
+    loadDedupStats();
     loadCbStats();
     loadLogWriterStats();
     var ptEl2 = document.getElementById('cfgProxyTestResult');
