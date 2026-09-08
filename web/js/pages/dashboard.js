@@ -160,11 +160,11 @@ async function loadDashboard(){
       [{ name: '剔除', color: Charts.cssVar('--warning', '#fbbf24'),
          data: hr.map(function(d){ return d.removes || 0; }) }]);
 
-    /* breakdown：来源构成 + Top10 域名（迭代 35：客户端 Top 卡因
-       client_ip 依赖 EDNS0 ECS 而生产链路不附带，恒无数据——已改为
-       "近 7 日拦截趋势"卡（复用本函数上方已拉的 tr 数据，零新增请求）；
-       top_clients 仍返回但不再渲染） */
-    var bd = (await api('GET', '/api/status/breakdown?days=7&top=10')).data;
+    /* breakdown：来源构成 + Top10 域名（迭代 38：口径改"当日"——与顶部
+       威胁总览大数字带同口径（自然日），四类来源之和可直接对上"今日
+       拦截+剔除"，总览页整体不再混用 7 日/24h/今日三种窗口的同类数字；
+       top_clients 仍返回但不再渲染（迭代 35 注） */
+    var bd = (await api('GET', '/api/status/breakdown?scope=today&top=10')).data;
     var smap = {};
     (bd.sources || []).forEach(function(x){ smap[x.key] = x.count || 0; });
     var srcItems = [
@@ -177,7 +177,7 @@ async function loadDashboard(){
       { key: 'ip_filter', label: 'IP 后置', value: smap.ip_filter || 0,
         color: Charts.cssVar('--accent', '#38bdf8') }
     ];
-    Charts.donut(document.getElementById('donutChart'), srcItems, { centerLabel: '次拦截/剔除', size: 150 });
+    Charts.donut(document.getElementById('donutChart'), srcItems, { centerLabel: '今日拦截/剔除', size: 150 });
     renderTopMini(bd.top_domains || []);
     /* 近 7 日趋势卡（迭代 35）：复用本函数上方已拉的 tr（/api/status/trend
        ?days=7），零新增请求；24h 卡是小时粒度，此卡是日粒度，维度互补 */
@@ -412,7 +412,9 @@ function renderWeekTrend(items){
        data: items.map(function(d){ return d.remove_ip || 0; }) }]);
 }
 
-/* ---------- 五层检测链路（纵向流水线，命中层发光） ---------- */
+/* ---------- 五层检测链路（纵向流水线，命中层发光） ----------
+   smap 为当日口径（迭代 38，与拦截来源构成同源）——"今日各层命中
+   次数"与总览大数字带可互相印证 */
 function renderChain(smap){
   var rows = [
     { step: '1', icon: '🛡', name: '人工白名单', desc: '命中即放行', state: 'ok', badge: '✓ 放行' },

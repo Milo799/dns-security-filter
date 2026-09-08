@@ -399,21 +399,33 @@ def status_hourly(hours: int = 24, _: str = Depends(get_current_user)):
 
 
 @router.get("/status/breakdown")
-def status_breakdown(days: int = 7, top: int = 10,
+def status_breakdown(days: int = 7, top: int = 10, scope: str | None = None,
                      _: str = Depends(get_current_user)):
     """拦截来源构成 + Top 拦截域名（仪表盘态势图用，只读）。
 
     来源按 filter_reason 前缀归类：
       local_blacklist → 本地黑名单；threat_list → 离线大名单；
       threatintel:*   → 在线情报；  ip_filter      → IP 后置过滤。
+
+    窗口口径（迭代 38）：
+      scope=today → 自然日（今日 00:00 起，与威胁总览大数字带同口径，
+                     来源构成四段之和 = 今日拦截+剔除，可直接对账）；
+      默认 days=N → 过去 N*24h 滚动窗（向后兼容旧行为）。
+      注意 days=1 是滚动 24h 不是自然日，两者在上午时段差异显著。
+    时间窗口统一本地时区（filter_log.timestamp 存 localtime；
+    旧实现 UTC 起点，UTC+8 环境窗口边界偏 8h——迭代 26 修正）。
     """
-    days = max(1, min(days, 90))
     top = max(1, min(top, 50))
-    # 时间窗口统一本地时区（filter_log.timestamp 存 localtime；
-    # 旧实现 UTC 起点，UTC+8 环境窗口边界偏 8h——迭代 26 修正）
+    if scope == "today":
+        where = "date(timestamp) = date('now','localtime')"
+        wparams: tuple = ()
+    else:
+        days = max(1, min(days, 90))
+        where = "timestamp >= datetime('now','localtime', ?)"
+        wparams = (f"-{days} days",)
     with db_cursor() as cur:
         cur.execute(
-            """SELECT
+            f"""SELECT
                  SUM(CASE WHEN filter_reason='local_blacklist'
                      THEN 1 ELSE 0 END) AS local_blacklist,
                  SUM(CASE WHEN filter_reason='threat_list'
@@ -423,8 +435,8 @@ def status_breakdown(days: int = 7, top: int = 10,
                  SUM(CASE WHEN filter_reason='ip_filter'
                      THEN 1 ELSE 0 END) AS ip_filter
                FROM filter_log
-               WHERE timestamp >= datetime('now','localtime', ?)""",
-            (f"-{days} days",),
+               WHERE {where}""",
+            wparams,
         )
         row = cur.fetchone()
         sources = [
@@ -438,26 +450,28 @@ def status_breakdown(days: int = 7, top: int = 10,
              "count": row["ip_filter"] or 0},
         ]
         cur.execute(
-            """SELECT domain, COUNT(*) AS cnt FROM filter_log
-               WHERE timestamp >= datetime('now','localtime', ?)
+            f"""SELECT domain, COUNT(*) AS cnt FROM filter_log
+               WHERE {where}
                  AND action IN ('intercept','remove_ip')
                GROUP BY domain ORDER BY cnt DESC LIMIT ?""",
-            (f"-{days} days", top),
+            wparams + (top,),
         )
         top_domains = [{"domain": r["domain"], "count": r["cnt"]}
                        for r in cur.fetchall()]
         cur.execute(
-            """SELECT client_ip, COUNT(*) AS cnt FROM filter_log
-               WHERE timestamp >= datetime('now','localtime', ?)
+            f"""SELECT client_ip, COUNT(*) AS cnt FROM filter_log
+               WHERE {where}
                  AND action IN ('intercept','remove_ip')
                  AND client_ip != ''
                GROUP BY client_ip ORDER BY cnt DESC LIMIT ?""",
-            (f"-{days} days", top),
+            wparams + (top,),
         )
         top_clients = [{"client_ip": r["client_ip"], "count": r["cnt"]}
                        for r in cur.fetchall()]
     return {"code": 0, "message": "ok",
-            "data": {"days": days, "sources": sources,
+            "data": {"days": days if scope != "today" else None,
+                     "scope": scope or "rolling",
+                     "sources": sources,
                      "top_domains": top_domains,
                      "top_clients": top_clients}}
 

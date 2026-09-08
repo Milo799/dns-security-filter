@@ -441,3 +441,50 @@ def test_status_breakdown(client, token):
     assert r.status_code == 200
     d2 = r.json()["data"]
     assert d2["days"] == 90
+
+
+def test_status_breakdown_today_scope(client, token):
+    """迭代 38：scope=today 自然日窗口（与威胁总览大数字带同口径）。
+
+    - 昨日 23:59 的行不得计入（days=1 滚动 24h 会计入，两口径下午
+      前差异显著）；
+    - scope 字段回显 today；默认调用回退 rolling 保持向后兼容。
+    """
+    from app.db import db_cursor
+    from datetime import datetime, timedelta
+    yesterday = (datetime.now() - timedelta(days=1)).replace(
+        hour=23, minute=59, second=0, microsecond=0)
+    # 防测试跨午夜跑：若回退后仍晚于当前时刻（当天就是昨天），跳过
+    if yesterday >= datetime.now():
+        import pytest
+        pytest.skip("跨午夜边界，昨日 23:59 样本不成立")
+    with db_cursor() as cur:
+        cur.execute(
+            """INSERT INTO filter_log
+               (client_ip, domain, query_type, filter_reason, action,
+                malicious_ips, final_result, source_api, timestamp)
+               VALUES ('10.0.0.9', 'bd-yesterday.test', 'A', 'local_blacklist',
+                       'intercept', '', '', '', ?),
+                      ('10.0.0.9', 'bd-today.test', 'A', 'threat_list',
+                       'intercept', '', '', '',
+                       datetime('now','localtime'))""",
+            (yesterday.strftime("%Y-%m-%d %H:%M:%S"),),
+        )
+    r = client.get("/api/status/breakdown?scope=today", headers=_h(token))
+    assert r.status_code == 200
+    d = r.json()["data"]
+    assert d["scope"] == "today"
+    assert d["days"] is None
+    # 昨日行被自然日窗口排除
+    assert not any(t["domain"] == "bd-yesterday.test"
+                   for t in d["top_domains"])
+    # 今日行被计入
+    assert any(t["domain"] == "bd-today.test" for t in d["top_domains"])
+    by = {s["key"]: s["count"] for s in d["sources"]}
+    assert by["threat_list"] >= 1
+    # 默认调用（无 scope）保持 rolling 语义
+    r2 = client.get("/api/status/breakdown?days=7", headers=_h(token))
+    d2 = r2.json()["data"]
+    assert d2["scope"] == "rolling"
+    assert d2["days"] == 7
+    assert any(t["domain"] == "bd-yesterday.test" for t in d2["top_domains"])

@@ -394,7 +394,7 @@ Web"测试中心"页面，输入域名或 IP（含 PTR 模式）进行**只读�
 
 **系统配置 / 状态**：`GET/PUT /api/config`、`GET /api/status`、`GET /api/status/trend` ▲、`POST /api/detection/toggle`
 
-**★ 仪表盘数据**：`GET /api/status/hourly?hours=24`（小时聚合，柱线图+热力图共用）、`GET /api/status/breakdown?days=7&top=5`（来源构成+Top 域名+Top 客户端）
+**★ 仪表盘数据**：`GET /api/status/hourly?hours=24`（小时聚合，柱线图+热力图共用）、`GET /api/status/breakdown?scope=today&top=10`（来源构成+Top 域名+Top 客户端；▲迭代 38：scope=today 自然日窗口，与 /api/status 今日口径一致可对账，默认 days=N 滚动窗向后兼容——总览页"拦截来源构成"与"五层检测链路"两卡已切当日）
 
 **★ 观测**：`GET /api/log-writer/stats`（日志写入队列/累计/丢弃——dropped>0 需调采样率或保留周期）、`GET /api/circuit-breaker/stats`（源级熔断 + 路径降级 + **上游熔断**）、`GET /api/queue-stats`（检测线程池队列深度 pending/inflight/max_pending）
 
