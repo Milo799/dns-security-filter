@@ -529,7 +529,8 @@ def test_process_query_intercepts_threat_list(monkeypatch):
                 "SELECT filter_reason FROM filter_log "
                 "WHERE domain='a.evil.bad.example' ORDER BY id DESC LIMIT 1")
             row = cur.fetchone()
-        assert row and row["filter_reason"] == "threat_list"
+        # 迭代 39：reason 带命中源名（threat_list:<source>）
+        assert row and row["filter_reason"] == "threat_list:hagezi_ti"
     finally:
         threat_list.delete_source("hagezi_ti")
 

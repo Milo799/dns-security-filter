@@ -36,6 +36,43 @@ def _build_condition(start: str | None, end: str | None, client_ip: str | None,
     return cond, params
 
 
+@router.get("/reasons")
+def list_reason_options(_: str = Depends(get_current_user)):
+    """过滤原因筛选下拉选项（迭代 39：过滤日志页原因筛选）。
+
+    分三组返回，前端据此渲染 optgroup：
+    - fixed：四类固定原因（local_blacklist / threat_list:* / ip_filter /
+      threatintel:*），fixed 组用精确匹配语义（见 _build_condition）；
+    - online：已启用的在线情报源名（threatintel:reason LIKE 匹配
+      "threatintel:%:src" 中的源名段）；
+    - offline：已启用的离线大名单源 key（直查 threat_list 表
+      DISTINCT source WHERE enabled=1，含自定义源；显示名取内置
+      元数据、自定义源回退 key），筛选 threat_list:<key> 用 LIKE
+      前缀匹配——兼容迭代 39 前的裸 threat_list 旧数据。
+    """
+    from app import threat_list
+    with db_cursor() as cur:
+        cur.execute("SELECT name, enabled FROM threatintel_api ORDER BY id")
+        online = [dict(r) for r in cur.fetchall()]
+    # offline 直查 threat_list 表（enabled_source_keys 含自定义源，
+    # 不受 source_stats 仅内置 SOURCES 的限制）；显示名关联内置元数据，
+    # 自定义源回退原始 key
+    meta = {s["key"]: s["name"] for s in threat_list.SOURCES}
+    offline = [{"key": k, "label": meta.get(k, k)}
+               for k in sorted(threat_list.enabled_source_keys())]
+    return {"code": 0, "message": "ok", "data": {
+        "fixed": [
+            {"key": "local_blacklist", "label": "人工黑名单"},
+            {"key": "threat_list", "label": "离线情报源（全部）"},
+            {"key": "ip_filter", "label": "IP 后置过滤"},
+            {"key": "threatintel", "label": "在线情报（全部）"},
+        ],
+        "online": [{"key": r["name"], "label": r["name"]}
+                   for r in online if r["enabled"]],
+        "offline": offline,
+    }}
+
+
 @router.get("")
 def query_logs(
     start: str | None = None,

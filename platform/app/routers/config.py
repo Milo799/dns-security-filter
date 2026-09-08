@@ -361,7 +361,7 @@ def status_hourly(hours: int = 24, _: str = Depends(get_current_user)):
                  SUM(CASE WHEN action='remove_ip'  THEN 1 ELSE 0 END) AS removes,
                  SUM(CASE WHEN filter_reason='local_blacklist' THEN 1 ELSE 0 END)
                    AS local_blacklist,
-                 SUM(CASE WHEN filter_reason='threat_list' THEN 1 ELSE 0 END)
+                 SUM(CASE WHEN filter_reason LIKE 'threat_list%' THEN 1 ELSE 0 END)
                    AS threat_list,
                  SUM(CASE WHEN filter_reason LIKE 'threatintel:%' THEN 1 ELSE 0 END)
                    AS threatintel,
@@ -428,7 +428,7 @@ def status_breakdown(days: int = 7, top: int = 10, scope: str | None = None,
             f"""SELECT
                  SUM(CASE WHEN filter_reason='local_blacklist'
                      THEN 1 ELSE 0 END) AS local_blacklist,
-                 SUM(CASE WHEN filter_reason='threat_list'
+                 SUM(CASE WHEN filter_reason LIKE 'threat_list%'
                      THEN 1 ELSE 0 END) AS threat_list,
                  SUM(CASE WHEN filter_reason LIKE 'threatintel:%'
                      THEN 1 ELSE 0 END) AS threatintel,

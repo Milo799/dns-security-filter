@@ -34,11 +34,12 @@ function aggQuick(kind){
   loadAggDomains();
 }
 
-/* 拦截原因 → 展示名（与过滤日志页口径一致） */
+/* 拦截原因 → 展示名（与过滤日志页口径一致；迭代 39 threat_list 带源名） */
 function aggReasonLabel(r){
   if (r === 'local_blacklist') return '人工黑名单';
   if (r === 'ip_filter') return 'IP过滤';
   if (r === 'threat_list') return '离线名单';
+  if (r.indexOf('threat_list:') === 0) return '离线名单·' + r.slice(12);
   if (r.indexOf('threatintel:') === 0) return '在线情报';
   return r;
 }

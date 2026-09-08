@@ -390,7 +390,7 @@ Web"测试中心"页面，输入域名或 IP（含 PTR 模式）进行**只读�
 
 **▲ 测试中心**：`POST /api/test/domain`、`POST /api/test/ip`（只读探测，含逐源结果与最终裁决）
 
-**过滤日志**：`GET /api/logs`、`GET /api/logs/export`、`GET /api/logs/agg/domains` ▲（域名分析页：按域名聚合计数/首末次时间/Top3 拦截原因，支持时间窗+域名模糊+动作过滤）
+**过滤日志**：`GET /api/logs`、`GET /api/logs/export`、`GET /api/logs/agg/domains` ▲（域名分析页：按域名聚合计数/首末次时间/Top3 拦截原因，支持时间窗+域名模糊+动作过滤）、`GET /api/logs/reasons` ▲（迭代 39：过滤原因下拉选项三组——fixed 四类固定原因 / online 已启用在线源 / offline 已启用离线源（含自定义源）；配套检测层 threat_list 命中 reason 改 threat_list:<source> 并填 source_api，reason 筛选 LIKE 前缀匹配兼容新旧格式）
 
 **系统配置 / 状态**：`GET/PUT /api/config`、`GET /api/status`、`GET /api/status/trend` ▲、`POST /api/detection/toggle`
 

@@ -166,7 +166,7 @@
             <div class="f-item"><label>客户端 IP</label><input id="lgCip" placeholder="如 192.168.1"></div>
             <div class="f-item"><label>域名</label><input id="lgDomain" placeholder="支持模糊"></div>
             <div class="f-item"><label>动作</label><select id="lgAction"><option value="">全部</option><option value="intercept">intercept 拦截</option><option value="remove_ip">remove_ip 剔除IP</option><option value="allow">allow 放行</option></select></div>
-            <div class="f-item"><label>原因</label><input id="lgReason" placeholder="如 local_blacklist"></div>
+            <div class="f-item"><label>过滤原因</label><select id="lgReason"><option value="">全部</option></select></div>
             <button class="btn btn-emphasized btn-compact" onclick="logPage=1;loadLogs()">查询</button>
             <span class="count-note" id="lgCount"></span>
           </div>
@@ -585,18 +585,18 @@
 </div>
 
 <!-- 加载顺序：core → charts → pages → boot -->
-<script src="js/app.js?v=38"></script>
-<script src="js/charts.js?v=38"></script>
-<script src="js/pages/dashboard.js?v=38"></script>
-<script src="js/pages/logs.js?v=38"></script>
-<script src="js/pages/aggdomains.js?v=38"></script>
-<script src="js/pages/lists.js?v=38"></script>
-<script src="js/pages/testcenter.js?v=38"></script>
-<script src="js/pages/threatintel.js?v=38"></script>
-<script src="js/pages/fusion.js?v=38"></script>
-<script src="js/pages/threatlist.js?v=38"></script>
-<script src="js/pages/config.js?v=38"></script>
-<script src="js/pages/audit.js?v=38"></script>
-<script src="js/boot.js?v=38"></script>
+<script src="js/app.js?v=39"></script>
+<script src="js/charts.js?v=39"></script>
+<script src="js/pages/dashboard.js?v=39"></script>
+<script src="js/pages/logs.js?v=39"></script>
+<script src="js/pages/aggdomains.js?v=39"></script>
+<script src="js/pages/lists.js?v=39"></script>
+<script src="js/pages/testcenter.js?v=39"></script>
+<script src="js/pages/threatintel.js?v=39"></script>
+<script src="js/pages/fusion.js?v=39"></script>
+<script src="js/pages/threatlist.js?v=39"></script>
+<script src="js/pages/config.js?v=39"></script>
+<script src="js/pages/audit.js?v=39"></script>
+<script src="js/boot.js?v=39"></script>
 </body>
 </html>

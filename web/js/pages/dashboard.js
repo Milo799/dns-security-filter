@@ -342,6 +342,7 @@ function reasonLabel(reason){
   if (!reason) return '';
   if (reason === 'local_blacklist') return '人工黑名单';
   if (reason === 'threat_list') return '离线情报源';
+  if (reason.indexOf('threat_list:') === 0) return '离线情报源·' + reason.slice(12);
   if (reason === 'ip_filter') return 'IP 后置';
   if (reason.indexOf('threatintel:') === 0) return '在线情报';
   return reason;

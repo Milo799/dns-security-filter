@@ -31,7 +31,7 @@ import log_writer
 import query_stats
 from config import CONFIG
 from app.db import db_cursor, get_enabled_list
-from app.threat_list import check_domain, check_ip
+from app.threat_list import find_domain, find_ip
 from adapters import get_enabled_adapters, run_fusion
 
 logger = logging.getLogger("platform.detectors")
@@ -599,11 +599,16 @@ def process_query(request: DNSRecord, client_ip: str | None = None) -> DNSRecord
         return build_intercept_reply(request, qtype)
 
     # 4.5) 离线大名单命中（hagezi/StevenBlack 等导入源，零 API 依赖）
-    if check_domain(domain):
+    #      迭代 39：reason 带命中源名（threat_list:hagezi_ti）且 source_api
+    #      填源 key——过滤日志页可直接按源筛选，旧裸 threat_list 仍兼容
+    #      （前端 reasonLabel 两种格式都认）。
+    hit = find_domain(domain)
+    if hit:
+        tl_source, _tl_entry = hit
         query_stats.record("intercept")
         write_filter_log(client_ip or "", domain, qtype,
-                         "threat_list", "intercept", [],
-                         "alert_ip:" + CONFIG.alert_ip)
+                         f"threat_list:{tl_source}", "intercept", [],
+                         "alert_ip:" + CONFIG.alert_ip, tl_source)
         return build_intercept_reply(request, qtype)
 
     malicious, reason = query_threatintel_domain(domain)
@@ -673,10 +678,13 @@ def _process_ptr(request: DNSRecord, ptr_name: str, client_ip: str) -> DNSRecord
                          "intercept", [ip], "empty")
         return build_intercept_reply(request, QTYPE.PTR)
 
-    if check_ip(ip):
+    ip_hit = find_ip(ip)
+    if ip_hit:
+        tl_source = ip_hit[0]
         query_stats.record("intercept")
-        write_filter_log(client_ip, ptr_name, QTYPE.PTR, "threat_list",
-                         "intercept", [ip], "empty")
+        write_filter_log(client_ip, ptr_name, QTYPE.PTR,
+                         f"threat_list:{tl_source}", "intercept", [ip],
+                         "empty", tl_source)
         return build_intercept_reply(request, QTYPE.PTR)
 
     bad, reason = query_threatintel_ip(ip)

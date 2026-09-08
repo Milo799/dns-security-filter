@@ -1,16 +1,56 @@
 /* ============================================================
    pages/logs.js — 过滤日志（查询 / 分页 / 导出 CSV）
+   迭代 39：过滤原因筛选改下拉（固定四类 + 已启用在线源 +
+   已启用离线源），值编码 "type:value" 区分筛选语义。
    ============================================================ */
 var logPage = 1;
 
 function logFilterParams(){
   var q = new URLSearchParams();
-  [['lgCip', 'client_ip'], ['lgDomain', 'domain'], ['lgAction', 'action'], ['lgReason', 'reason']]
+  [['lgCip', 'client_ip'], ['lgDomain', 'domain'], ['lgAction', 'action']]
     .forEach(function(p){
       var v = document.getElementById(p[0]).value.trim();
       if (v) q.set(p[1], v);
     });
+  /* 原因下拉：值形如 "fixed:local_blacklist" / "online:spamhaus_dbl" /
+     "offline:hagezi_ti"——按类型构造 reason 查询串：
+     - fixed → 前缀匹配（threat_list 新旧格式都命中，
+       local_blacklist/ip_filter/threatintel 同理覆盖其前缀族）
+     - online:<name> → LIKE %name%（匹配 threatintel:strategy:srcs 段）
+     - offline:<key> → threat_list:<key> 前缀匹配；迭代 39 前的旧数据
+       reason 为裸 threat_list（无源信息），不命中按源筛选属预期 */
+  var rv = document.getElementById('lgReason').value;
+  if (rv){
+    var sep = rv.indexOf(':'), type = rv.slice(0, sep), val = rv.slice(sep + 1);
+    if (type === 'fixed') q.set('reason', val);
+    else if (type === 'online') q.set('reason', val);
+    else if (type === 'offline') q.set('reason', 'threat_list:' + val);
+  }
   return q;
+}
+
+/* 加载过滤原因下拉选项（fixed/online/offline 三组 optgroup） */
+async function loadReasonOptions(){
+  var sel = document.getElementById('lgReason');
+  if (!sel) return;
+  try{
+    var d = (await api('GET', '/api/logs/reasons')).data;
+    var html = '<option value="">全部</option>';
+    var groups = [
+      ['fixed', '固定分类'], ['online', '在线情报源'], ['offline', '离线情报源']
+    ];
+    groups.forEach(function(g){
+      var items = d[g[0]] || [];
+      if (!items.length) return;
+      html += '<optgroup label="' + esc(g[1]) + '">';
+      items.forEach(function(it){
+        html += '<option value="' + g[0] + ':' + esc(it.key) + '">' +
+                esc(it.label) + '</option>';
+      });
+      html += '</optgroup>';
+    });
+    sel.innerHTML = html;
+  }catch(e){ /* 下拉加载失败不阻塞日志主体，保留"全部" */ }
 }
 
 async function loadLogs(page){
@@ -23,11 +63,7 @@ async function loadLogs(page){
     document.getElementById('logRows').innerHTML = d.items.length ? d.items.map(function(l){
       var reason = l.action === 'allow'
         ? '<span class="tag tag-neutral">allow</span>'
-        : (l.filter_reason === 'local_blacklist'
-          ? '<span class="tag tag-neutral">人工黑名单</span>'
-          : (l.filter_reason === 'ip_filter'
-            ? '<span class="tag tag-warning">IP过滤</span>'
-            : '<span class="tag tag-error">' + esc(l.filter_reason) + '</span>'));
+        : logReasonTag(l.filter_reason);
       var act = l.action === 'intercept'
         ? '<span class="tag tag-error">intercept</span>'
         : (l.action === 'remove_ip'
@@ -45,6 +81,35 @@ async function loadLogs(page){
   }catch(e){ toast(e.message, true); }
 }
 
+/* 过滤原因可读化（logs 页表格 + 事件流复用口径）：
+   - local_blacklist → 人工黑名单
+   - threat_list / threat_list:<source> → 离线情报源[:源名]
+   - ip_filter → IP 过滤
+   - threatintel:<strategy>:<srcs> → 在线情报[（源列表）]
+   - degraded:failsafe → 降级放行（不应出现在拦截日志，兜底显示） */
+function logReasonTag(reason){
+  if (!reason) return '';
+  if (reason === 'local_blacklist')
+    return '<span class="tag tag-neutral">人工黑名单</span>';
+  if (reason === 'ip_filter')
+    return '<span class="tag tag-warning">IP过滤</span>';
+  if (reason === 'threat_list')
+    return '<span class="tag tag-warning">离线情报源</span>';
+  if (reason.indexOf('threat_list:') === 0){
+    var src = reason.slice(12);
+    return '<span class="tag tag-warning">离线情报源</span>' +
+           '<span class="tag tag-neutral" style="margin-left:4px">' + esc(src) + '</span>';
+  }
+  if (reason.indexOf('threatintel:') === 0){
+    var segs = reason.split(':');
+    var srcs = segs.slice(2).join(':');
+    return '<span class="tag tag-error">在线情报</span>' +
+           (srcs ? '<span class="tag tag-neutral" style="margin-left:4px" title="' + esc(srcs) + '">' +
+             esc(srcs.split(',').length > 3 ? srcs.split(',').slice(0, 3).join(',') + '…' : srcs) + '</span>' : '');
+  }
+  return '<span class="tag tag-error">' + esc(reason) + '</span>';
+}
+
 async function exportLogs(){
   var q = logFilterParams();
   try{
@@ -54,4 +119,4 @@ async function exportLogs(){
   }catch(e){ toast(e.message, true); }
 }
 
-PAGE_LOADERS.logs = loadLogs;
+PAGE_LOADERS.logs = function(){ loadReasonOptions(); loadLogs(); };
