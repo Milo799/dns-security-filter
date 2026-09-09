@@ -1,12 +1,17 @@
-dnslib>=0.9.24
-fastapi>=0.110
-uvicorn>=0.29
-PyJWT>=2.8
-bcrypt>=4.1
-pyyaml>=6.0
-requests>=2.31
-cryptography>=42.0
-pytest>=8.0
-httpx>=0.27
-whoisit>=4.0
-python-dateutil>=2.8
+# 平台直接依赖（精确版本锁定，2026-09-09 对照开发环境 pip freeze）
+# 说明：
+#   - 仅锁定代码直接 import 的包；传递依赖（requests/python-dateutil/urllib3 等
+#     由 whoisit 带入）由 pip 自动解析，不在此重复声明；
+#   - 升级依赖时先在开发环境验证全量测试（cd platform && python -m pytest ../tests）
+#     再更新此清单，并同步 deploy/docker/Dockerfile.platform 重建镜像；
+#   - pytest 仅用于测试环境，生产镜像可不装（docker build 时此文件整体安装，包含 pytest 无害）。
+dnslib==0.9.26
+fastapi==0.141.1
+uvicorn==0.52.4
+PyJWT==2.13.0
+bcrypt==5.0.0
+pyyaml==6.0.3
+cryptography==50.0.1
+httpx==0.28.1
+whoisit==4.0.4
+pytest==9.1.1

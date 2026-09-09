@@ -10,7 +10,9 @@
 # 生产建议：
 #   - 修改 platform/platform.yaml（jwt_secret、admin_initial_password、upstream_dns、alert_ip 等）
 #     与 proxy/config.yaml（upstream_addr 指向平台）后再启动；
-#   - platform.yaml / config.yaml / data 均以 volume 挂载，改配置无需重建镜像。
+#   - platform.yaml / config.yaml / data 均以 volume 挂载，改配置无需重建镜像；
+#   - 日志轮转已配置（logging 段，json-file max-size/max-file），无需宿主机 logrotate；
+#   - Web 管理仅 HTTP；如需 HTTPS 前置 Nginx 反代 443→8080（见部署文档 3.2 节），平台无需改动。
 
 services:
   platform:
@@ -51,3 +53,8 @@ services:
       - ../../proxy/config.yaml:/app/config.yaml:ro   # 代理配置（upstream_addr 填 platform）
     environment:
       - TZ=Asia/Shanghai
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
