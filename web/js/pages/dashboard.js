@@ -344,6 +344,8 @@ function reasonLabel(reason){
   if (reason === 'threat_list') return '离线情报源';
   if (reason.indexOf('threat_list:') === 0) return '离线情报源·' + reason.slice(12);
   if (reason === 'ip_filter') return 'IP 后置';
+  if (reason === 'nrd') return '新注册域名';
+  if (reason === 'nrd_observe') return '新注册域名·观察';
   if (reason.indexOf('threatintel:') === 0) return '在线情报';
   return reason;
 }

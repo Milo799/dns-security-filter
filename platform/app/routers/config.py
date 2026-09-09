@@ -71,6 +71,10 @@ class ConfigBody(BaseModel):
     login_ip_threshold: int | None = None
     login_ip_window_minutes: int | None = None
     login_ip_block_minutes: int | None = None
+    nrd_enabled: bool | None = None
+    nrd_mode: str | None = None
+    nrd_max_age_days: int | None = None
+    nrd_tlds: str | None = None
 
 
 @router.get("/config")
@@ -180,6 +184,21 @@ def update_config(body: ConfigBody, user: str = Depends(get_current_user)):
             1 <= data["login_ip_block_minutes"] <= 1440):
         raise HTTPException(
             status_code=400, detail="login_ip_block_minutes 须在 1~1440 之间（分钟）")
+    # NRD 新注册域名检测（迭代 40）
+    if "nrd_mode" in data and data["nrd_mode"] not in ("observe", "intercept"):
+        raise HTTPException(
+            status_code=400, detail="nrd_mode 必须为 observe/intercept")
+    if "nrd_max_age_days" in data and not (
+            1 <= data["nrd_max_age_days"] <= 90):
+        raise HTTPException(
+            status_code=400, detail="nrd_max_age_days 须在 1~90 之间（天）")
+    if "nrd_tlds" in data:
+        tlds = [t.strip().lstrip(".").lower()
+                for t in (data["nrd_tlds"] or "").split(",") if t.strip()]
+        if len(tlds) > 50:
+            raise HTTPException(
+                status_code=400, detail="nrd_tlds 最多 50 个（TLD 过多会放大 RDAP 查询量）")
+        data["nrd_tlds"] = ",".join(tlds)   # 规范化：小写去点去空格
 
     changes = {}
     for key, value in data.items():
@@ -541,6 +560,20 @@ def dns_queue_stats(_: str = Depends(get_current_user)):
     """
     import queue_stats
     return {"code": 0, "message": "ok", "data": queue_stats.stats()}
+
+
+@router.get("/nrd/stats")
+def nrd_stats(_: str = Depends(get_current_user)):
+    """NRD 新注册域名检测状态（迭代 40）。
+
+    - hits_new / total_checked：观察期评估误报率的核心指标
+      （observe 模式跑数天后决定是否切 intercept）；
+    - rdap_queries / cache_hits：缓存效率（命中率应随时间走高）；
+    - skipped_unsupported 占比高属正常（.cn 等无 RDAP 服务的 TLD）；
+    - 双进程部署时读 Web 进程自身计数（恒 0），生产看 DNS 进程日志。
+    """
+    import rdap_nrd
+    return {"code": 0, "message": "ok", "data": rdap_nrd.stats()}
 
 
 @router.post("/circuit-breaker/reset")

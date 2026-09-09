@@ -221,6 +221,10 @@ async def run_dns_server():
     threading.Thread(
         target=threat_list.warm_cache, name="tl-warmup",
         daemon=True).start()
+    # NRD 新注册域名检测（迭代 40）：RDAP bootstrap 预热 + 24h 刷新
+    # （未预热时首条查询要同步拉 IANA 路由表约 1~2s，预热避免该延迟）
+    import rdap_nrd
+    rdap_nrd.start()
 
     addr = (CONFIG.dns.listen_addr, CONFIG.dns.listen_port)
 

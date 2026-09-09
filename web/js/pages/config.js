@@ -25,10 +25,35 @@ async function loadConfig(){
     document.getElementById('cfgHttpProxy').value = v('http_proxy', '');
     var ptEl = document.getElementById('cfgProxyTestResult');
     if (ptEl) ptEl.textContent = v('http_proxy', '') ? '已配置（未测试）' : '未配置（直连）';
+    // NRD 新注册域名检测（迭代 40）
+    document.getElementById('cfgNrdEnabled').checked = v('nrd_enabled', '0') === '1';
+    document.getElementById('cfgNrdIntercept').checked = v('nrd_mode', 'observe') === 'intercept';
+    document.getElementById('cfgNrdMaxAgeDays').value = v('nrd_max_age_days', '7');
+    document.getElementById('cfgNrdTlds').value = v('nrd_tlds', 'xyz,top,icu,shop,online,site,cfd,sbs,rest,cyou');
+    loadNrdStats();
     loadCacheStats();
     loadCbStats();
     loadLogWriterStats();
   }catch(e){ toast(e.message, true); }
+}
+
+/* NRD 检测状态行（observe 期评估误报率的核心观测） */
+async function loadNrdStats(){
+  var el = document.getElementById('cfgNrdStats');
+  if (!el) return;
+  try{
+    var s = (await api('GET', '/api/nrd/stats')).data;
+    var txt = '检测 ' + (s.total_checked || 0).toLocaleString() +
+      ' · 新注册 ' + (s.hits_new || 0).toLocaleString() +
+      ' · RDAP 查询 ' + (s.rdap_queries || 0).toLocaleString() +
+      ' · 缓存命中 ' + (s.cache_hits || 0).toLocaleString() +
+      ' · TLD跳过 ' + (s.skipped_tld || 0).toLocaleString();
+    if (s.skipped_unsupported) txt += ' · 不支持TLD ' + s.skipped_unsupported.toLocaleString();
+    if (s.skipped_error) txt += ' · 失败 ' + s.skipped_error.toLocaleString();
+    el.textContent = txt + '（进程内累计，重启归零）';
+  }catch(e){
+    el.textContent = '状态不可用';
+  }
 }
 
 async function loadLogWriterStats(){
@@ -99,6 +124,11 @@ async function saveConfig(){
     http_proxy: proxyAddr
   };
   if (!body.alert_ip || !body.upstream_dns){ toast('告警 IP 与上游 DNS 不能为空', true); return; }
+  // NRD TLD 名单前端校验（后端同样校验，双保险）
+  var nrdTlds = document.getElementById('cfgNrdTlds').value.trim();
+  if (nrdTlds && nrdTlds.split(',').filter(function(t){ return t.trim(); }).length > 50){
+    toast('高危 TLD 名单最多 50 个', true); return;
+  }
   try{
     await api('PUT', '/api/config', body);
     var detection = document.getElementById('cfgDetection').checked;
@@ -110,11 +140,19 @@ async function saveConfig(){
       log_flush_interval_s: parseInt(document.getElementById('cfgLogFlushInterval').value) || 2,
       log_batch_size: parseInt(document.getElementById('cfgLogBatchSize').value) || 500
     });
+    // NRD 配置（迭代 40）
+    await api('PUT', '/api/config', {
+      nrd_enabled: document.getElementById('cfgNrdEnabled').checked,
+      nrd_mode: document.getElementById('cfgNrdIntercept').checked ? 'intercept' : 'observe',
+      nrd_max_age_days: parseInt(document.getElementById('cfgNrdMaxAgeDays').value) || 7,
+      nrd_tlds: nrdTlds
+    });
     toast('配置已保存，立即生效');
     loadDashboard();
     loadCacheStats();
     loadCbStats();
     loadLogWriterStats();
+    loadNrdStats();
     var ptEl2 = document.getElementById('cfgProxyTestResult');
     if (ptEl2) ptEl2.textContent = proxyAddr ? '已配置（未测试）' : '未配置（直连）';
   }catch(e){ toast(e.message, true); }

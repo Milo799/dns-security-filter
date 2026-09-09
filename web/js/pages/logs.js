@@ -68,7 +68,9 @@ async function loadLogs(page){
         ? '<span class="tag tag-error">intercept</span>'
         : (l.action === 'remove_ip'
           ? '<span class="tag tag-warning">remove_ip</span>'
-          : '<span class="tag tag-success">allow</span>');
+          : (l.action === 'observe'
+            ? '<span class="tag tag-warning">observe</span>'
+            : '<span class="tag tag-success">allow</span>'));
       return '<tr><td class="mono">' + esc(l.timestamp) + '</td>' +
         '<td class="mono">' + (l.client_ip ? esc(l.client_ip) : '<span style="color:var(--text-dim)">未透传</span>') + '</td>' +
         '<td class="mono">' + esc(l.domain) + '</td><td>' + esc(l.query_type) + '</td>' +
@@ -85,6 +87,8 @@ async function loadLogs(page){
    - local_blacklist → 人工黑名单
    - threat_list / threat_list:<source> → 离线情报源[:源名]
    - ip_filter → IP 过滤
+   - nrd → 新注册域名（迭代 40，RDAP 注册时间）
+   - nrd_observe → 新注册域名·观察（observe 模式记录，未拦截）
    - threatintel:<strategy>:<srcs> → 在线情报[（源列表）]
    - degraded:failsafe → 降级放行（不应出现在拦截日志，兜底显示） */
 function logReasonTag(reason){
@@ -93,6 +97,10 @@ function logReasonTag(reason){
     return '<span class="tag tag-neutral">人工黑名单</span>';
   if (reason === 'ip_filter')
     return '<span class="tag tag-warning">IP过滤</span>';
+  if (reason === 'nrd')
+    return '<span class="tag tag-error">新注册域名</span>';
+  if (reason === 'nrd_observe')
+    return '<span class="tag tag-neutral">新注册域名·观察</span>';
   if (reason === 'threat_list')
     return '<span class="tag tag-warning">离线情报源</span>';
   if (reason.indexOf('threat_list:') === 0){

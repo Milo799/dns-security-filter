@@ -14,7 +14,8 @@ logger = logging.getLogger("platform.runtime")
 
 # 类型转换规则：system_config 值均为字符串，落内存时需还原类型
 _BOOL_KEYS = {"allow_log_enabled", "detection_enabled",
-              "threatlist_auto_update", "log_async_enabled"}
+              "threatlist_auto_update", "log_async_enabled",
+              "nrd_enabled"}
 _INT_KEYS = {"alert_ttl", "log_retention_days", "api_timeout_ms",
              "threatlist_auto_interval_hours", "domain_cache_ttl_s",
              "domain_cache_size", "ip_cache_ttl_s", "ip_cache_size",
@@ -27,7 +28,9 @@ _INT_KEYS = {"alert_ttl", "log_retention_days", "api_timeout_ms",
              # 登录防爆破（迭代 31）
              "login_lockout_threshold", "login_lockout_minutes",
              "login_ip_threshold", "login_ip_window_minutes",
-             "login_ip_block_minutes"}
+             "login_ip_block_minutes",
+             # NRD 检测层（迭代 40）
+             "nrd_max_age_days"}
 
 
 def _apply(key: str, value: str) -> None:

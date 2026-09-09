@@ -23,6 +23,9 @@ platform/log_retention.py ← 日志保留期清理（每 6h 分批删 filter_lo
 platform/cross_sync.py   ← 跨进程同步：DNS 进程 60s 轮询四表 MAX(updated_at)（双进程部署热生效）
 platform/queue_stats.py  ← executor 队列深度观测（pending/inflight/max_pending + journalctl 告警；Task #160）
 platform/query_stats.py  ← 今日请求全量统计（内存计数 5s UPSERT dns_query_stats；/api/status 优先读；Task #161）
+platform/rdap_nrd.py     ← NRD 新注册域名检测层（迭代 40）：whoisit RDAP 注册时间查询；独立层不进适配器
+                            注册表/不参与融合/不计熔断；TLD 前置过滤 + nrd_cache 永久缓存（内存+SQLite）+
+                            bootstrap 24h 刷新；三态异常映射（Unsupported/NotExist→跳过，QueryError→放行）
 platform/adapters/       ← 16 个威胁情报适配器（DNSBL/免Key/厂商/URLhaus，三态语义 + last_error）
 platform/app/            ← Web 管理：FastAPI 路由（list/threatintel/threatlist/logs/test/config/audit）
 platform/app/crypto.py   ← api_key 落库 Fernet 加密（密钥由 jwt_secret 派生；存量明文启动自动迁移）
@@ -34,7 +37,7 @@ web/index.html + css/ + js/ ← 多文件 SPA（零构建链）：css/{theme,bas
                             fusion/config/audit）；加载顺序固定：app → charts → pages/* → boot；
                             页面模块末尾 PAGE_LOADERS.xxx = loadXxx 注册
 tools/loadtest.py        ← DNS 压测（QPS/延迟分位；Windows 须 SelectorEventLoop）
-tests/                   ← 417 项 pytest（跑全部，新增功能必须补测试；conftest 已设 DNSF_TESTING=1）
+tests/                   ← 440 项 pytest（跑全部，新增功能必须补测试；conftest 已设 DNSF_TESTING=1）
 ```
 
 ## 2. 开发约定（增量改动按依赖关系）

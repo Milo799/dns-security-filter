@@ -66,6 +66,8 @@ def list_reason_options(_: str = Depends(get_current_user)):
             {"key": "threat_list", "label": "离线情报源（全部）"},
             {"key": "ip_filter", "label": "IP 后置过滤"},
             {"key": "threatintel", "label": "在线情报（全部）"},
+            {"key": "nrd", "label": "新注册域名（全部）"},
+            {"key": "nrd_observe", "label": "新注册域名·观察"},
         ],
         "online": [{"key": r["name"], "label": r["name"]}
                    for r in online if r["enabled"]],

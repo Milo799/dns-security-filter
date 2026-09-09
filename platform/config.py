@@ -64,6 +64,11 @@ class PlatformConfig:
     login_ip_threshold: int = 20          # IP 闸：窗口内累计失败 N 次（0=禁用）
     login_ip_window_minutes: int = 15     # IP 闸：滑动窗口时长（分钟）
     login_ip_block_minutes: int = 30      # IP 闸：封禁时长（分钟）
+    # --- NRD 新注册域名检测层（迭代 40，RDAP/whoisit；均可经 system_config 热生效） ---
+    nrd_enabled: bool = False             # NRD 检测开关（默认关，开启前先 observe 观察）
+    nrd_mode: str = "observe"             # observe 只记日志不拦截 / intercept 拦截
+    nrd_max_age_days: int = 7             # 判定"新注册"的域名年龄阈值（天，1~90）
+    nrd_tlds: str = "xyz,top,icu,shop,online,site,cfd,sbs,rest,cyou"  # 参与 NRD 检测的高危 TLD（逗号分隔，空=全部查询）
 
     def load(self, path: str = DEFAULT_CONFIG_PATH) -> "PlatformConfig":
         if not os.path.exists(path):

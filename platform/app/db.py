@@ -76,6 +76,15 @@ def _migrate(conn: sqlite3.Connection) -> None:
         if name not in admin_existing:
             conn.execute(f"ALTER TABLE admin_user ADD COLUMN {name} {ddl}")
 
+    # 迭代 40：NRD 域名注册时间缓存表（存量库自动补齐；CREATE IF NOT EXISTS 幂等）
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS nrd_cache (
+            domain        VARCHAR PRIMARY KEY,
+            registered_at VARCHAR NOT NULL,
+            queried_at    DATETIME NOT NULL DEFAULT (datetime('now','localtime'))
+        )
+    """)
+
 
 @contextmanager
 def db_cursor():

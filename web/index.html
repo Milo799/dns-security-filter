@@ -473,6 +473,24 @@
             </div>
           </div>
         </div>
+        <div class="card"><div class="card-head"><div class="card-title">新注册域名检测（NRD · RDAP）</div></div>
+          <div class="card-body">
+            <div class="switch-row">
+              <div><div class="switch-label">启用 NRD 检测</div><div class="switch-desc">对高危 TLD 的域名实时查 RDAP 注册时间，注册 ≤ 阈值天数判为高风险（钓鱼域名存活期普遍 <24h，用完即弃）</div></div>
+              <label class="switch"><input id="cfgNrdEnabled" type="checkbox"><span class="slider"></span></label>
+            </div>
+            <div class="switch-row">
+              <div><div class="switch-label">拦截模式</div><div class="switch-desc">关闭=观察（只记日志不拦截，用于评估误报率）；开启=真拦截（命中返回告警 IP）</div></div>
+              <label class="switch"><input id="cfgNrdIntercept" type="checkbox"><span class="slider"></span></label>
+            </div>
+            <div class="form-grid" style="margin-top:8px">
+              <div class="form-row"><label>新注册阈值（天）</label><input id="cfgNrdMaxAgeDays" type="number" min="1" max="90"><div class="form-hint">注册时间距今 ≤N 天判为"新注册"，默认 7。</div></div>
+              <div class="form-row"><label>高危 TLD 名单</label><input id="cfgNrdTlds" placeholder="xyz,top,icu,shop,online,site,cfd,sbs,rest,cyou"><div class="form-hint">逗号分隔；名单外 TLD（.com/.net/.cn 等）零开销跳过；留空=全部 TLD 查询（不建议）。</div></div>
+              <div class="form-row"><label>检测状态</label><div class="form-hint" id="cfgNrdStats">加载中…</div></div>
+            </div>
+            <div class="form-hint" style="margin-top:4px">注册时间永久缓存（查得一次永不重查）；.cn 等无 RDAP 服务的 TLD 自动跳过不误拦；查询失败放行不计熔断。新功能建议先开"启用+观察"跑数天评估再切拦截。</div>
+          </div>
+        </div>
       </div>
 
       <!-- ========== 操作审计 ========== -->

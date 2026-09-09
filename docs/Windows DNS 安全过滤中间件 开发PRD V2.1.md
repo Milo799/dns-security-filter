@@ -390,7 +390,9 @@ Web"测试中心"页面，输入域名或 IP（含 PTR 模式）进行**只读�
 
 **▲ 测试中心**：`POST /api/test/domain`、`POST /api/test/ip`（只读探测，含逐源结果与最终裁决）
 
-**过滤日志**：`GET /api/logs`、`GET /api/logs/export`、`GET /api/logs/agg/domains` ▲（域名分析页：按域名聚合计数/首末次时间/Top3 拦截原因，支持时间窗+域名模糊+动作过滤）、`GET /api/logs/reasons` ▲（迭代 39：过滤原因下拉选项三组——fixed 四类固定原因 / online 已启用在线源 / offline 已启用离线源（含自定义源）；配套检测层 threat_list 命中 reason 改 threat_list:<source> 并填 source_api，reason 筛选 LIKE 前缀匹配兼容新旧格式）
+**过滤日志**：`GET /api/logs`、`GET /api/logs/export`、`GET /api/logs/agg/domains` ▲（域名分析页：按域名聚合计数/首末次时间/Top3 拦截原因，支持时间窗+域名模糊+动作过滤）、`GET /api/logs/reasons` ▲（迭代 39：过滤原因下拉选项三组——fixed 四类固定原因（迭代 40 增 nrd/nrd_observe 两项）/ online 已启用在线源 / offline 已启用离线源（含自定义源）；配套检测层 threat_list 命中 reason 改 threat_list:<source> 并填 source_api，reason 筛选 LIKE 前缀匹配兼容新旧格式）
+
+**★ NRD 新注册域名检测（迭代 40）**：独立检测层（rdap_nrd.py，插 threat_list 后 threatintel 前）——RDAP 注册时间查询（whoisit 库，follow_related=False），域名注册 ≤ nrd_max_age_days 判高风险；三态异常映射（UnsupportedError/ResourceDoesNotExist→跳过，QueryError→放行不计熔断）；TLD 前置过滤 + nrd_cache 永久缓存（内存+SQLite）；observe/intercept 双模式默认 observe 只记日志（reason=nrd_observe action=observe）；四配置键 nrd_enabled/nrd_mode/nrd_max_age_days/nrd_tlds 均热生效（cross_sync 60s 同步 DNS 进程）；`GET /api/nrd/stats` 观测（hits_new/total_checked 评估误报率）
 
 **系统配置 / 状态**：`GET/PUT /api/config`、`GET /api/status`、`GET /api/status/trend` ▲、`POST /api/detection/toggle`
 

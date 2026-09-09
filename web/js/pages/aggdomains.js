@@ -38,6 +38,8 @@ function aggQuick(kind){
 function aggReasonLabel(r){
   if (r === 'local_blacklist') return '人工黑名单';
   if (r === 'ip_filter') return 'IP过滤';
+  if (r === 'nrd') return '新注册域名';
+  if (r === 'nrd_observe') return '新注册域名·观察';
   if (r === 'threat_list') return '离线名单';
   if (r.indexOf('threat_list:') === 0) return '离线名单·' + r.slice(12);
   if (r.indexOf('threatintel:') === 0) return '在线情报';

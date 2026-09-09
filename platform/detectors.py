@@ -29,6 +29,7 @@ import ip_cache
 import circuit_breaker
 import log_writer
 import query_stats
+import rdap_nrd
 from config import CONFIG
 from app.db import db_cursor, get_enabled_list
 from app.threat_list import find_domain, find_ip
@@ -610,6 +611,26 @@ def process_query(request: DNSRecord, client_ip: str | None = None) -> DNSRecord
                          f"threat_list:{tl_source}", "intercept", [],
                          "alert_ip:" + CONFIG.alert_ip, tl_source)
         return build_intercept_reply(request, qtype)
+
+    # 4.7) NRD 新注册域名检测（迭代 40，独立检测层：RDAP 注册时间）
+    #      - nrd_enabled=False 时零开销跳过（一个 bool 判断）；
+    #      - is_new_registration 返回三态：True 新注册 / False 正常 /
+    #        None 无结论（TLD 不支持/查询失败——放行，绝不 fail-safe）；
+    #      - observe 模式只记日志不拦截（reason=nrd_observe，评估误报率），
+    #        intercept 模式真正拦截（reason=nrd）。
+    if CONFIG.nrd_enabled:
+        nrd_hit = rdap_nrd.is_new_registration(domain)
+        if nrd_hit:
+            if CONFIG.nrd_mode == "intercept":
+                query_stats.record("intercept")
+                write_filter_log(client_ip or "", domain, qtype,
+                                 "nrd", "intercept", [],
+                                 "alert_ip:" + CONFIG.alert_ip, "rdap_nrd")
+                return build_intercept_reply(request, qtype)
+            # observe：不拦截、不下结论，仅观察记录（放行走后续链路）
+            write_filter_log(client_ip or "", domain, qtype,
+                             "nrd_observe", "observe", [],
+                             "observe", "rdap_nrd")
 
     malicious, reason = query_threatintel_domain(domain)
     if malicious:

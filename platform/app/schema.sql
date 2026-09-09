@@ -111,3 +111,12 @@ CREATE TABLE IF NOT EXISTS dns_query_stats (
     allow      INTEGER NOT NULL DEFAULT 0,     -- 放行（含白名单/检测放行/直通）
     updated_at DATETIME NOT NULL DEFAULT (datetime('now','localtime'))
 );
+
+-- 6.8 NRD 域名注册时间缓存（迭代 40）：RDAP 查询结果永久缓存。
+-- 域名年龄只增不减——注册时间一旦查得永不重查；仅"查询失败"不落库
+-- （下次同域名再查）。registered_at 存 UTC ISO8601（whoisit 返回口径）。
+CREATE TABLE IF NOT EXISTS nrd_cache (
+    domain       VARCHAR PRIMARY KEY,          -- 域名（小写无尾点）
+    registered_at VARCHAR NOT NULL,            -- 注册时间（UTC ISO8601）
+    queried_at   DATETIME NOT NULL DEFAULT (datetime('now','localtime'))
+);
