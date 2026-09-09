@@ -87,8 +87,10 @@ async function loadLogs(page){
    - local_blacklist → 人工黑名单
    - threat_list / threat_list:<source> → 离线情报源[:源名]
    - ip_filter → IP 过滤
-   - nrd → 新注册域名（迭代 40，RDAP 注册时间）
-   - nrd_observe → 新注册域名·观察（observe 模式记录，未拦截）
+   - nrd → 新注册域名（迭代 40，在线 RDAP 注册时间）
+   - nrd_observe → 新注册域名·观察（在线层 observe 记录，未拦截）
+   - nrd_offline → 新注册域名·离线名单（迭代 41，hagezi/nrd 拦截）
+   - nrd_offline_observe → 新注册域名·离线名单·观察（未拦截）
    - threatintel:<strategy>:<srcs> → 在线情报[（源列表）]
    - degraded:failsafe → 降级放行（不应出现在拦截日志，兜底显示） */
 function logReasonTag(reason){
@@ -101,6 +103,10 @@ function logReasonTag(reason){
     return '<span class="tag tag-error">新注册域名</span>';
   if (reason === 'nrd_observe')
     return '<span class="tag tag-neutral">新注册域名·观察</span>';
+  if (reason === 'nrd_offline')
+    return '<span class="tag tag-error">新注册域名·离线名单</span>';
+  if (reason === 'nrd_offline_observe')
+    return '<span class="tag tag-neutral">新注册域名·离线名单·观察</span>';
   if (reason === 'threat_list')
     return '<span class="tag tag-warning">离线情报源</span>';
   if (reason.indexOf('threat_list:') === 0){

@@ -394,6 +394,8 @@ Web"测试中心"页面，输入域名或 IP（含 PTR 模式）进行**只读�
 
 **★ NRD 新注册域名检测（迭代 40）**：独立检测层（rdap_nrd.py，插 threat_list 后 threatintel 前）——RDAP 注册时间查询（whoisit 库，follow_related=False），域名注册 ≤ nrd_max_age_days 判高风险；三态异常映射（UnsupportedError/ResourceDoesNotExist→跳过，QueryError→放行不计熔断）；TLD 前置过滤 + nrd_cache 永久缓存（内存+SQLite）；observe/intercept 双模式默认 observe 只记日志（reason=nrd_observe action=observe）；四配置键 nrd_enabled/nrd_mode/nrd_max_age_days/nrd_tlds 均热生效（cross_sync 60s 同步 DNS 进程）；`GET /api/nrd/stats` 观测（hits_new/total_checked 评估误报率）
 
+**★ 离线 NRD 检测（迭代 41）**：hagezi/nrd 大名单承载的 NRD 离线层——第九个内置离线源 `hagezi_nrd`（nrd7.txt 近 7 天新注册域名全量约 328 万条/54MB/800+ TLD，Stamus Labs 数据每日 06:02 UTC 更新，GPL-3.0 免 Key，raw 主地址+jsDelivr 镜像双通道）；检测链 4.5 段按源分流：命中 NRD 源走 nrd_offline_enabled/nrd_offline_mode 语义（observe 记 reason=nrd_offline_observe 不拦截 / intercept 记 nrd_offline 拦截；开关关=视同未命中放行），普通离线源保持 threat_list:<key> 拦截语义不变；与在线 RDAP 层（迭代 40）互补——O(1) 零延迟且网络宵禁期仍可用；**下载双闸截断防护**（实测 jsDelivr CDN 拉 54MB 大文件会中段静默截断：① _download_once 收满 Content-Length 才算成功否则抛 IOError 触发镜像降级 ② import_source 对 NRD 源校验文件头 "# Number of entries" 声明数与实际解析数偏差 ≤1% 否则拒绝入库——整源替换防半份数据覆盖完整旧库）；reasons 下拉 fixed 组增 nrd_offline/nrd_offline_observe 两项，reason 筛选加排除表（筛 nrd_offline 不混入 observe 行、筛 nrd 不混入离线两键）；两配置键热生效
+
 **系统配置 / 状态**：`GET/PUT /api/config`、`GET /api/status`、`GET /api/status/trend` ▲、`POST /api/detection/toggle`
 
 **★ 仪表盘数据**：`GET /api/status/hourly?hours=24`（小时聚合，柱线图+热力图共用）、`GET /api/status/breakdown?scope=today&top=10`（来源构成+Top 域名+Top 客户端；▲迭代 38：scope=today 自然日窗口，与 /api/status 今日口径一致可对账，默认 days=N 滚动窗向后兼容——总览页"拦截来源构成"与"五层检测链路"两卡已切当日）

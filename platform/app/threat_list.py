@@ -6,7 +6,7 @@
 特性：
   - 内置来源元数据（hagezi 威胁情报完整版 / hagezi 威胁情报精简 mini / hagezi 综合大名单 /
     StevenBlack hosts / URLhaus 恶意域名 / OISD 综合大名单 / ThreatFox C2 域名 /
-    C2IntelFeeds 活跃 C2 域名），
+    C2IntelFeeds 活跃 C2 域名 / hagezi NRD 新注册域名），
     支持自定义 URL 导入任意纯域名 / hosts / CSV / adblock 格式列表；
   - 导入为"事务内整源替换"：重复导入即增量更新，不留陈旧条目；
   - 来源可整体启停（enabled），停用后不再参与匹配（条目保留，重新启用即恢复）；
@@ -111,6 +111,15 @@ SOURCES = [
         "format": "csv",
         "description": "drb-ra/C2IntelFeeds 互联网扫描指纹识别的活跃 C2 域名（90 天窗口、已剔除 domain fronting 滥用域），数百条量级、每日更新、免 Key；对国内云上滥用（腾讯云函数/百度云 CFC 等）覆盖突出，与样本 IOC 源互补；CC BY-NC-SA 4.0 许可（非商业防御用途）",
         "max_bytes": 10 * 1024 * 1024,
+        "update_interval_s": 24 * 3600,
+    },
+    {
+        "key": "hagezi_nrd",
+        "name": "hagezi NRD 新注册域名（近 7 天）",
+        "url": "https://raw.githubusercontent.com/hagezi/nrd/main/domains/nrd7.txt",
+        "format": "plain",
+        "description": "hagezi/nrd 独立仓库 · 近 7 天新注册域名全量（Stamus Labs 底层数据约 1100 万域滚动库），约 328 万条、54MB、800+ TLD，每日 06:02 UTC 更新、GPL-3.0 免 Key；用于离线 NRD 检测层（observe/intercept 语义见 detectors 4.5 段），与在线 RDAP 层（迭代 40）互补——命中 O(1) 零延迟，网络宵禁期仍可用",
+        "max_bytes": 128 * 1024 * 1024,
         "update_interval_s": 24 * 3600,
     },
 ]
@@ -240,6 +249,8 @@ def parse_content(text: str, fmt: str = "auto",
 _MIRROR_RULES = [
     ("https://raw.githubusercontent.com/hagezi/dns-blocklists/main/",
      "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/"),
+    ("https://raw.githubusercontent.com/hagezi/nrd/main/",
+     "https://cdn.jsdelivr.net/gh/hagezi/nrd@latest/"),
     ("https://raw.githubusercontent.com/sjhgvr/oisd/main/",
      "https://cdn.jsdelivr.net/gh/sjhgvr/oisd@main/"),
     ("https://raw.githubusercontent.com/StevenBlack/hosts/master/",
@@ -281,12 +292,18 @@ def _download_once(url: str, max_bytes: int, timeout_s: int,
                               read=min(timeout_s, 30)),
     ) as resp:
         resp.raise_for_status()
+        expected = 0
         if progress is not None:
             try:
                 progress["total_bytes"] = int(resp.headers.get(
                     "content-length") or 0)
             except ValueError:
                 progress["total_bytes"] = 0
+        # 完整性基准：优先 Content-Length 头（chunked 传输时为 0 = 未知）
+        try:
+            expected = int(resp.headers.get("content-length") or 0)
+        except ValueError:
+            expected = 0
         chunks, total = [], 0
         for chunk in resp.iter_bytes(65536):
             total += len(chunk)
@@ -295,6 +312,13 @@ def _download_once(url: str, max_bytes: int, timeout_s: int,
             if total > max_bytes:
                 raise ValueError(f"列表超过大小上限 {max_bytes} 字节")
             chunks.append(chunk)
+    if expected > 0 and total < expected:
+        # 大文件（如 54MB 的 nrd7.txt）偶发在 CDN 中段被静默截断——
+        # 流正常结束但字节不足。这里硬校验，截断即抛异常交给上层
+        # 降级镜像重试；无 Content-Length（chunked）时靠导入侧的
+        # 文件头条数校验（NRD 的 "# Number of entries"）兜底。
+        raise IOError(
+            f"下载不完整：收到 {total} / 声明 {expected} 字节（{url}）")
     return b"".join(chunks).decode("utf-8", errors="replace")
 
 
@@ -326,6 +350,28 @@ def download(url: str, max_bytes: int = 100 * 1024 * 1024,
 
 _IMPORT_WRITE_LOCK = threading.Lock()   # 入库写锁：SQLite 单写者，多源并发导入时串行入库
 
+# NRD 列表（hagezi/nrd）文件头的声明条数行：# Number of entries: 3284910
+_NRD_ENTRY_COUNT_RE = re.compile(
+    r"^#\s*Number of entries:\s*(\d+)\s*$", re.MULTILINE)
+
+# NRD 源 key 集合：detectors 4.5 段据此分流 observe/intercept 语义
+#（普通离线源命中即拦截；NRD 源命中走 nrd_offline_enabled/nrd_offline_mode）
+NRD_SOURCE_KEYS = {"hagezi_nrd"}
+
+
+def declared_entry_count(text: str) -> int | None:
+    """解析列表文件头声明的条数（hagezi/nrd 形态）；无声明返回 None。
+
+    hagezi/nrd 每个文件头部带元数据注释（约 10 行）：
+      # Last modified: 09 Sep 2026 06:02 UTC
+      # Number of entries: 3284910
+    声明数与实际解析数的一致性校验是截断防护第二道闸——CDN
+    chunked 传输无 Content-Length 可校验时的兜底手段。
+    """
+    m = _NRD_ENTRY_COUNT_RE.search(text or "")
+    return int(m.group(1)) if m else None
+
+
 def import_source(source: str, text: str, enabled: bool = True,
                   progress: dict | None = None,
                   fmt: str = "auto") -> int:
@@ -336,15 +382,26 @@ def import_source(source: str, text: str, enabled: bool = True,
     （如 C2IntelFeeds 的 csv），auto 按内容自动识别。
     progress（可选）：解析后置 total 为总条数，分批入库时更新 inserted。
 
+    截断防护（迭代 41）：NRD 源文件头带 "# Number of entries" 声明，
+    解析条数与声明数差超过 1% 视为文件被截断——拒绝入库（整源替换
+    先 DELETE 后 INSERT，截断文件入库会清掉完整旧数据换成半份数据）。
+    1% 容差覆盖上游同日微调（条目增删）导致的正常偏差。
+
     并发安全：多来源并发导入时，下载/解析可并行，入库段由
     _IMPORT_WRITE_LOCK 串行化（SQLite 单写者 + 线程本地连接，
     避免共享连接交叉事务报错）。
     """
+    declared = declared_entry_count(text) if source in NRD_SOURCE_KEYS else None
     values = parse_content(text, fmt, progress=progress)
     if not values and fmt != "auto":
         # 显式格式解析为空时回退 auto 再试：上游格式偶发漂移
         # （如临时改版/错误页），避免整源清空后导入 0 条
         values = parse_content(text, "auto", progress=progress)
+    if declared is not None and values:
+        if abs(len(values) - declared) > max(1, declared // 100):
+            raise ValueError(
+                f"列表疑似截断：文件头声明 {declared} 条，实际解析 "
+                f"{len(values)} 条（偏差超 1%），拒绝入库")
     rows = [(source, v, "domain", int(enabled)) for v in values]
     if progress is not None:
         progress.update(stage="insert", total=len(rows),

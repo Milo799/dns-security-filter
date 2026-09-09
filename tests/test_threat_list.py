@@ -371,7 +371,7 @@ def test_sources_api(client, token):
     keys = {i["key"] for i in r.json()["data"]["items"]}
     assert keys == {"hagezi_ti", "hagezi_mini", "hagezi_ult",
                     "stevenblack", "urlhaus", "oisd", "threatfox_hosts",
-                    "c2intel_domains"}
+                    "c2intel_domains", "hagezi_nrd"}
     # 新源带更新周期元数据
     by_key = {i["key"]: i for i in r.json()["data"]["items"]}
     assert by_key["urlhaus"]["update_interval_s"] == 30 * 60
@@ -385,6 +385,10 @@ def test_sources_api(client, token):
     assert by_key["c2intel_domains"]["update_interval_s"] == 24 * 3600
     assert by_key["c2intel_domains"]["format"] == "csv"
     assert "domainC2s-90day-filter-abused.csv" in by_key["c2intel_domains"]["url"]
+    # hagezi_nrd（第九源：NRD 新注册域名，迭代 41 离线 NRD 层承载）
+    assert by_key["hagezi_nrd"]["update_interval_s"] == 24 * 3600
+    assert by_key["hagezi_nrd"]["format"] == "plain"
+    assert "nrd7.txt" in by_key["hagezi_nrd"]["url"]
 
 
 def test_domains_api(client, token):

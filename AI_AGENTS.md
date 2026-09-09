@@ -26,6 +26,8 @@ platform/query_stats.py  ← 今日请求全量统计（内存计数 5s UPSERT d
 platform/rdap_nrd.py     ← NRD 新注册域名检测层（迭代 40）：whoisit RDAP 注册时间查询；独立层不进适配器
                             注册表/不参与融合/不计熔断；TLD 前置过滤 + nrd_cache 永久缓存（内存+SQLite）+
                             bootstrap 24h 刷新；三态异常映射（Unsupported/NotExist→跳过，QueryError→放行）
+                            离线 NRD（迭代 41）由 threat_list 第九源 hagezi_nrd 承载：detectors 4.5 段按源分流
+                            nrd_offline_* 语义；下载双闸截断防护（Content-Length + 文件头条数校验）
 platform/adapters/       ← 16 个威胁情报适配器（DNSBL/免Key/厂商/URLhaus，三态语义 + last_error）
 platform/app/            ← Web 管理：FastAPI 路由（list/threatintel/threatlist/logs/test/config/audit）
 platform/app/crypto.py   ← api_key 落库 Fernet 加密（密钥由 jwt_secret 派生；存量明文启动自动迁移）
@@ -103,7 +105,7 @@ python tools/loadtest.py 127.0.0.1 --qps 1000   # 压测（改动性能路径时
 - [x] 16 个威胁情报适配器 + 连通性测试（含 last_error 诊断）+ 单源熔断
 - [x] Web 全部页面可用（登录 → 大屏 → 人工情报源双 Tab → 情报源管理 → 测试中心 → 日志/审计）
 - [x] 端到端：配置黑名单/大名单后 dig 恶意域名返回告警 IP，filter_log 可见记录
-- [x] 离线大名单：8 内置源（hagezi×3/StevenBlack/URLhaus/OISD/ThreatFox/C2IntelFeeds）+ 自动更新 + 调度可视化 + 页面毫秒级响应
+- [x] 离线大名单：9 内置源（hagezi×3/StevenBlack/URLhaus/OISD/ThreatFox/C2IntelFeeds/hagezi_nrd NRD）+ 自动更新 + 调度可视化 + 页面毫秒级响应
 - [x] Docker 化部署 + 网络白名单清单 + 一键部署脚本（install-proxy.sh / install-platform.sh）
 - [x] Go 代理层编译验证 + 端到端四场景（放行/拦截/SERVFAIL 容灾/ECS 透传）
 - [x] 10 万终端前置五项（结论缓存/熔断/压测/采样/削峰）+ 解析速度优化五项（IP 缓存/DNSBL 默认/

@@ -30,6 +30,9 @@ async function loadConfig(){
     document.getElementById('cfgNrdIntercept').checked = v('nrd_mode', 'observe') === 'intercept';
     document.getElementById('cfgNrdMaxAgeDays').value = v('nrd_max_age_days', '7');
     document.getElementById('cfgNrdTlds').value = v('nrd_tlds', 'xyz,top,icu,shop,online,site,cfd,sbs,rest,cyou');
+    // 离线 NRD 检测（迭代 41）
+    document.getElementById('cfgNrdOfflineEnabled').checked = v('nrd_offline_enabled', '0') === '1';
+    document.getElementById('cfgNrdOfflineIntercept').checked = v('nrd_offline_mode', 'observe') === 'intercept';
     loadNrdStats();
     loadCacheStats();
     loadCbStats();
@@ -141,11 +144,16 @@ async function saveConfig(){
       log_batch_size: parseInt(document.getElementById('cfgLogBatchSize').value) || 500
     });
     // NRD 配置（迭代 40）
-    await api('PUT', '/api/config', {
+    document.getElementById('cfgNrdEnabled') && await api('PUT', '/api/config', {
       nrd_enabled: document.getElementById('cfgNrdEnabled').checked,
       nrd_mode: document.getElementById('cfgNrdIntercept').checked ? 'intercept' : 'observe',
       nrd_max_age_days: parseInt(document.getElementById('cfgNrdMaxAgeDays').value) || 7,
       nrd_tlds: nrdTlds
+    });
+    // 离线 NRD 配置（迭代 41，hagezi/nrd 大名单承载）
+    document.getElementById('cfgNrdOfflineEnabled') && await api('PUT', '/api/config', {
+      nrd_offline_enabled: document.getElementById('cfgNrdOfflineEnabled').checked,
+      nrd_offline_mode: document.getElementById('cfgNrdOfflineIntercept').checked ? 'intercept' : 'observe'
     });
     toast('配置已保存，立即生效');
     loadDashboard();

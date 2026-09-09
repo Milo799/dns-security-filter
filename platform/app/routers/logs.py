@@ -15,6 +15,16 @@ _LOG_COLUMNS = ("id", "timestamp", "client_ip", "domain", "query_type",
                 "source_api")
 
 
+# reason 键的包含关系排除表：筛 A 时不把 B 带进来（LIKE 子串包含导致）。
+# 包含关系：nrd ⊃ nrd_observe/nrd_offline*、nrd_offline ⊃ nrd_offline_observe。
+# 语义：nrd=在线 RDAP 层全部（拦截+观察，迭代 40 原语义保留），仅排除离线键；
+#       nrd_offline=离线名单拦截，排除 observe 观察行。
+_REASON_EXCLUDES = {
+    "nrd": ("nrd_offline", "nrd_offline_observe"),
+    "nrd_offline": ("nrd_offline_observe",),
+}
+
+
 def _build_condition(start: str | None, end: str | None, client_ip: str | None,
                      domain: str | None, action: str | None,
                      reason: str | None) -> tuple[str, list]:
@@ -32,6 +42,9 @@ def _build_condition(start: str | None, end: str | None, client_ip: str | None,
         where.append("action=?"); params.append(action)
     if reason:
         where.append("filter_reason LIKE ?"); params.append(f"%{reason}%")
+        for ex in _REASON_EXCLUDES.get(reason, ()):
+            # 精确键筛选时排除子串包含的近邻键（AND NOT LIKE 不影响其他条件）
+            where.append("filter_reason NOT LIKE ?"); params.append(f"%{ex}%")
     cond = ("WHERE " + " AND ".join(where)) if where else ""
     return cond, params
 
@@ -66,8 +79,10 @@ def list_reason_options(_: str = Depends(get_current_user)):
             {"key": "threat_list", "label": "离线情报源（全部）"},
             {"key": "ip_filter", "label": "IP 后置过滤"},
             {"key": "threatintel", "label": "在线情报（全部）"},
-            {"key": "nrd", "label": "新注册域名（全部）"},
-            {"key": "nrd_observe", "label": "新注册域名·观察"},
+            {"key": "nrd", "label": "新注册域名（在线 RDAP，全部）"},
+            {"key": "nrd_observe", "label": "新注册域名·观察（在线 RDAP）"},
+            {"key": "nrd_offline", "label": "新注册域名·离线名单（拦截）"},
+            {"key": "nrd_offline_observe", "label": "新注册域名·离线名单·观察"},
         ],
         "online": [{"key": r["name"], "label": r["name"]}
                    for r in online if r["enabled"]],

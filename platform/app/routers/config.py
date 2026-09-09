@@ -75,6 +75,8 @@ class ConfigBody(BaseModel):
     nrd_mode: str | None = None
     nrd_max_age_days: int | None = None
     nrd_tlds: str | None = None
+    nrd_offline_enabled: bool | None = None
+    nrd_offline_mode: str | None = None
 
 
 @router.get("/config")
@@ -188,6 +190,11 @@ def update_config(body: ConfigBody, user: str = Depends(get_current_user)):
     if "nrd_mode" in data and data["nrd_mode"] not in ("observe", "intercept"):
         raise HTTPException(
             status_code=400, detail="nrd_mode 必须为 observe/intercept")
+    # 离线 NRD 检测（迭代 41，hagezi/nrd 大名单承载）
+    if "nrd_offline_mode" in data and data["nrd_offline_mode"] not in (
+            "observe", "intercept"):
+        raise HTTPException(
+            status_code=400, detail="nrd_offline_mode 必须为 observe/intercept")
     if "nrd_max_age_days" in data and not (
             1 <= data["nrd_max_age_days"] <= 90):
         raise HTTPException(

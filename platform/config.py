@@ -69,6 +69,12 @@ class PlatformConfig:
     nrd_mode: str = "observe"             # observe 只记日志不拦截 / intercept 拦截
     nrd_max_age_days: int = 7             # 判定"新注册"的域名年龄阈值（天，1~90）
     nrd_tlds: str = "xyz,top,icu,shop,online,site,cfd,sbs,rest,cyou"  # 参与 NRD 检测的高危 TLD（逗号分隔，空=全部查询）
+    # --- 离线 NRD 检测层（迭代 41，hagezi/nrd 大名单承载；均可热生效） ---
+    # 与在线 RDAP 层互补：threat_list 命中 hagezi_nrd 源时走本层语义
+    #（observe 只记 nrd_offline_observe 日志不拦截；intercept 记 nrd_offline 拦截），
+    # O(1) 零延迟且网络宵禁期仍可用。默认关：先导入名单再开启观察。
+    nrd_offline_enabled: bool = False     # 离线 NRD 检测开关
+    nrd_offline_mode: str = "observe"     # observe 观察误报率 / intercept 拦截
 
     def load(self, path: str = DEFAULT_CONFIG_PATH) -> "PlatformConfig":
         if not os.path.exists(path):

@@ -346,6 +346,8 @@ function reasonLabel(reason){
   if (reason === 'ip_filter') return 'IP 后置';
   if (reason === 'nrd') return '新注册域名';
   if (reason === 'nrd_observe') return '新注册域名·观察';
+  if (reason === 'nrd_offline') return '新注册域名·离线名单';
+  if (reason === 'nrd_offline_observe') return '新注册域名·离线名单·观察';
   if (reason.indexOf('threatintel:') === 0) return '在线情报';
   return reason;
 }

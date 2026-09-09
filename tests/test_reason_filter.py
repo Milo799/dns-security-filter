@@ -67,7 +67,8 @@ def test_logs_reasons_options(client, token):
         fixed_keys = [x["key"] for x in d["fixed"]]
         assert fixed_keys == ["local_blacklist", "threat_list",
                               "ip_filter", "threatintel",
-                              "nrd", "nrd_observe"]
+                              "nrd", "nrd_observe",
+                              "nrd_offline", "nrd_offline_observe"]
         online = [x["key"] for x in d["online"]]
         assert "it39_on" in online
         assert "it39_off" not in online

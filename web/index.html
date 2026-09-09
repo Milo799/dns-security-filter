@@ -491,6 +491,19 @@
             <div class="form-hint" style="margin-top:4px">注册时间永久缓存（查得一次永不重查）；.cn 等无 RDAP 服务的 TLD 自动跳过不误拦；查询失败放行不计熔断。新功能建议先开"启用+观察"跑数天评估再切拦截。</div>
           </div>
         </div>
+        <div class="card"><div class="card-head"><div class="card-title">新注册域名检测（NRD · 离线名单）</div></div>
+          <div class="card-body">
+            <div class="switch-row">
+              <div><div class="switch-label">启用离线 NRD 检测</div><div class="switch-desc">基于 hagezi/nrd 每日新注册域名名单（近 7 天全量约 328 万条）本地 O(1) 匹配，与上方在线 RDAP 层互补：命中零延迟、网络宵禁期仍可用（在线 RDAP 首查 1.3~1.6s 且依赖出网）</div></div>
+              <label class="switch"><input id="cfgNrdOfflineEnabled" type="checkbox"><span class="slider"></span></label>
+            </div>
+            <div class="switch-row">
+              <div><div class="switch-label">拦截模式</div><div class="switch-desc">关闭=观察（只记 nrd_offline_observe 日志不拦截，用于评估误报率）；开启=真拦截（命中返回告警 IP）</div></div>
+              <label class="switch"><input id="cfgNrdOfflineIntercept" type="checkbox"><span class="slider"></span></label>
+            </div>
+            <div class="form-hint" style="margin-top:4px">前置条件：先在"威胁情报 → 离线情报源"导入 hagezi NRD 名单（约 328 万条、54MB），本开关才有效果。建议流程：导入名单 → 开"启用+观察"跑一周 → 过滤日志按"新注册域名·离线名单·观察"筛选评估误报 → 再切拦截。检测顺序：白名单 > 人工黑名单 > 离线情报源 > 离线 NRD > 在线 RDAP > 在线情报。</div>
+          </div>
+        </div>
       </div>
 
       <!-- ========== 操作审计 ========== -->

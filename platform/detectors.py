@@ -32,6 +32,7 @@ import query_stats
 import rdap_nrd
 from config import CONFIG
 from app.db import db_cursor, get_enabled_list
+from app import threat_list
 from app.threat_list import find_domain, find_ip
 from adapters import get_enabled_adapters, run_fusion
 
@@ -603,14 +604,34 @@ def process_query(request: DNSRecord, client_ip: str | None = None) -> DNSRecord
     #      迭代 39：reason 带命中源名（threat_list:hagezi_ti）且 source_api
     #      填源 key——过滤日志页可直接按源筛选，旧裸 threat_list 仍兼容
     #      （前端 reasonLabel 两种格式都认）。
+    #      迭代 41：NRD 源（hagezi_nrd）命中不再直接拦截——走离线 NRD
+    #      检测层语义（nrd_offline_enabled/nrd_offline_mode）：observe 只记
+    #      nrd_offline_observe 观察日志不拦截；intercept 记 nrd_offline 拦截。
+    #      开关关闭时 NRD 源命中视同未命中（放行继续链路），普通源照旧。
     hit = find_domain(domain)
     if hit:
         tl_source, _tl_entry = hit
-        query_stats.record("intercept")
-        write_filter_log(client_ip or "", domain, qtype,
-                         f"threat_list:{tl_source}", "intercept", [],
-                         "alert_ip:" + CONFIG.alert_ip, tl_source)
-        return build_intercept_reply(request, qtype)
+        if tl_source in threat_list.NRD_SOURCE_KEYS:
+            # 离线 NRD 检测层（迭代 41）
+            if not CONFIG.nrd_offline_enabled:
+                pass                     # 开关关：NRD 命中不拦截，继续后续链路
+            elif CONFIG.nrd_offline_mode == "intercept":
+                query_stats.record("intercept")
+                write_filter_log(client_ip or "", domain, qtype,
+                                 "nrd_offline", "intercept", [],
+                                 "alert_ip:" + CONFIG.alert_ip, tl_source)
+                return build_intercept_reply(request, qtype)
+            else:
+                # observe：不拦截、不下结论，仅观察记录（放行走后续链路）
+                write_filter_log(client_ip or "", domain, qtype,
+                                 "nrd_offline_observe", "observe", [],
+                                 "observe", tl_source)
+        else:
+            query_stats.record("intercept")
+            write_filter_log(client_ip or "", domain, qtype,
+                             f"threat_list:{tl_source}", "intercept", [],
+                             "alert_ip:" + CONFIG.alert_ip, tl_source)
+            return build_intercept_reply(request, qtype)
 
     # 4.7) NRD 新注册域名检测（迭代 40，独立检测层：RDAP 注册时间）
     #      - nrd_enabled=False 时零开销跳过（一个 bool 判断）；
