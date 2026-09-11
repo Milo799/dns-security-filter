@@ -4,6 +4,7 @@
 DNS 引擎（detectors 每次查询读 CONFIG）立即热生效。
 """
 
+import re
 import time
 import urllib.parse
 
@@ -77,6 +78,9 @@ class ConfigBody(BaseModel):
     nrd_tlds: str | None = None
     nrd_offline_enabled: bool | None = None
     nrd_offline_mode: str | None = None
+    dnsbl_max_timeout_ms: int | None = None
+    max_queue_depth: int | None = None
+    upstream_dns_backup: str | None = None
 
 
 @router.get("/config")
@@ -206,6 +210,31 @@ def update_config(body: ConfigBody, user: str = Depends(get_current_user)):
             raise HTTPException(
                 status_code=400, detail="nrd_tlds 最多 50 个（TLD 过多会放大 RDAP 查询量）")
         data["nrd_tlds"] = ",".join(tlds)   # 规范化：小写去点去空格
+    # 生产稳定性加固（迭代 42）
+    if "dnsbl_max_timeout_ms" in data and not (
+            0 <= data["dnsbl_max_timeout_ms"] <= 30000):
+        raise HTTPException(
+            status_code=400,
+            detail="dnsbl_max_timeout_ms 须在 0~30000 之间（毫秒，0=不限）")
+    if "max_queue_depth" in data and not (
+            0 <= data["max_queue_depth"] <= 100000):
+        raise HTTPException(
+            status_code=400,
+            detail="max_queue_depth 须在 0~100000 之间（0=不限）")
+    if "upstream_dns_backup" in data:
+        # 备用上游：规范化（去空格，逐项校验 ip[:port] 形式）
+        items = [i.strip() for i in (data["upstream_dns_backup"] or "").split(",")
+                 if i.strip()]
+        if len(items) > 3:
+            raise HTTPException(
+                status_code=400,
+                detail="upstream_dns_backup 最多 3 个（总重试耗时须 < proxy forward_timeout）")
+        for item in items:
+            if not re.fullmatch(r"[0-9a-zA-Z.:-]+", item):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"备用上游格式非法：{item}（应为 ip 或 ip:port，逗号分隔）")
+        data["upstream_dns_backup"] = ",".join(items)
 
     changes = {}
     for key, value in data.items():

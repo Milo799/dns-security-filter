@@ -28,6 +28,10 @@ platform/rdap_nrd.py     ← NRD 新注册域名检测层（迭代 40）：whois
                             bootstrap 24h 刷新；三态异常映射（Unsupported/NotExist→跳过，QueryError→放行）
                             离线 NRD（迭代 41）由 threat_list 第九源 hagezi_nrd 承载：detectors 4.5 段按源分流
                             nrd_offline_* 语义；下载双闸截断防护（Content-Length + 文件头条数校验）
+                            过载保护（迭代 42，09-10 事故加固）：dnsbl_max_timeout_ms 压 DNSBL 超时（2500ms）、
+                            max_queue_depth 队列满 SERVFAIL 快速失败（queue_stats.submitted 返回 bool）、
+                            upstream_dns_backup 主备重试（detectors._upstream_targets）、
+                            import_source staging 表三段式分批短事务（防长事务锁库）
 platform/adapters/       ← 16 个威胁情报适配器（DNSBL/免Key/厂商/URLhaus，三态语义 + last_error）
 platform/app/            ← Web 管理：FastAPI 路由（list/threatintel/threatlist/logs/test/config/audit）
 platform/app/crypto.py   ← api_key 落库 Fernet 加密（密钥由 jwt_secret 派生；存量明文启动自动迁移）

@@ -407,18 +407,48 @@ def import_source(source: str, text: str, enabled: bool = True,
         progress.update(stage="insert", total=len(rows),
                         message=f"入库中 0/{len(rows)}")
     with _IMPORT_WRITE_LOCK:
+        # 迭代 42（2026-09-11 锁库加固）：原实现 DELETE+全量 INSERT 在
+        # 单事务里执行，hagezi_ti 226 万条锁库 1~3 分钟，期间统计落库
+        # （query_stats 5s UPSERT / log_writer 2s flush）反复撞
+        # "database is locked"（busy_timeout 30s 内排不上队）。
+        # 改为三段式：
+        #   1) 建临时表 threat_list_staging（普通表——db.py 按线程隔离
+        #      连接，TEMP 表仅本连接可见，换入段会看不到）；
+        #   2) 分批 INSERT staging，每批独立短事务（Python executemany
+        #      是耗时大头，锁窗 = 单批秒级）；
+        #   3) 原子换入：DELETE 旧 + INSERT...SELECT 搬运 + DROP staging
+        #      在一个事务（纯 SQLite 内部搬运，无 Python 逐行开销，
+        #      226 万条实测秒级完成，远小于 busy_timeout）。
+        # 崩溃窗口分析：1~2 段崩溃不影响线上旧数据；3 段崩溃由 SQLite
+        # 事务回滚保证原子性；遗留 staging 表由下次导入 DROP 重建自愈。
         with db_cursor() as cur:
-            cur.execute("DELETE FROM threat_list WHERE source=?", (source,))
-            BATCH = 50000
-            for i in range(0, len(rows), BATCH):
+            cur.execute("DROP TABLE IF EXISTS threat_list_staging")
+            cur.execute(
+                """CREATE TABLE threat_list_staging (
+                       source TEXT NOT NULL,
+                       value  TEXT NOT NULL,
+                       target TEXT NOT NULL,
+                       enabled INTEGER NOT NULL DEFAULT 1
+                   )""")
+        BATCH = 50000
+        for i in range(0, len(rows), BATCH):
+            with db_cursor() as cur:
                 cur.executemany(
-                    """INSERT INTO threat_list (source, value, target, enabled)
+                    """INSERT INTO threat_list_staging
+                       (source, value, target, enabled)
                        VALUES (?, ?, ?, ?)""",
                     rows[i:i + BATCH],
                 )
-                if progress is not None:
-                    done = min(i + BATCH, len(rows))
-                    progress.update(inserted=done, message=f"入库中 {done}/{len(rows)}")
+            if progress is not None:
+                done = min(i + BATCH, len(rows))
+                progress.update(inserted=done, message=f"入库中 {done}/{len(rows)}")
+        with db_cursor() as cur:
+            cur.execute("DELETE FROM threat_list WHERE source=?", (source,))
+            cur.execute(
+                """INSERT INTO threat_list (source, value, target, enabled)
+                   SELECT source, value, target, enabled
+                   FROM threat_list_staging""")
+            cur.execute("DROP TABLE IF EXISTS threat_list_staging")
     invalidate()
     logger.info("离线大名单 %s 导入 %d 条", source, len(rows))
     return len(rows)

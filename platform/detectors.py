@@ -361,28 +361,68 @@ def _qtype_name(qtype: int) -> str:
     return str(qtype)
 
 
-def _upstream_target() -> tuple[str, int]:
-    """解析公网 DNS 地址，支持 'ip' 或 'ip:port' 形式。"""
-    value = CONFIG.upstream_dns.strip()
+def _parse_upstream(value: str) -> tuple[str, int] | None:
+    """解析单个公网 DNS 地址（'ip' 或 'ip:port'），非法返回 None。
+
+    非法判定：空串 / 含空白字符（API 层同规则：[0-9a-zA-Z.:-]+）。
+    """
+    value = (value or "").strip()
+    if not value or any(c.isspace() for c in value):
+        return None
     if ":" in value:
         host, _, port = value.rpartition(":")
-        return host, int(port)
+        try:
+            return host, int(port)
+        except ValueError:
+            return None
     return value, 53
 
 
+def _upstream_target() -> tuple[str, int]:
+    """解析公网 DNS 地址，支持 'ip' 或 'ip:port' 形式。"""
+    return _parse_upstream(CONFIG.upstream_dns) or ("8.8.8.8", 53)
+
+
+def _upstream_targets() -> list[tuple[str, int]]:
+    """上游序列（迭代 42）：[主上游, 备用1, 备用2, ...]。
+
+    备用来自 CONFIG.upstream_dns_backup（逗号分隔，空=禁用），非法项跳过。
+    主上游失效（配错/不可达）时兜底为 223.5.5.5，保证序列非空。
+    总耗时 = (1+备份数)×upstream_timeout_s，须 < proxy forward_timeout(8s)，
+    建议只配 1 个备用。
+    """
+    targets = []
+    primary = _parse_upstream(CONFIG.upstream_dns)
+    if primary:
+        targets.append(primary)
+    for item in str(getattr(CONFIG, "upstream_dns_backup", "")).split(","):
+        t = _parse_upstream(item)
+        if t and t not in targets:
+            targets.append(t)
+    if not targets:
+        targets.append(("223.5.5.5", 53))
+    return targets
+
+
 def query_upstream(domain: str, qtype: int) -> list[str]:
-    """请求公网 DNS（CONFIG.upstream_dns）解析域名，返回 IP 列表。
+    """请求公网 DNS（主上游→备用依次重试）解析域名，返回 IP 列表。
 
     - A 查询得 IPv4 列表；AAAA 查询得 IPv6 列表
     - 解析失败返回空列表（不缓存，避免投毒与一致性问题）
+    - 迭代 42：主上游失败后依次尝试备用（任一成功即返回）
     """
-    host, port = _upstream_target()
     try:
         q = DNSRecord.question(domain, _qtype_name(qtype))
-        # 注意：dnslib 的 send() 返回原始 bytes，需 parse 后再访问 .rr
-        data = q.send(host, port, timeout=CONFIG.upstream_timeout_s)
-        resp = DNSRecord.parse(data)
-        return [str(rr.rdata) for rr in resp.rr if rr.rtype == qtype]
+        for host, port in _upstream_targets():
+            try:
+                # 注意：dnslib 的 send() 返回原始 bytes，需 parse 后再访问 .rr
+                data = q.send(host, port, timeout=CONFIG.upstream_timeout_s)
+                resp = DNSRecord.parse(data)
+                return [str(rr.rdata) for rr in resp.rr if rr.rtype == qtype]
+            except Exception as e:
+                logger.warning("公网解析失败 %s(%s) @%s: %s",
+                               domain, _qtype_name(qtype), host, e)
+        return []          # 全部上游失败（逐个已记日志）
     except Exception as e:
         logger.warning("公网解析失败 %s(%s): %s", domain, _qtype_name(qtype), e)
         return []
@@ -392,7 +432,6 @@ def query_upstream_reply(request: DNSRecord) -> DNSRecord:
     """向公网 DNS 发起与请求相同的问题，返回原始应答（EDNS0 由 dnslib 保持）。
 
     失败时返回 SERVFAIL。
-    TODO(AI): 大响应（TC 置位）时需走 TCP 重试。
 
     上游熔断（Task #159，生产事故 2026-09-03 加固）：
     - 出站失败（超时/异常）计数，连续达阈值（upstream_failure_threshold）
@@ -401,25 +440,33 @@ def query_upstream_reply(request: DNSRecord) -> DNSRecord:
     - 动机：事故日出站间歇性超时，3s 等待 × 6 个 executor worker 全挂
       → 检测主池耗尽全网瘫。fast-fail 把故障期单查询代价从 3s → 0ms，
       worker 立刻回收，白名单/缓存等不受出站影响的路径照常服务。
+
+    多上游重试（迭代 42，2026-09-11 加固）：
+    - 主上游失败后依次尝试 CONFIG.upstream_dns_backup 里的备用
+      （任一成功即返回并计熔断成功——服务视角健康，主上游抖动自愈）；
+    - 全部上游失败才计一次熔断失败（fast-fail 语义不变）；
+    - 动机：偶发单次上游超时（09-11 实测 80 连测出现 1 次）此前直接
+      SERVFAIL 给客户端，nslookup 表现为"解析失败"；备用重试消除该毛刺。
     """
-    host, port = _upstream_target()
     # 熔断窗口内：fast-fail SERVFAIL（不占用出站等待）
     if not circuit_breaker.upstream_allows():
         reply = request.reply()
         reply.header.rcode = RCODE.SERVFAIL
         return reply
-    try:
-        # 注意：dnslib 的 send() 返回原始 bytes，需 parse 后再返回
-        data = request.send(host, port, timeout=CONFIG.upstream_timeout_s)
-        resp = DNSRecord.parse(data)
-        circuit_breaker.upstream_record_success()   # 任何合法应答都算成功
-        return resp
-    except Exception as e:
-        circuit_breaker.upstream_record_failure()
-        logger.warning("上游转发失败: %s", e)
-        reply = request.reply()
-        reply.header.rcode = RCODE.SERVFAIL
-        return reply
+    for host, port in _upstream_targets():
+        try:
+            # 注意：dnslib 的 send() 返回原始 bytes，需 parse 后再返回
+            data = request.send(host, port, timeout=CONFIG.upstream_timeout_s)
+            resp = DNSRecord.parse(data)
+            circuit_breaker.upstream_record_success()   # 任何合法应答都算成功
+            return resp
+        except Exception as e:
+            logger.warning("上游转发失败 %s:%s: %s", host, port, e)
+    # 全部上游（含备用）失败：计一次熔断失败
+    circuit_breaker.upstream_record_failure()
+    reply = request.reply()
+    reply.header.rcode = RCODE.SERVFAIL
+    return reply
 
 
 def _extract_ips(reply: DNSRecord, qtype: int) -> list[str]:

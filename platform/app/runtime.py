@@ -30,7 +30,9 @@ _INT_KEYS = {"alert_ttl", "log_retention_days", "api_timeout_ms",
              "login_ip_threshold", "login_ip_window_minutes",
              "login_ip_block_minutes",
              # NRD 检测层（迭代 40）
-             "nrd_max_age_days"}
+             "nrd_max_age_days",
+             # 生产稳定性加固（迭代 42）
+             "dnsbl_max_timeout_ms", "max_queue_depth"}
 
 
 def _apply(key: str, value: str) -> None:

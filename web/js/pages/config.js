@@ -8,6 +8,9 @@ async function loadConfig(){
     document.getElementById('cfgAlertIp').value = v('alert_ip', '127.0.0.1');
     document.getElementById('cfgAlertTtl').value = v('alert_ttl', '60');
     document.getElementById('cfgUpstream').value = v('upstream_dns', '8.8.8.8');
+    document.getElementById('cfgUpstreamBackup').value = v('upstream_dns_backup', '');
+    document.getElementById('cfgDnsblMaxTimeout').value = v('dnsbl_max_timeout_ms', '2500');
+    document.getElementById('cfgMaxQueueDepth').value = v('max_queue_depth', '500');
     document.getElementById('cfgRetention').value = v('log_retention_days', '90');
     document.getElementById('cfgDetection').checked = v('detection_enabled', '1') === '1';
     document.getElementById('cfgAllowLog').checked = v('allow_log_enabled', '0') === '1';
@@ -116,6 +119,9 @@ async function saveConfig(){
     alert_ip: document.getElementById('cfgAlertIp').value.trim(),
     alert_ttl: parseInt(document.getElementById('cfgAlertTtl').value) || 60,
     upstream_dns: document.getElementById('cfgUpstream').value.trim(),
+    upstream_dns_backup: document.getElementById('cfgUpstreamBackup').value.trim(),
+    dnsbl_max_timeout_ms: parseInt(document.getElementById('cfgDnsblMaxTimeout').value) || 0,
+    max_queue_depth: parseInt(document.getElementById('cfgMaxQueueDepth').value) || 0,
     log_retention_days: parseInt(document.getElementById('cfgRetention').value) || 90,
     domain_cache_ttl_s: parseInt(document.getElementById('cfgCacheTtl').value) || 300,
     domain_cache_size: parseInt(document.getElementById('cfgCacheSize').value) || 1000000,

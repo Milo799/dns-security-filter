@@ -104,7 +104,7 @@ def test_warn_threshold_triggers_and_rate_limits():
 def test_stats_shape():
     st = queue_stats.stats()
     assert set(st) == {"pending", "inflight", "max_pending",
-                       "total_submitted", "warn_count"}
+                       "total_submitted", "warn_count", "rejected"}
     assert all(isinstance(v, int) for v in st.values())
 
 
@@ -124,7 +124,7 @@ def test_queue_stats_endpoint():
         assert r.status_code == 200
         data = r.json()["data"]
         assert set(data) == {"pending", "inflight", "max_pending",
-                             "total_submitted", "warn_count"}
+                             "total_submitted", "warn_count", "rejected"}
         assert data["total_submitted"] >= 1
         assert data["max_pending"] >= 1
 
@@ -148,8 +148,10 @@ def test_handle_request_observability_with_slow_detection():
     orig_submitted = queue_stats.submitted
 
     def counting_submitted():
+        # 迭代 42：submitted() 返回 bool（False=队列满快速失败），
+        # 包装器必须透传返回值——否则 handle_request 会误判队列满
         submit_calls["n"] += 1
-        orig_submitted()
+        return orig_submitted()
 
     queue_stats.submitted = counting_submitted
 

@@ -19,6 +19,11 @@ from dnslib import DNSRecord, QTYPE
 
 from adapters import ThreatIntelAdapter, ThreatResult
 
+try:                      # config 位于 platform/ 根（sys.path 注入点），独立单测时可缺
+    from config import CONFIG
+except ImportError:       # pragma: no cover
+    CONFIG = None
+
 logger = logging.getLogger("platform.adapters.dnsbl")
 
 
@@ -41,6 +46,24 @@ class DNSBLAdapter(ThreatIntelAdapter):
 
     # ---- 查询原语 ----
 
+    def _effective_timeout_s(self) -> float:
+        """单次查询超时（秒）：源级 timeout_ms 与全局上限 dnsbl_max_timeout_ms 取小。
+
+        迭代 42（2026-09-10 事故加固）：事故日 spamhaus_dbl 源级配 5000ms，
+        每个未命中缓存的域名在线检测卡满 5s，executor worker 被慢查询占满
+        后 asyncio 无限队列积压数千查询，全网"解析不了"。全局上限把任何
+        源级配置压到 2.5s（默认），熔断器（连续失败 open + 冷却半开探测）
+        把故障期单源代价限制在个位数探测。上限 0 = 不限制（恢复旧行为）。
+        """
+        timeout_ms = self.timeout_ms
+        try:
+            cap = int(getattr(CONFIG, "dnsbl_max_timeout_ms", 2500))
+        except (TypeError, ValueError):
+            cap = 2500
+        if cap > 0:
+            timeout_ms = min(timeout_ms, cap)
+        return timeout_ms / 1000.0
+
     def _lookup(self, fqdn: str) -> list[str] | None:
         """向公共 DNS 查询 A 记录。
 
@@ -48,7 +71,8 @@ class DNSBLAdapter(ThreatIntelAdapter):
         """
         try:
             q = DNSRecord.question(fqdn, "A")
-            data = q.send(self.resolver, 53, timeout=self.timeout_ms / 1000.0)
+            data = q.send(self.resolver, 53,
+                          timeout=self._effective_timeout_s())
             resp = DNSRecord.parse(data)
             return [str(rr.rdata) for rr in resp.rr if rr.rtype == QTYPE.A]
         except Exception as e:

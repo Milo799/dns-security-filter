@@ -144,7 +144,16 @@ async def handle_request(data: bytes, transport, addr: tuple) -> None:
             queue_stats.ended()
 
     # Task #160：队列深度观测（提交→完成配对，await 返回/抛出即递减）
-    queue_stats.submitted()
+    # 迭代 42：队列满（CONFIG.max_queue_depth）时 submitted() 返回 False，
+    # 立即回 SERVFAIL 快速失败——有界队列杜绝无限积压拖垮全网
+    if not queue_stats.submitted():
+        reply = request.reply()
+        reply.header.rcode = RCODE.SERVFAIL
+        try:
+            transport.sendto(reply.pack(), addr)
+        except Exception as e:
+            logger.warning("应答发送失败 to %s: %s", addr, e)
+        return
     try:
         reply = await asyncio.get_running_loop().run_in_executor(None, _process)
     finally:
@@ -175,8 +184,15 @@ async def handle_tcp(reader: asyncio.StreamReader, writer: asyncio.StreamWriter)
             request = DNSRecord.parse(data)
             client_ip = extract_client_ip(data)
             # 检测主流程含同步阻塞 IO，放线程池执行避免阻塞事件循环
-            # Task #160：队列深度观测与 UDP 路径同口径
-            queue_stats.submitted()
+            # Task #160：队列深度观测与 UDP 路径同口径；迭代 42 队列满
+            # 快速失败（SERVFAIL）同 UDP 路径
+            if not queue_stats.submitted():
+                reply = request.reply()
+                reply.header.rcode = RCODE.SERVFAIL
+                packed = reply.pack()
+                writer.write(len(packed).to_bytes(2, "big") + packed)
+                await writer.drain()
+                continue
             try:
                 reply = await asyncio.get_running_loop().run_in_executor(
                     None, process_query, request, client_ip)

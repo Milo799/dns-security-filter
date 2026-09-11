@@ -408,7 +408,14 @@
         <div class="card"><div class="card-head"><div class="card-title">上游与日志</div></div>
           <div class="card-body"><div class="form-grid">
             <div class="form-row"><label class="req">公网上游 DNS</label><input id="cfgUpstream"><div class="form-hint">支持 ip 或 ip:port。</div></div>
+            <div class="form-row"><label>备用上游 DNS</label><input id="cfgUpstreamBackup" placeholder="119.29.29.29（留空 = 不重试）"><div class="form-hint">逗号分隔，最多 3 个；主上游失败时依次重试，任一成功即返回。总耗时 =（1+备份数）× 上游超时，须小于代理转发超时（8s），建议只配 1 个。</div></div>
             <div class="form-row"><label>日志保留天数</label><input id="cfgRetention" type="number"></div>
+          </div></div>
+        </div>
+        <div class="card"><div class="card-head"><div class="card-title">过载保护</div></div>
+          <div class="card-body"><div class="form-grid">
+            <div class="form-row"><label>DNSBL 查询超时上限（毫秒）</label><input id="cfgDnsblMaxTimeout" type="number"><div class="form-hint">在线 DNSBL 源单次查询超时被压到此上限（仅当源级配置高于上限时生效，低于上限不受影响）；0 = 不限制。默认 2500ms——过长的在线源超时会占满检测线程拖慢全网解析（2026-09-10 事故加固）。</div></div>
+            <div class="form-row"><label>检测队列深度上限</label><input id="cfgMaxQueueDepth" type="number"><div class="form-hint">检测线程池排队达到上限时，新查询直接返回 SERVFAIL 快速失败（客户端自动重试自愈），防止积压拖垮全网；0 = 不限制。默认 500。</div></div>
           </div></div>
         </div>
         <div class="card"><div class="card-head"><div class="card-title">情报出站代理</div></div>

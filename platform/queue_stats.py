@@ -22,6 +22,11 @@ import logging
 import threading
 import time
 
+try:                      # config 位于 platform/ 根，独立单测时可缺
+    from config import CONFIG
+except ImportError:       # pragma: no cover
+    CONFIG = None
+
 logger = logging.getLogger("platform.queue_stats")
 
 _LOCK = threading.Lock()
@@ -37,8 +42,18 @@ _STATS = {
     "max_pending": 0,        # 历史峰值（进程生命周期内）
     "total_submitted": 0,    # 累计提交数
     "warn_count": 0,         # 累计告警次数
+    "rejected": 0,           # 队列满被快速失败的查询数（迭代 42）
 }
 _last_warn = 0.0
+
+
+def _max_queue_depth() -> int:
+    """队列深度上限（迭代 42，热生效）：CONFIG.max_queue_depth，0=不限。"""
+    try:
+        cap = int(getattr(CONFIG, "max_queue_depth", 500))
+    except (TypeError, ValueError):
+        cap = 500
+    return max(0, cap)
 
 
 # 钩子配对关系（防双计数）：
@@ -46,11 +61,22 @@ _last_warn = 0.0
 #   _process 内部:  started() → …… finally → ended()
 # 取消发生在 worker 接活前时 started/ended 不执行，不影响 pending 口径。
 
-def submitted() -> None:
-    """handle_request 提交 executor 前调用：pending+1、total+1。"""
+def submitted() -> bool:
+    """handle_request 提交 executor 前调用：pending+1、total+1。
+
+    迭代 42（2026-09-10 事故加固）：队列深度达上限（CONFIG.max_queue_depth，
+    0=不限）时拒绝提交（rejected+1），返回 False——调用方立即回 SERVFAIL
+    快速失败，客户端按自身重试策略自愈。动机：事故日 asyncio 无限队列
+    积压数千查询，响应延迟远超 proxy forward_timeout，等价全网"解析不了"；
+    有界队列把故障期表现从"全网瘫"收敛为"部分查询短暂失败"。
+    """
     global _last_warn
     warn = False
     with _LOCK:
+        cap = _max_queue_depth()
+        if cap > 0 and _STATS["pending"] >= cap:
+            _STATS["rejected"] += 1
+            return False
         _STATS["pending"] += 1
         _STATS["total_submitted"] += 1
         if _STATS["pending"] > _STATS["max_pending"]:
@@ -69,6 +95,7 @@ def submitted() -> None:
             "executor worker 全忙或检测链路出现慢源，请结合 "
             "py-spy dump / circuit-breaker stats 排查",
             pending, peak)
+    return True
 
 
 def completed() -> None:

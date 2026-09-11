@@ -75,6 +75,19 @@ class PlatformConfig:
     # O(1) 零延迟且网络宵禁期仍可用。默认关：先导入名单再开启观察。
     nrd_offline_enabled: bool = False     # 离线 NRD 检测开关
     nrd_offline_mode: str = "observe"     # observe 观察误报率 / intercept 拦截
+    # --- 生产稳定性加固（迭代 42，2026-09-10 spamhaus_dbl 全天超时拖垮全网事故）---
+    # 三项均可经 system_config 热生效；详见各使用点注释
+    dnsbl_max_timeout_ms: int = 2500      # DNSBL 单次查询超时上限（毫秒，0=不限；
+                                          # 源级 timeout_ms 超过此值被压到上限——
+                                          # 事故日 DB 配 5000ms，每个未命中缓存域名
+                                          # 卡 5s，35 worker 全被慢查询占满）
+    max_queue_depth: int = 500            # 检测线程池队列深度上限（0=不限；满时
+                                          # 新查询直接 SERVFAIL 快速失败，杜绝
+                                          # asyncio 无限队列积压导致的全网瘫）
+    upstream_dns_backup: str = ""         # 备用上游 DNS（逗号分隔，空=禁用；主上游
+                                          # 失败时依次重试——注意总耗时 =
+                                          # (1+备份数)×upstream_timeout_s，须 <
+                                          # proxy forward_timeout 8s，建议只配 1 个）
 
     def load(self, path: str = DEFAULT_CONFIG_PATH) -> "PlatformConfig":
         if not os.path.exists(path):
