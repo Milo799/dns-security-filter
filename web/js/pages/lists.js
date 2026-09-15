@@ -218,20 +218,29 @@ async function saveListEntry(){
     var listName = listType === 'whitelist' ? '白名单' : '黑名单';
     var convEl = document.getElementById('mConvWild');
     var convOn = convEl && convEl.checked;
-    var listName2 = convOn ? '（勾选了转通配）' : '';
-    if (!confirm('批量导入 ' + lines.length + ' 条到' + listName + '？' + listName2 +
-      '\n（IP/域名自动识别目标类型，重复条目自动消重）')) return;
-    var csvLines = lines.map(function(l){
-      var val = l, t = _looksLikeIp(l) ? 'ip' : target;
+    var csvLines = [], previewRows = [];
+    lines.forEach(function(l){
+      var val = l, t = _looksLikeIp(l) ? 'ip' : target, kind = 'as-is';
       /* 勾选转通配：域名→*.主域（target=domain）；公网 IPv4→/24 段（target=ip）；
          平台域/私网/已通配保持原样（target 按自动识别不变） */
       if (convOn){
         var r = _convertToWildcard(l);
-        if (r.kind === 'wild'){ val = r.v; t = 'domain'; }
-        else if (r.kind === 'cidr'){ val = r.v; t = 'ip'; }
+        if (r.kind === 'wild'){ val = r.v; t = 'domain'; kind = 'wild'; }
+        else if (r.kind === 'cidr'){ val = r.v; t = 'ip'; kind = 'cidr'; }
+        else { kind = r.kind; }
       }
-      return [listType, t, val, '1', remark].join(',');
+      previewRows.push({orig: l, val: val, kind: kind});
+      csvLines.push([listType, t, val, '1', remark].join(','));
     });
+    /* 勾选转通配：先弹逐条预览确认（防误伤），确认后才提交 */
+    if (convOn){
+      _pendingImport = {mode: 'batch', csvText: csvLines.join('\n'),
+                        listType: listType, count: lines.length};
+      _openConvPreview(listType, previewRows);
+      return;
+    }
+    if (!confirm('批量导入 ' + lines.length + ' 条到' + listName + '？' +
+      '\n（IP/域名自动识别目标类型，重复条目自动消重）')) return;
     try{
       var d = (await api('POST', '/api/list/import', csvLines.join('\n'), true)).data;
       var msg = '批量导入完成：新增 ' + d.imported + ' / 共 ' + lines.length + ' 条';
@@ -322,20 +331,27 @@ async function doImportList(){
   if (!csv.trim()){ toast('请粘贴 CSV 内容', true); return; }
   /* 勾选"导入时转通配"：对 value 列（第 3 列）逐行转换——
      域名→*.主域（target 同步改 domain）、公网 IPv4→/24 段（target=ip）；
-     表头行的 value 列是纯文本，转换函数按无效处理自动保持原样 */
+     表头行不进预览；先弹逐条预览确认（防误伤），确认后才提交 */
   var csvConv = document.getElementById('csvConvWild');
   if (csvConv && csvConv.checked){
-    csv = csv.split(/\r?\n/).map(function(row){
-      if (!row.trim()) return row;
+    var outLines = [], previewRows = [];
+    csv.split(/\r?\n/).forEach(function(row){
+      if (!row.trim()){ outLines.push(row); return; }
       var cols = row.split(',');
-      if (cols.length >= 3){
+      if (cols.length >= 3 && cols[0].trim().toLowerCase() !== 'list_type'){
+        var orig = cols[2];
         var r = _convertToWildcard(cols[2]);
-        cols[2] = r.v;
-        if (r.kind === 'wild') cols[1] = 'domain';
-        else if (r.kind === 'cidr') cols[1] = 'ip';
+        if (r.kind === 'wild'){ cols[2] = r.v; cols[1] = 'domain'; }
+        else if (r.kind === 'cidr'){ cols[2] = r.v; cols[1] = 'ip'; }
+        previewRows.push({orig: orig, val: cols[2], kind: r.kind});
       }
-      return cols.join(',');
-    }).join('\n');
+      outLines.push(cols.join(','));
+    });
+    if (!previewRows.length){ toast('没有可导入的数据行', true); return; }
+    _pendingImport = {mode: 'csv', csvText: outLines.join('\n'),
+                      listType: null, count: previewRows.length};
+    _openConvPreview(null, previewRows);
+    return;
   }
   try{
     var d = (await api('POST', '/api/list/import', csv, true)).data;
@@ -438,6 +454,67 @@ function _convertToWildcard(line){
   if (!reg) return {v: s, kind: 'keep'};
   if (PLATFORM_DOMAIN[reg]) return {v: s, kind: 'platform'};
   return {v: '*.' + reg, kind: 'wild'};
+}
+
+/* ---------- 导入转通配预览确认（防误伤：转换结果逐条过目后才提交） ---------- */
+
+/* 暂存的待确认导入：{mode: 'batch'|'csv', csvText: 转换后的 CSV, listType, count} */
+var _pendingImport = null;
+
+/* 打开预览弹窗：逐行展示 原值 → 导入为（保持原样行标注原因与颜色） */
+function _openConvPreview(listType, rows){
+  var prefix = listType ? (listType === 'whitelist' ? '白名单' : '黑名单') + ' · ' : 'CSV · ';
+  document.getElementById('cvModalTitle').textContent =
+    prefix + '导入转通配预览（共 ' + rows.length + ' 条）';
+  var html = rows.map(function(r){
+    var converted = r.kind === 'wild' || r.kind === 'cidr';
+    var note = '', color = '';
+    if (r.kind === 'platform'){
+      note = '<div style="font-size:12px;color:var(--danger)">⚠ 共享平台域，保持原样</div>';
+      color = ' style="color:var(--danger)"';
+    } else if (r.kind === 'private'){
+      note = '<div style="font-size:12px;color:var(--warning)">私网 IP，保持原样</div>';
+      color = ' style="color:var(--warning)"';
+    } else if (r.kind === 'keep'){
+      note = '<div style="font-size:12px;color:var(--text-sec)">已通配 / 已网段 / IPv6，保持原样</div>';
+    }
+    return '<tr' + color + '><td class="mono" style="white-space:normal">' + esc(r.orig) +
+      note + '</td><td class="mono" style="white-space:normal">' +
+      (converted ? '<b>' + esc(r.val) + '</b>' : esc(r.val) + '（不变）') + '</td></tr>';
+  }).join('');
+  document.getElementById('cvRows').innerHTML = html;
+  document.getElementById('convModal').classList.add('show');
+}
+
+/* 预览确认后执行导入（batch：结果回新建弹窗 hint；csv：结果回导入弹窗） */
+async function doConfirmImport(){
+  if (!_pendingImport){ toast('没有待确认的导入', true); return; }
+  var p = _pendingImport;
+  try{
+    var d = (await api('POST', '/api/list/import', p.csvText, true)).data;
+    var msg = '导入完成：新增 ' + d.imported + ' / 共 ' + p.count + ' 条（含转通配）';
+    if (d.deduped > 0) msg += '，消重 ' + d.deduped + ' 条';
+    if (d.skipped > 0){
+      msg += '，跳过 ' + d.skipped + ' 条';
+      if (d.errors && d.errors.length) msg += '：' + d.errors.slice(0, 3).join('；');
+    }
+    if (d.conflicts && d.conflicts.length) msg += '；⚠ 跨名单冲突 ' + d.conflicts.length + ' 条';
+    if (p.mode === 'batch'){
+      var el = document.getElementById('mValueHint');
+      el.textContent = msg;
+      el.style.color = (d.imported > 0 && !(d.conflicts && d.conflicts.length))
+        ? 'var(--success, #22c55e)' : 'var(--warning)';
+      if (d.imported > 0){ document.getElementById('mValue').value = ''; }
+    } else {
+      var el2 = document.getElementById('importResult');
+      el2.textContent = msg;
+      el2.style.color = (d.conflicts && d.conflicts.length) ? 'var(--warning)' : 'var(--text-sec)';
+    }
+    toast(msg);
+    closeModal('convModal');
+    _pendingImport = null;
+    if (d.imported > 0){ refreshListTab(); }
+  }catch(e){ toast(e.message, true); }
 }
 
 /* 全选/取消全选：作用于同一表格内全部可转条目 */

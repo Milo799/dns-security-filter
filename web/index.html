@@ -599,6 +599,21 @@
   </div>
 </div>
 
+<!-- ==================== 导入转通配预览确认弹窗 ==================== -->
+<div class="modal-mask" id="convModal">
+  <div class="modal" style="width:640px">
+    <div class="modal-head"><span id="cvModalTitle">导入转通配预览</span><button class="icon-btn" onclick="closeModal('convModal')">✕</button></div>
+    <div class="modal-body">
+      <div class="form-hint" style="margin-bottom:10px">请逐条核对以下转换结果，<b>确认无误后点击"确认导入"</b>。<b>红色</b>＝共享平台域（保持原样防误伤）、<b>黄色</b>＝私网 IP（保持原样），"（不变）"＝已通配 / 已网段 / IPv6 保持原样，其余按加粗的转换后值导入。</div>
+      <div class="table-wrap" style="max-height:380px;overflow:auto">
+        <table class="sap"><thead><tr><th>原值</th><th style="width:240px">导入为</th></tr></thead>
+        <tbody id="cvRows"></tbody></table>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn btn-normal" onclick="closeModal('convModal')">取消</button><button class="btn btn-emphasized" onclick="doConfirmImport()">确认导入</button></div>
+  </div>
+</div>
+
 <!-- ==================== 离线情报源条目查看弹窗 ==================== -->
 <div class="modal-mask" id="tlModal">
   <div class="modal" style="width:780px">
