@@ -546,7 +546,7 @@
         <div class="form-row"><label class="req">名单类型</label><input type="hidden" id="mListType" value="whitelist"><span id="mListTypeLabel" style="line-height:36px;font-weight:600"></span></div>
         <div class="form-row"><label class="req">目标类型</label><select id="mTarget"><option value="domain">域名（支持通配符）</option><option value="ip">IP / CIDR</option></select></div>
       </div>
-      <div class="form-row"><label class="req">值</label><textarea id="mValue" rows="2" style="width:100%;box-sizing:border-box;font-family:inherit;resize:vertical" placeholder="单条：如 *.example.com 或 93.184.216.0/24&#10;批量：每行一条（IP/域名可混合粘贴，自动识别目标类型，自动消重）" oninput="precheckListValue()" onchange="precheckListValue()"></textarea><div id="mValueHint" style="font-size:12px;min-height:16px;margin-top:4px"></div></div>
+      <div class="form-row"><label class="req">值</label><textarea id="mValue" rows="2" style="width:100%;box-sizing:border-box;font-family:inherit;resize:vertical" placeholder="单条：如 *.example.com 或 93.184.216.0/24&#10;批量：每行一条（IP/域名可混合粘贴，自动识别目标类型，自动消重）" oninput="precheckListValue()" onchange="precheckListValue()"></textarea><div id="mValueHint" style="font-size:12px;min-height:16px;margin-top:4px"></div><label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:13px;cursor:pointer;user-select:none"><input type="checkbox" id="mConvWild" onchange="precheckListValue()">导入时转通配（域名 → <b>*.主域</b>；公网 IP → <b>/24 整段</b>；共享平台域 / 私网 IP / 已通配条目保持原样）</label></div>
       <div class="form-row"><label>备注</label><input id="mRemark" placeholder="选填"></div>
     </div>
     <div class="modal-foot"><button class="btn btn-normal" onclick="closeModal('listModal')">取消</button><button class="btn btn-emphasized" onclick="saveListEntry()">保 存</button></div>
@@ -575,6 +575,7 @@
     <div class="modal-head"><span>批量导入人工情报源 CSV</span><button class="icon-btn" onclick="closeModal('importModal')">✕</button></div>
     <div class="modal-body">
       <div class="form-hint" style="margin-bottom:10px">列：list_type,target,value,enabled,remark（首行表头自动跳过）；list_type 填 <b>whitelist</b>（白名单·放行）或 <b>blacklist</b>（黑名单·拦截），支持混合导入。<b>自动消重</b>：文件内重复及与名单中已有条目重复（域名不区分大小写）的行自动跳过，导入结果会提示消重数量</div>
+      <label style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:13px;cursor:pointer;user-select:none"><input type="checkbox" id="csvConvWild">导入时转通配（对 value 列生效：域名 → <b>*.主域</b>；公网 IP → <b>/24 整段</b>；共享平台域 / 私网 IP / 已通配条目保持原样）</label>
       <textarea id="mCsv" rows="10" style="width:100%;font-family:var(--mono);font-size:12px;padding:10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-soft);color:var(--text)" placeholder="blacklist,domain,*.bad.com,1,备注&#10;blacklist,ip,10.0.0.0/8,,整段"></textarea>
       <div id="importResult" class="form-hint" style="margin-top:8px"></div>
     </div>

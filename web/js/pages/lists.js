@@ -133,8 +133,26 @@ function precheckListValue(){
     _precheckState.batch = true;
     var ips = 0, doms = 0;
     lines.forEach(function(l){ if (_looksLikeIp(l)) ips++; else doms++; });
-    hint.textContent = '📋 批量模式：共 ' + lines.length + ' 条（域名 ' + doms +
-      (ips ? ' / IP·网段 ' + ips : '') + '），将自动识别目标类型逐条导入，重复条目自动消重';
+    var base = '📋 批量模式：共 ' + lines.length + ' 条（域名 ' + doms +
+      (ips ? ' / IP·网段 ' + ips : '') + '）';
+    /* 勾选"导入时转通配"：统计转换预览（平台域/私网/已通配保持原样） */
+    var convEl = document.getElementById('mConvWild');
+    if (convEl && convEl.checked){
+      var w = 0, c = 0, k = 0, pw = 0;
+      lines.forEach(function(l){
+        var r = _convertToWildcard(l);
+        if (r.kind === 'wild') w++;
+        else if (r.kind === 'cidr') c++;
+        else { k++; if (r.kind === 'platform') pw++; }
+      });
+      hint.textContent = base + '；转换后：域名→*.主域 ' + w + ' 条' +
+        (c ? '、IP→/24 段 ' + c + ' 条' : '') +
+        (k ? '、保持原样 ' + k + ' 条' : '') +
+        (pw ? '（含共享平台域 ' + pw + ' 条，防误伤不转）' : '') +
+        '，重复条目自动消重';
+    } else {
+      hint.textContent = base + '，将自动识别目标类型逐条导入，重复条目自动消重';
+    }
     hint.style.color = 'var(--info, #3b82f6)';
     return true;
   }
@@ -160,7 +178,22 @@ function precheckListValue(){
     hint.style.color = 'var(--warning)';
     return true;
   }
-  hint.textContent = '';
+  /* 单条 + 勾选"导入时转通配"：显示转换预览（追加在既有提示后） */
+  var convEl1 = document.getElementById('mConvWild');
+  if (convEl1 && convEl1.checked && v){
+    var cr = _convertToWildcard(v);
+    if (cr.kind === 'wild' || cr.kind === 'cidr'){
+      hint.textContent = (hint.textContent ? hint.textContent + '　' : '') + '⇄ 保存时将转换为 ' + cr.v;
+      hint.style.color = 'var(--info, #3b82f6)';
+    } else if (cr.kind === 'platform'){
+      hint.textContent = (hint.textContent ? hint.textContent + '　' : '') + '⚠ 共享平台域，保持精确导入不转通配';
+      hint.style.color = 'var(--warning)';
+    } else if (cr.kind === 'private'){
+      hint.textContent = (hint.textContent ? hint.textContent + '　' : '') + '⚠ 私网 IP 保持原样（转 /24 过宽且无意义）';
+      hint.style.color = 'var(--warning)';
+    }
+  }
+  if (!hint.textContent) hint.textContent = '';
   return true;
 }
 
@@ -183,10 +216,21 @@ async function saveListEntry(){
           跨名单冲突检测、顶层通配批量拒绝），后端零改动 ---- */
   if (lines.length > 1){
     var listName = listType === 'whitelist' ? '白名单' : '黑名单';
-    if (!confirm('批量导入 ' + lines.length + ' 条到' + listName + '？\n（IP/域名自动识别目标类型，重复条目自动消重）')) return;
+    var convEl = document.getElementById('mConvWild');
+    var convOn = convEl && convEl.checked;
+    var listName2 = convOn ? '（勾选了转通配）' : '';
+    if (!confirm('批量导入 ' + lines.length + ' 条到' + listName + '？' + listName2 +
+      '\n（IP/域名自动识别目标类型，重复条目自动消重）')) return;
     var csvLines = lines.map(function(l){
-      var t = _looksLikeIp(l) ? 'ip' : target;
-      return [listType, t, l, '1', remark].join(',');
+      var val = l, t = _looksLikeIp(l) ? 'ip' : target;
+      /* 勾选转通配：域名→*.主域（target=domain）；公网 IPv4→/24 段（target=ip）；
+         平台域/私网/已通配保持原样（target 按自动识别不变） */
+      if (convOn){
+        var r = _convertToWildcard(l);
+        if (r.kind === 'wild'){ val = r.v; t = 'domain'; }
+        else if (r.kind === 'cidr'){ val = r.v; t = 'ip'; }
+      }
+      return [listType, t, val, '1', remark].join(',');
     });
     try{
       var d = (await api('POST', '/api/list/import', csvLines.join('\n'), true)).data;
@@ -217,6 +261,13 @@ async function saveListEntry(){
   };
   if (!body.value){ toast('请填写"值"', true); return; }
   if (!precheckListValue()){ return; }
+  /* 单条 + 勾选转通配：与批量同一转换规则（预览已在 precheck 提示） */
+  var convEl1 = document.getElementById('mConvWild');
+  if (convEl1 && convEl1.checked){
+    var cr = _convertToWildcard(body.value);
+    if (cr.kind === 'wild'){ body.value = cr.v; body.target = 'domain'; }
+    else if (cr.kind === 'cidr'){ body.value = cr.v; body.target = 'ip'; }
+  }
   /* 顶层通配二次确认：明确展示影响后果（Task #177） */
   if (_precheckState.topWildcard){
     var ltName = body.list_type === 'whitelist' ? '白名单（放行豁免）' : '黑名单（直接拦截）';
@@ -269,6 +320,23 @@ function importList(listType){
 async function doImportList(){
   var csv = document.getElementById('mCsv').value;
   if (!csv.trim()){ toast('请粘贴 CSV 内容', true); return; }
+  /* 勾选"导入时转通配"：对 value 列（第 3 列）逐行转换——
+     域名→*.主域（target 同步改 domain）、公网 IPv4→/24 段（target=ip）；
+     表头行的 value 列是纯文本，转换函数按无效处理自动保持原样 */
+  var csvConv = document.getElementById('csvConvWild');
+  if (csvConv && csvConv.checked){
+    csv = csv.split(/\r?\n/).map(function(row){
+      if (!row.trim()) return row;
+      var cols = row.split(',');
+      if (cols.length >= 3){
+        var r = _convertToWildcard(cols[2]);
+        cols[2] = r.v;
+        if (r.kind === 'wild') cols[1] = 'domain';
+        else if (r.kind === 'cidr') cols[1] = 'ip';
+      }
+      return cols.join(',');
+    }).join('\n');
+  }
   try{
     var d = (await api('POST', '/api/list/import', csv, true)).data;
     var msg = '导入 ' + d.imported + ' 条，跳过 ' + d.skipped + ' 条';
@@ -338,6 +406,38 @@ function _registrable(v){
     return labels.slice(-3).join('.');
   }
   return last2;
+}
+
+/* ---------- 批量导入转通配（导入开关，与勾选转换共用主域规则） ---------- */
+
+/* 私网 IPv4（10/8、172.16-31/12、192.168/16、127/8）：转 /24 过宽且无意义，保持原样 */
+function _isPrivateIpv4(ip){
+  var m = ip.match(/^(\d{1,3})\.(\d{1,3})\./);
+  if (!m) return false;
+  var a = +m[1], b = +m[2];
+  return a === 10 || a === 127 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31);
+}
+
+/* 单行转换：域名→*.主域（kind=wild）；公网 IPv4→/24 段（kind=cidr）；
+   共享平台域（platform）/ 私网 IP（private）/ 已通配·已网段·IPv6（keep）不转。
+   返回 {v: 转换后的值, kind: 'wild'|'cidr'|'platform'|'private'|'keep'} */
+function _convertToWildcard(line){
+  var s = (line || '').trim().toLowerCase();
+  if (!s) return {v: s, kind: 'keep'};
+  /* 已通配 / 已是网段：保持 */
+  if (s.indexOf('*.') === 0 || s.indexOf('/') >= 0) return {v: s, kind: 'keep'};
+  /* IPv4 单地址 → 公网转 /24 整段，私网保持 */
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(s)){
+    if (_isPrivateIpv4(s)) return {v: s, kind: 'private'};
+    return {v: s.replace(/\.\d{1,3}$/, '.0/24'), kind: 'cidr'};
+  }
+  /* IPv6（含冒号）：保持 */
+  if (s.indexOf(':') >= 0) return {v: s, kind: 'keep'};
+  /* 域名 → 主域通配；共享平台域防误伤保持精确 */
+  var reg = _registrable(s);
+  if (!reg) return {v: s, kind: 'keep'};
+  if (PLATFORM_DOMAIN[reg]) return {v: s, kind: 'platform'};
+  return {v: '*.' + reg, kind: 'wild'};
 }
 
 /* 全选/取消全选：作用于同一表格内全部可转条目 */
