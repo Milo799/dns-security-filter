@@ -117,6 +117,19 @@ function precheckListValue(){
   if (!hint) return true;
   _precheckState.topWildcard = false;
   _precheckState.suffix = '';
+  _precheckState.batch = false;
+  /* 多行粘贴 = 批量导入模式：逐行走后端批量校验（消重/顶层通配拒绝），
+     此处只提示条数，不逐行预检 */
+  var lines = v ? v.split(/\r?\n/).map(function(s){ return s.trim(); }).filter(Boolean) : [];
+  if (lines.length > 1){
+    _precheckState.batch = true;
+    var ips = 0, doms = 0;
+    lines.forEach(function(l){ if (_looksLikeIp(l)) ips++; else doms++; });
+    hint.textContent = '📋 批量模式：共 ' + lines.length + ' 条（域名 ' + doms +
+      (ips ? ' / IP·网段 ' + ips : '') + '），将自动识别目标类型逐条导入，重复条目自动消重';
+    hint.style.color = 'var(--info, #3b82f6)';
+    return true;
+  }
   if (target === 'domain' && (v === '*' || v === '*.')){
     hint.textContent = '⛔ 裸通配符 * / *.（空后缀）是无效条目，禁止添加';
     hint.style.color = 'var(--danger)';
@@ -143,12 +156,56 @@ function precheckListValue(){
   return true;
 }
 
+/* 批量行目标类型自动识别：IPv4/CIDR 或 IPv6 视作 ip 条目，
+   其余按用户选择的 target（默认 domain）。混合粘贴一次成功。 */
+function _looksLikeIp(line){
+  if (/^\d{1,3}(\.\d{1,3}){3}(\/\d{1,3})?$/.test(line)) return true;   /* IPv4 / CIDR */
+  if (line.indexOf(':') >= 0 && !/[a-z]/.test(line.replace(/%/g, ''))) return true; /* IPv6（纯十六进制冒号，无字母域名特征排除困难时以用户选择为准） */
+  return false;
+}
+
 async function saveListEntry(){
+  var listType = document.getElementById('mListType').value;
+  var target = document.getElementById('mTarget').value;
+  var raw = document.getElementById('mValue').value;
+  var remark = document.getElementById('mRemark').value.trim();
+  var lines = raw.split(/\r?\n/).map(function(s){ return s.trim(); }).filter(Boolean);
+
+  /* ---- 批量模式（多行粘贴）：转 CSV 复用 /api/list/import（自带消重、
+          跨名单冲突检测、顶层通配批量拒绝），后端零改动 ---- */
+  if (lines.length > 1){
+    var listName = listType === 'whitelist' ? '白名单' : '黑名单';
+    if (!confirm('批量导入 ' + lines.length + ' 条到' + listName + '？\n（IP/域名自动识别目标类型，重复条目自动消重）')) return;
+    var csvLines = lines.map(function(l){
+      var t = _looksLikeIp(l) ? 'ip' : target;
+      return [listType, t, l, '1', remark].join(',');
+    });
+    try{
+      var d = (await api('POST', '/api/list/import', csvLines.join('\n'), true)).data;
+      var msg = '批量导入完成：新增 ' + d.imported + ' / 共 ' + lines.length + ' 条';
+      if (d.deduped > 0) msg += '，消重 ' + d.deduped + ' 条';
+      if (d.skipped > 0){
+        msg += '，跳过 ' + d.skipped + ' 条';
+        if (d.errors && d.errors.length) msg += '：' + d.errors.slice(0, 3).join('；');
+      }
+      var el = document.getElementById('mValueHint');
+      el.textContent = msg;
+      el.style.color = d.imported > 0 ? 'var(--success, #22c55e)' : 'var(--warning)';
+      toast(msg);
+      if (d.imported > 0){
+        document.getElementById('mValue').value = '';
+        (listType === 'whitelist' ? loadWhitelist : loadBlacklist)(1);
+      }
+    }catch(e){ toast(e.message, true); }
+    return;
+  }
+
+  /* ---- 单条模式（原有逻辑不变） ---- */
   var body = {
-    list_type: document.getElementById('mListType').value,
-    target: document.getElementById('mTarget').value,
-    value: document.getElementById('mValue').value.trim(),
-    remark: document.getElementById('mRemark').value.trim()
+    list_type: listType,
+    target: target,
+    value: raw.trim(),
+    remark: remark
   };
   if (!body.value){ toast('请填写"值"', true); return; }
   if (!precheckListValue()){ return; }

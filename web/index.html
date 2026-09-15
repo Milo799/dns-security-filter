@@ -544,7 +544,7 @@
         <div class="form-row"><label class="req">名单类型</label><input type="hidden" id="mListType" value="whitelist"><span id="mListTypeLabel" style="line-height:36px;font-weight:600"></span></div>
         <div class="form-row"><label class="req">目标类型</label><select id="mTarget"><option value="domain">域名（支持通配符）</option><option value="ip">IP / CIDR</option></select></div>
       </div>
-      <div class="form-row"><label class="req">值</label><input id="mValue" placeholder="如 *.example.com 或 93.184.216.0/24" oninput="precheckListValue()" onchange="precheckListValue()"><div id="mValueHint" style="font-size:12px;min-height:16px;margin-top:4px"></div></div>
+      <div class="form-row"><label class="req">值</label><textarea id="mValue" rows="2" style="width:100%;box-sizing:border-box;font-family:inherit;resize:vertical" placeholder="单条：如 *.example.com 或 93.184.216.0/24&#10;批量：每行一条（IP/域名可混合粘贴，自动识别目标类型，自动消重）" oninput="precheckListValue()" onchange="precheckListValue()"></textarea><div id="mValueHint" style="font-size:12px;min-height:16px;margin-top:4px"></div></div>
       <div class="form-row"><label>备注</label><input id="mRemark" placeholder="选填"></div>
     </div>
     <div class="modal-foot"><button class="btn btn-normal" onclick="closeModal('listModal')">取消</button><button class="btn btn-emphasized" onclick="saveListEntry()">保 存</button></div>
