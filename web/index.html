@@ -233,6 +233,7 @@
               <div class="toolbar" style="margin-left:auto">
                 <button class="btn btn-normal btn-compact" onclick="importList('whitelist')">⬆ 导入 CSV</button>
                 <button class="btn btn-normal btn-compact" onclick="exportList('whitelist')">⬇ 导出</button>
+                <button class="btn btn-normal btn-compact" id="wlWildBtn" onclick="openWildcardDialog('whitelist')">✳ 勾选转通配</button>
                 <button class="btn btn-emphasized btn-compact" onclick="openListDialog('whitelist')">＋ 新建白名单条目</button>
               </div>
             </div>
@@ -246,8 +247,8 @@
                 <span class="count-note" id="wlCount"></span>
               </div>
               <div class="table-wrap">
-                <table class="sap"><thead><tr><th>值</th><th>类型</th><th>层级</th><th>状态</th><th>备注</th><th>创建人</th><th>更新时间</th><th>操作</th></tr></thead>
-                <tbody id="wlRows"><tr><td colspan="8"><div class="loading">加载中…</div></td></tr></tbody></table>
+                <table class="sap"><thead><tr><th style="width:30px"><input type="checkbox" title="全选本页可转换条目" onchange="toggleListSelAll(this)"></th><th>值</th><th>类型</th><th>层级</th><th>状态</th><th>备注</th><th>创建人</th><th>更新时间</th><th>操作</th></tr></thead>
+                <tbody id="wlRows"><tr><td colspan="9"><div class="loading">加载中…</div></td></tr></tbody></table>
               </div>
               <div class="pager" id="wlPager"></div>
             </div>
@@ -263,6 +264,7 @@
               <div class="toolbar" style="margin-left:auto">
                 <button class="btn btn-normal btn-compact" onclick="importList('blacklist')">⬆ 导入 CSV</button>
                 <button class="btn btn-normal btn-compact" onclick="exportList('blacklist')">⬇ 导出</button>
+                <button class="btn btn-normal btn-compact" id="blWildBtn" onclick="openWildcardDialog('blacklist')">✳ 勾选转通配</button>
                 <button class="btn btn-emphasized btn-compact" onclick="openListDialog('blacklist')">＋ 新建黑名单条目</button>
               </div>
             </div>
@@ -276,8 +278,8 @@
                 <span class="count-note" id="blCount"></span>
               </div>
               <div class="table-wrap">
-                <table class="sap"><thead><tr><th>值</th><th>类型</th><th>层级</th><th>状态</th><th>备注</th><th>创建人</th><th>更新时间</th><th>操作</th></tr></thead>
-                <tbody id="blRows"><tr><td colspan="8"><div class="loading">加载中…</div></td></tr></tbody></table>
+                <table class="sap"><thead><tr><th style="width:30px"><input type="checkbox" title="全选本页可转换条目" onchange="toggleListSelAll(this)"></th><th>值</th><th>类型</th><th>层级</th><th>状态</th><th>备注</th><th>创建人</th><th>更新时间</th><th>操作</th></tr></thead>
+                <tbody id="blRows"><tr><td colspan="9"><div class="loading">加载中…</div></td></tr></tbody></table>
               </div>
               <div class="pager" id="blPager"></div>
             </div>
@@ -577,6 +579,22 @@
       <div id="importResult" class="form-hint" style="margin-top:8px"></div>
     </div>
     <div class="modal-foot"><button class="btn btn-normal" onclick="closeModal('importModal')">关闭</button><button class="btn btn-emphasized" onclick="doImportList()">导 入</button></div>
+  </div>
+</div>
+
+<!-- ==================== 勾选转通配确认弹窗 ==================== -->
+<div class="modal-mask" id="wildcardModal">
+  <div class="modal" style="width:640px">
+    <div class="modal-head"><span id="wcModalTitle">勾选条目转为通配</span><button class="icon-btn" onclick="closeModal('wildcardModal')">✕</button></div>
+    <div class="modal-body">
+      <div class="form-hint" style="margin-bottom:10px">将所选条目转换为其<b>主域通配</b>（如 www.ryzhe.com → <b>*.ryzhe.com</b>）。通配条目同时命中裸域与全部子域，一条覆盖整个域族；原有精确条目将被替换（更新审计留痕）。⚠ 红色条目的主域属共享平台（如腾讯云 COS、Cloudflare Workers），转通配会影响平台上<b>所有用户</b>，默认未勾选，请逐条确认。</div>
+      <div class="table-wrap" style="max-height:380px;overflow:auto">
+        <table class="sap"><thead><tr><th style="width:30px">转</th><th>原条目</th><th style="width:220px">转换为</th></tr></thead>
+        <tbody id="wcRows"></tbody></table>
+      </div>
+      <div id="wcResult" class="form-hint" style="margin-top:8px"></div>
+    </div>
+    <div class="modal-foot"><button class="btn btn-normal" onclick="closeModal('wildcardModal')">取消</button><button class="btn btn-emphasized" id="wcDoBtn" onclick="doWildcardConvert()">确认转换</button></div>
   </div>
 </div>
 

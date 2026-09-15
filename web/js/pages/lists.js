@@ -62,8 +62,15 @@ function loadListData(page, listType, ids){
   if (kw) q.set('keyword', kw);
   api('GET', '/api/list?' + q).then(function(d){
     document.getElementById(ids.count).textContent = '共 ' + d.data.total + ' 条';
+    /* 当前列表页条目缓存：勾选转通配弹窗按 id 取数据 */
+    _listRows = {};
+    d.data.items.forEach(function(x){ _listRows[x.id] = x; });
     document.getElementById(ids.rows).innerHTML = d.data.items.length ? d.data.items.map(function(x){
-      return '<tr><td class="mono">' + esc(x.value) + '</td>' +
+      /* 可转通配：非通配域名条目（IP/CIDR、已通配、顶层后缀不可转） */
+      var sel = x.target === 'domain' && !x.wildcard && x.level !== 'tld';
+      return '<tr><td style="text-align:center">' + (sel
+          ? '<input type="checkbox" class="lc-sel" value="' + x.id + '" onchange="updateWildBtn()">' : '') +
+        '</td><td class="mono">' + esc(x.value) + '</td>' +
         '<td>' + (x.target === 'domain'
           ? '<span class="tag tag-blue">域名</span>'
           : '<span class="tag tag-neutral">IP/CIDR</span>') + '</td>' +
@@ -78,12 +85,13 @@ function loadListData(page, listType, ids){
         '<button class="icon-btn" title="编辑备注" onclick="editListItem(' + x.id + ',\'' + listType + '\')">✎</button>' +
         '<button class="icon-btn danger" title="删除" onclick="delListItem(' + x.id + ',\'' + esc(x.value).replace(/'/g, '') + '\',\'' + listType + '\')">🗑</button>' +
         '</div></td></tr>';
-    }).join('') : ('<tr><td colspan="8"><div class="empty-state"><span class="es-ico">📭</span>' +
+    }).join('') : ('<tr><td colspan="9"><div class="empty-state"><span class="es-ico">📭</span>' +
       (ids.level && document.getElementById(ids.level).value
         ? '当前筛选（' + LEVEL_LABEL[document.getElementById(ids.level).value].text +
           '）下没有条目。顶级域名（如 *.' + 'com）只能通过"新建"手工添加，批量导入会被拒绝'
         : '暂无条目') + '</div></td></tr>');
     pager(document.getElementById(ids.pager), d.data.total, ids.page, 20, ids.loader);
+    updateWildBtn();  /* 分页/刷新后勾选清空，同步按钮计数 */
   }).catch(function(e){ toast(e.message, true); });
 }
 
@@ -296,6 +304,120 @@ async function exportList(listType){
     downloadBlob(await r.blob(), listType + '.csv');
     toast('已导出');
   }catch(e){ toast(e.message, true); }
+}
+
+/* ============================================================
+   勾选批量转通配（用户需求：多行勾选后一键转 *.主域）
+   - 可勾选行：非通配域名条目（IP/CIDR、已通配、顶层后缀不可转）
+   - 转换规则：*.<可注册主域>——www.ryzhe.com → *.ryzhe.com；
+     com.cn 等双段后缀取末三段（www.x.com.cn → *.x.com.cn）
+   - 通配语义（detectors._match_domain）：*.ryzhe.com 同时命中
+     裸域 ryzhe.com 与任意深度子域，故直接 PUT 更新 value 即覆盖整族
+   - 共享平台域（腾讯云 COS / Cloudflare Workers 等）红字警告且
+     默认不勾——*.myqcloud.com 会误伤平台上所有用户
+   ============================================================ */
+
+/* 当前列表页条目缓存（id → item），loadListData 时重建 */
+var _listRows = {};
+
+/* 共享平台域：主域属平台方，通配会影响全体用户 */
+var PLATFORM_DOMAIN = {
+  'myqcloud.com': 1, 'tencentcloud.com': 1, 'workers.dev': 1, 'pages.dev': 1,
+  'github.io': 1, 'vercel.app': 1, 'netlify.app': 1, 'herokuapp.com': 1,
+  'appspot.com': 1, 'azurewebsites.net': 1, 'cloudfront.net': 1, 'amazonaws.com': 1,
+  'run.app': 1, 'web.app': 1, 'firebaseapp.com': 1, 'glitch.me': 1,
+  'repl.co': 1, 'onrender.com': 1, 'fly.dev': 1, 'railway.app': 1, 'trycloudflare.com': 1
+};
+
+/* 取可注册主域：双段公共后缀（com.cn 等）取末三段，否则取末两段 */
+function _registrable(v){
+  var labels = v.toLowerCase().replace(/^\*\./, '').split('.');
+  if (labels.length < 2) return null;
+  var last2 = labels.slice(-2).join('.');
+  if (MULTI_TLD.indexOf(last2) >= 0 && labels.length >= 3){
+    return labels.slice(-3).join('.');
+  }
+  return last2;
+}
+
+/* 全选/取消全选：作用于同一表格内全部可转条目 */
+function toggleListSelAll(cb){
+  var tbody = cb.closest('table').querySelector('tbody');
+  if (!tbody) return;
+  tbody.querySelectorAll('input.lc-sel').forEach(function(c){ c.checked = cb.checked; });
+  updateWildBtn();
+}
+
+/* 工具栏按钮动态计数 */
+function updateWildBtn(){
+  var rows = document.getElementById(listTab === 'whitelist' ? 'wlRows' : 'blRows');
+  var btn = document.getElementById(listTab === 'whitelist' ? 'wlWildBtn' : 'blWildBtn');
+  if (!rows || !btn) return;
+  var n = rows.querySelectorAll('input.lc-sel:checked').length;
+  btn.textContent = n ? '✳ 转通配(' + n + ')' : '✳ 勾选转通配';
+}
+
+/* 打开转换确认弹窗：逐行预览 原值 → *.<主域>，平台域默认不勾 */
+function openWildcardDialog(listType){
+  var rows = document.getElementById(listType === 'whitelist' ? 'wlRows' : 'blRows');
+  var ids = [];
+  rows.querySelectorAll('input.lc-sel:checked').forEach(function(cb){
+    ids.push(parseInt(cb.value, 10));
+  });
+  if (!ids.length){
+    toast('请先勾选要转换的域名条目（IP/网段、已通配与顶层后缀条目不可转换）', true);
+    return;
+  }
+  var listName = listType === 'whitelist' ? '白名单' : '黑名单';
+  document.getElementById('wcModalTitle').textContent =
+    listName + ' · 勾选条目转为通配（已选 ' + ids.length + ' 条）';
+  var html = [], warned = 0;
+  ids.forEach(function(id){
+    var x = _listRows[id];
+    if (!x) return;
+    var reg = _registrable(x.value);
+    if (!reg) return;
+    var wild = '*.' + reg;
+    var isPlatform = !!PLATFORM_DOMAIN[reg];
+    var isExpand = x.value.toLowerCase().replace(/^\*\./, '') === reg;
+    if (isPlatform) warned++;
+    var note = isPlatform
+      ? '<div style="font-size:12px;color:var(--danger)">⚠ 共享平台域：转 *.' + reg + ' 将影响平台上全部用户</div>'
+      : (isExpand
+          ? '<div style="font-size:12px;color:var(--warning)">由精确主域扩展为整域通配（裸域 + 全部子域）</div>'
+          : '');
+    html.push('<tr' + (isPlatform ? ' style="color:var(--danger)"' : '') + '><td><input type="checkbox" class="wc-item" value="' +
+      id + '" data-wild="' + wild + '"' + (isPlatform ? '' : ' checked') + '></td>' +
+      '<td class="mono" style="white-space:normal">' + esc(x.value) + note + '</td>' +
+      '<td class="mono" style="white-space:normal"><b>' + esc(wild) + '</b></td></tr>');
+  });
+  document.getElementById('wcRows').innerHTML = html.join('');
+  var el = document.getElementById('wcResult');
+  el.textContent = warned ? '⚠ ' + warned + ' 条为共享平台域（红字），默认未勾选，请逐条确认' : '';
+  el.style.color = warned ? 'var(--warning)' : 'var(--text-sec)';
+  document.getElementById('wildcardModal').classList.add('show');
+}
+
+/* 执行转换：逐条 PUT 更新 value（走后端校验 + 审计 + 缓存失效） */
+async function doWildcardConvert(){
+  var cbs = document.querySelectorAll('#wcRows input.wc-item:checked');
+  if (!cbs.length){ toast('未勾选任何条目', true); return; }
+  var btn = document.getElementById('wcDoBtn');
+  btn.disabled = true;
+  var ok = 0, fail = 0;
+  for (var i = 0; i < cbs.length; i++){
+    try{
+      await api('PUT', '/api/list/' + cbs[i].value, {value: cbs[i].getAttribute('data-wild')});
+      ok++;
+    }catch(e){ fail++; }
+  }
+  btn.disabled = false;
+  var msg = '转通配完成：成功 ' + ok + ' 条' + (fail ? '，失败 ' + fail + ' 条' : '') + '（已记入审计）';
+  var el = document.getElementById('wcResult');
+  el.textContent = msg;
+  el.style.color = fail ? 'var(--warning)' : 'var(--success, #22c55e)';
+  toast(msg);
+  if (ok){ refreshListTab(); }
 }
 
 PAGE_LOADERS.manualintel = loadManualintel;
