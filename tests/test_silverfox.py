@@ -2,9 +2,11 @@
 
 覆盖：
 - classify：IPv4/IPv6/域名/哈希丢弃/带端口路径丢弃
-- _url_hosts：URL 提取 host
-- fetch_iocs：事件聚合 / hot-ioc 合并 / 空结果保护 / 连续失败熔断 /
-  window_days 窗口（全 mock，不打真实接口）
+- _url_hosts：URL 提取 host（域名 + IP 双收集——09-17 归因 91 个
+  投毒下载源 IP 仅存于 URL）
+- _extra_entries：本地追加文件（silverfox_extra.txt）分流/容错/缺失
+- fetch_iocs：事件聚合 / hot-ioc 合并 / 追加文件合并 / 空结果保护 /
+  连续失败熔断 / window_days 窗口（全 mock，不打真实接口）
 - import_api_source：域名+IP 双 target 整源替换 / 空结果拒绝 / PTR 反查命中
 - auto_update_once：API 源分支走 fetch_iocs 而非 download
 - 路由：POST /api/threatlist/import {source: silverfox} 后台任务完整跑通
@@ -49,8 +51,11 @@ def _h(token):
 @pytest.fixture(autouse=True)
 def no_rate_limit(monkeypatch):
     """限速归零（time.sleep(0) 即时返回；不能 patch time.sleep 本体——
-    轮询后台任务进度的 sleep 依赖真实等待，否则会空转断言抖动）。"""
+    轮询后台任务进度的 sleep 依赖真实等待，否则会空转断言抖动）；
+    追加文件指向不存在的文件名（本地 data/silverfox_extra.txt 若存在
+    会混入 fetch 断言；test_extra_entries 用显式路径不受影响）。"""
     monkeypatch.setattr(silverfox, "_REQUEST_INTERVAL", 0)
+    monkeypatch.setattr(silverfox, "_EXTRA_FILENAME", "_no_such_extra.txt")
 
 
 # ---------------- classify / _url_hosts ----------------
@@ -83,11 +88,30 @@ def test_url_hosts():
     urls = [
         "https://noah-relay.wotudj578.workers.dev/x",
         "http://evil.com.cn:8080/payload.exe",
+        "http://103.156.25.35/payload.exe",   # IP host（归因：91 个仅存于 URL）
         "not-a-url",
         "",
     ]
-    assert silverfox._url_hosts(urls) == {
-        "noah-relay.wotudj578.workers.dev", "evil.com.cn"}
+    hosts, ips = silverfox._url_hosts(urls)
+    assert hosts == {"noah-relay.wotudj578.workers.dev", "evil.com.cn"}
+    assert ips == {"103.156.25.35"}
+
+
+def test_extra_entries(tmp_path):
+    # 文件不存在 → 空集
+    assert silverfox._extra_entries(str(tmp_path / "none.txt")) == (set(), set())
+    p = tmp_path / "silverfox_extra.txt"
+    p.write_text(
+        "vuxu661d.com\n"             # 注册域裸条目（父域匹配等效 *. 通配）
+        "103.156.25.35\n"            # IP 分流
+        "# 注释行 classify 不认自动丢弃\n"
+        "\n"
+        "http://not-plain.com/a\n"   # 非裸条目丢弃
+        "*.wildcard.com\n",          # 通配丢弃（threat_list 不支持通配）
+        encoding="utf-8")
+    d, i = silverfox._extra_entries(str(p))
+    assert d == {"vuxu661d.com"}
+    assert i == {"103.156.25.35"}
 
 
 # ---------------- fetch_iocs（mock 接口） ----------------
@@ -113,7 +137,8 @@ def test_fetch_iocs_aggregates(monkeypatch):
                               domains=["baidu787.com"],
                               ips=["18.166.168.216"],
                               iocs=["www.ryzhe.com", "deadbeef" * 8],  # 混入 SHA256
-                              urls=["https://noah-ssh.top/a.exe"])
+                              urls=["https://noah-ssh.top/a.exe",
+                                    "http://8.210.165.181/x.exe"])    # IP host URL
             return _event("u2", ips=["2001:db8::9"])
         if path.endswith("get-hot-ioc"):
             return {"data": {"domain": ["hot-evil.xyz"], "ip": ["1.2.3.4"],
@@ -123,15 +148,33 @@ def test_fetch_iocs_aggregates(monkeypatch):
     monkeypatch.setattr(silverfox, "_get_json", fake_get)
     prog = {}
     res = silverfox.fetch_iocs(progress=prog, window_days=30)
-    # 事件 IOC + URL 提取 + hot-ioc 合并；哈希被丢弃
+    # 事件 IOC + URL 提取（域名与 IP host）+ hot-ioc 合并；哈希被丢弃
     assert set(res["domains"]) == {"baidu787.com", "www.ryzhe.com",
                                    "noah-ssh.top", "hot-evil.xyz"}
-    assert set(res["ips"]) == {"18.166.168.216", "2001:db8::9", "1.2.3.4"}
+    assert set(res["ips"]) == {"18.166.168.216", "2001:db8::9", "1.2.3.4",
+                               "8.210.165.181"}
     assert res["events"] == 2
     assert res["failed_events"] == 0
     # 进度字段被更新（download 阶段复用 parsed/total）
     assert prog["stage"] == "download"
     assert prog["total"] == 2 and prog["parsed"] == 2
+
+
+def test_fetch_iocs_merges_extra(monkeypatch):
+    """本地追加条目（silverfox_extra.txt）随每轮 fetch 合入结果。"""
+    def fake_get(path, params=None, retries=3):
+        if path.endswith("get-humans"):
+            return {"data": {"data": [{"uuid": "u1"}]}}
+        if path.endswith("get-human"):
+            return _event("u1", domains=["a.evil.com"])
+        return {"data": {}}
+
+    monkeypatch.setattr(silverfox, "_get_json", fake_get)
+    monkeypatch.setattr(silverfox, "_extra_entries",
+                        lambda path=None: ({"vuxu661d.com"}, {"8.8.4.4"}))
+    res = silverfox.fetch_iocs(window_days=30)
+    assert set(res["domains"]) == {"a.evil.com", "vuxu661d.com"}
+    assert set(res["ips"]) == {"8.8.4.4"}
 
 
 def test_fetch_iocs_empty_guard(monkeypatch):

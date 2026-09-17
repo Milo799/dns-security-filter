@@ -22,8 +22,14 @@ ToDesk/鲁大师官网投毒、钓鱼"人员名单"诱饵、C2 外联），该�
 导入语义（threat_list.import_api_source）：
   - 域名 → target=domain（检测链 4.5 段，父域后缀匹配与人工名单一致）；
   - IP   → target=ip（PTR 反查路径 find_ip 命中拦截）；
-  - hash 全部丢弃（对 DNS 路径无意义）；URL 提取 host 并入域名；
-  - 整源替换：重复拉取即增量更新，滚动窗口外的旧事件 IOC 自动淘汰。
+  - hash 全部丢弃（对 DNS 路径无意义）；URL 提取 host（域名与 IP
+    均收集——2026-09-17 归因实证 91 个投毒下载源仅以
+    http://IP/xxx.exe 的 URL 形态存在，只收域名会漏掉）；
+  - 整源替换：重复拉取即增量更新，滚动窗口外的旧事件 IOC 自动淘汰；
+  - 本地追加文件 silverfox_extra.txt（与 platform.db 同目录）：站点
+    已下架条目/运维兜底的常驻补充，每行一条经 classify 分流，随每轮
+    导入合并入库（整源替换不会丢——手工 INSERT 进 threat_list 的条目
+    才会被下一轮替换清掉）。
 
 限速：0.3s/请求（全量 1175 事件约 6 分钟，后台任务化不阻塞请求）。
 出站走 app.http_client 共享 Client（生产环境自动经内网代理）。
@@ -31,6 +37,7 @@ ToDesk/鲁大师官网投毒、钓鱼"人员名单"诱饵、C2 外联），该�
 
 import ipaddress
 import logging
+import os
 import re
 import time
 from datetime import datetime, timedelta
@@ -92,9 +99,16 @@ def classify(value) -> tuple[str, str] | None:
     return None
 
 
-def _url_hosts(urls) -> set[str]:
-    """从 URL 列表提取 host 域名（银狐投毒链接的域名有额外价值）。"""
-    out: set[str] = set()
+def _url_hosts(urls) -> tuple[set[str], set[str]]:
+    """从 URL 列表提取 host：域名与 IP 双收集。
+
+    银狐投毒链接大量直接以 IP 作 host（http://IP/payload.exe）——
+    2026-09-17 归因实证 91 个此类 IP 在 domain/ioc/ip 字典中均不存在，
+    只出现在 url 字典里；只收域名 host 会整批漏掉。
+    返回 (域名集合, IP 集合)。
+    """
+    hosts: set[str] = set()
+    ips: set[str] = set()
     for u in urls or []:
         s = str(u or "").strip()
         if not s.lower().startswith(("http://", "https://")):
@@ -105,9 +119,37 @@ def _url_hosts(urls) -> set[str]:
             continue
         if host:
             r = classify(host)
-            if r and r[0] == "domain":
-                out.add(r[1])
-    return out
+            if r:
+                (ips if r[0] == "ip" else hosts).add(r[1])
+    return hosts, ips
+
+
+# 本地追加文件名（与 platform.db 同目录，data/ 下）
+_EXTRA_FILENAME = "silverfox_extra.txt"
+
+
+def _extra_entries(path: str | None = None) -> tuple[set[str], set[str]]:
+    """本地追加条目（运维兜底）：每行一条，classify 自动分流。
+
+    文件 silverfox_extra.txt 与 platform.db 同目录（data/ 下，不存在
+    视为空）。用途：站点已下架的历史 IOC、以及需要常驻的注册域条目
+    （如 vuxu661d.com 裸域——threat_list 父域匹配使其等效 *.vuxu661d.com
+    通配且更强）。整源替换不会清掉这些条目（它们随每轮导入重新合入）。
+    """
+    if path is None:
+        path = os.path.join(os.path.dirname(CONFIG.database) or ".",
+                            _EXTRA_FILENAME)
+    domains: set[str] = set()
+    ips: set[str] = set()
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                r = classify(line)
+                if r:
+                    (ips if r[0] == "ip" else domains).add(r[1])
+    except OSError:
+        pass
+    return domains, ips
 
 
 def _walk_strings(node) -> list[str]:
@@ -173,7 +215,9 @@ def _merge_event_iocs(detail: dict, domains: set, ips: set) -> None:
         r = classify(x)
         if r and r[0] == "ip":
             ips.add(r[1])
-    domains |= _url_hosts(iocs.get("url"))
+    url_domains, url_ips = _url_hosts(iocs.get("url"))
+    domains |= url_domains
+    ips |= url_ips
 
 
 def fetch_iocs(progress: dict | None = None,
@@ -183,6 +227,8 @@ def fetch_iocs(progress: dict | None = None,
     - window_days：回溯窗口（天）。None 时读 CONFIG.silverfox_window_days，
       0 = 全量回溯至 2023-06 站点首个事件（用户拍板"一个不漏"）；
       N>0 时只拉近 N 天的事件（控制老 IOC 误拦风险，滚动窗口外整源淘汰）。
+    - 本地追加文件（silverfox_extra.txt）在末尾合并：站点已下架条目/
+      运维兜底常驻条目，随每轮导入入库（不会被整源替换清掉）；
     - 空结果保护：域名与 IP 双空时抛异常（整源替换导入 0 条会清掉旧数据，
       上游改版/被拦时的兜底）；
     - 连续失败熔断：连续 30 个事件拉取失败判定接口异常，中止并抛出。
@@ -249,6 +295,15 @@ def fetch_iocs(progress: dict | None = None,
         logger.warning("银狐每日热点拉取失败（不影响事件数据）：%s", e)
 
     domains -= ips                  # IP 集合与域名集合互斥
+
+    # 本地追加条目合并（silverfox_extra.txt，不存在即空）
+    extra_d, extra_i = _extra_entries()
+    if extra_d or extra_i:
+        domains |= extra_d
+        ips |= extra_i
+        logger.info("银狐本地追加条目合并：域名 %d、IP %d",
+                    len(extra_d), len(extra_i))
+
     if not domains and not ips:
         raise RuntimeError("银狐 IOC 拉取结果为空，中止导入以保留旧数据")
 

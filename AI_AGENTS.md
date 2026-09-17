@@ -35,7 +35,9 @@ platform/rdap_nrd.py     ← NRD 新注册域名检测层（迭代 40）：whois
 platform/app/silverfox.py ← 银狐情报共享站 API 拉取适配器（迭代 43，第十内置离线源）：get-humans 92 天窗口
                             回溯事件列表 → get-human 逐事件 IOC + get-hot-ioc 热点合并；0.3s 限速；
                             fetch_iocs 出口（空结果拒绝/连续 30 失败熔断），import_api_source 双 target 导入
-                            （域名主检测链/IP PTR 反查链）；出站走 http_client（生产自动经内网代理）
+                            （域名主检测链/IP PTR 反查链）；URL host 域名+IP 双收集（迭代 43.1：91 个投毒源 IP
+                            仅存于 url 字典）；本地追加文件 platform/data/silverfox_extra.txt（站点已下架条目/
+                            注册域兜底，每行 classify 分流，随每轮导入合入）；出站走 http_client（生产自动经内网代理）
 platform/adapters/       ← 16 个威胁情报适配器（DNSBL/免Key/厂商/URLhaus，三态语义 + last_error）
 platform/app/            ← Web 管理：FastAPI 路由（list/threatintel/threatlist/logs/test/config/audit）
 platform/app/crypto.py   ← api_key 落库 Fernet 加密（密钥由 jwt_secret 派生；存量明文启动自动迁移）
@@ -47,7 +49,7 @@ web/index.html + css/ + js/ ← 多文件 SPA（零构建链）：css/{theme,bas
                             fusion/config/audit）；加载顺序固定：app → charts → pages/* → boot；
                             页面模块末尾 PAGE_LOADERS.xxx = loadXxx 注册
 tools/loadtest.py        ← DNS 压测（QPS/延迟分位；Windows 须 SelectorEventLoop）
-tests/                   ← 500 项 pytest（跑全部，新增功能必须补测试；conftest 已设 DNSF_TESTING=1）
+tests/                   ← 503 项 pytest（跑全部，新增功能必须补测试；conftest 已设 DNSF_TESTING=1）
 ```
 
 ## 2. 开发约定（增量改动按依赖关系）
