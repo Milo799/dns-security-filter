@@ -615,7 +615,10 @@ def auto_update_once(user_interval_s: int | None = None) -> dict:
             continue
         info = meta[key]
         interval = info.get("update_interval_s", 24 * 3600)
-        if user_interval_s is not None:
+        # API 拉取型源（silverfox）不受全局间隔缩短：每轮都是全量重拉
+        # （1175 事件 × 0.3s ≈ 6 分钟 + 上千次请求），对共享站保持礼貌，
+        # 只按源自身周期（24h）走；文件下载型源照旧可被全局间隔缩短。
+        if user_interval_s is not None and not info.get("api"):
             interval = min(interval, user_interval_s)
         if not source_due(key, interval):
             results[key] = {"ok": True, "imported": 0, "error": None,
@@ -698,8 +701,11 @@ def next_update_schedule(user_interval_s: int | None = None) -> dict:
     out: dict = {}
     for key, s in source_stats().items():
         src_iv = int(s.get("update_interval_s") or 24 * 3600)
-        eff = src_iv if user_interval_s is None else min(src_iv,
-                                                          int(user_interval_s))
+        # 与 auto_update_once 口径一致：API 拉取型源不受全局间隔缩短
+        if user_interval_s is None or s.get("api"):
+            eff = src_iv
+        else:
+            eff = min(src_iv, int(user_interval_s))
         try:
             last = datetime.strptime(str(s.get("updated_at")),
                                      "%Y-%m-%d %H:%M:%S")

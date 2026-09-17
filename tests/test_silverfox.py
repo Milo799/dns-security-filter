@@ -261,6 +261,42 @@ def test_auto_update_once_silverfox_branch(monkeypatch):
         threat_list.delete_source("silverfox")
 
 
+def test_auto_update_api_source_not_shortened(monkeypatch):
+    """API 拉取型源不受全局间隔缩短：1 小时前导入、全局间隔 1h →
+    文件源到期、silverfox 未到 24h 周期跳过（防每小时全量重拉共享站）。"""
+    fetch_called = []
+    monkeypatch.setattr(silverfox, "fetch_iocs",
+                        lambda progress=None, window_days=None:
+                        fetch_called.append(1) or
+                        {"domains": ["x.evil.com"], "ips": [],
+                         "events": 1, "failed_events": 0})
+    # hagezi_ti 到期会走文件下载路径——mock 掉防真实网络请求
+    monkeypatch.setattr(threat_list, "download", lambda *a, **k: "dl.evil.com\n")
+    threat_list.import_api_source("silverfox", ["sf.evil.com"], [])
+    threat_list.import_source("hagezi_ti", "f.evil.com\n")
+    with db_cursor() as cur:
+        # 两源最近导入时间都设为 2 小时前（> 1h 全局间隔，< 24h 源周期）
+        cur.execute("UPDATE threat_list SET updated_at=?",
+                    ("2020-01-01 00:00:00",))
+        cur.execute(
+            "UPDATE threat_list SET updated_at=datetime('now','localtime','-2 hours') "
+            "WHERE source IN ('silverfox','hagezi_ti')")
+    try:
+        res = threat_list.auto_update_once(user_interval_s=3600)
+        # silverfox 未到 24h 自身周期 → 跳过且未拉取
+        assert res["silverfox"]["skipped"] is True
+        assert res["silverfox"]["imported"] == 0
+        assert not fetch_called
+        assert threat_list.check_domain("sf.evil.com")   # 旧数据保留
+        # 调度口径一致：next_update_schedule 中 API 源保持源周期
+        sched = threat_list.next_update_schedule(3600)
+        assert sched["silverfox"]["effective_interval_s"] == 24 * 3600
+        assert sched["hagezi_ti"]["effective_interval_s"] == 3600
+    finally:
+        threat_list.delete_source("silverfox")
+        threat_list.delete_source("hagezi_ti")
+
+
 # ---------------- 路由：后台导入任务完整跑通 ----------------
 
 def test_router_import_silverfox_task(client, token, monkeypatch):
