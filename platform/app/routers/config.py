@@ -81,6 +81,7 @@ class ConfigBody(BaseModel):
     dnsbl_max_timeout_ms: int | None = None
     max_queue_depth: int | None = None
     upstream_dns_backup: str | None = None
+    silverfox_window_days: int | None = None
 
 
 @router.get("/config")
@@ -235,6 +236,12 @@ def update_config(body: ConfigBody, user: str = Depends(get_current_user)):
                     status_code=400,
                     detail=f"备用上游格式非法：{item}（应为 ip 或 ip:port，逗号分隔）")
         data["upstream_dns_backup"] = ",".join(items)
+    # 银狐情报共享站离线源（迭代 43）
+    if "silverfox_window_days" in data and not (
+            0 <= data["silverfox_window_days"] <= 3650):
+        raise HTTPException(
+            status_code=400,
+            detail="silverfox_window_days 须在 0~3650 之间（天，0=全量回溯至 2023-06）")
 
     changes = {}
     for key, value in data.items():

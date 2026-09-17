@@ -88,6 +88,11 @@ class PlatformConfig:
                                           # 失败时依次重试——注意总耗时 =
                                           # (1+备份数)×upstream_timeout_s，须 <
                                           # proxy forward_timeout 8s，建议只配 1 个）
+    # --- 银狐情报共享站离线源（迭代 43，API 拉取型；可经 system_config 热生效） ---
+    silverfox_window_days: int = 0        # 事件回溯窗口（天，0=全量回溯至 2023-06
+                                          # 站点首个事件；N>0 只保留近 N 天事件的
+                                          # IOC，窗口外旧事件整源淘汰——老 IOC 域名
+                                          # 被正常方接管时有误拦风险，需要收口时调小）
 
     def load(self, path: str = DEFAULT_CONFIG_PATH) -> "PlatformConfig":
         if not os.path.exists(path):

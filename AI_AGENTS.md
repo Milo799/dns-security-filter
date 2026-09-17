@@ -32,6 +32,10 @@ platform/rdap_nrd.py     ← NRD 新注册域名检测层（迭代 40）：whois
                             max_queue_depth 队列满 SERVFAIL 快速失败（queue_stats.submitted 返回 bool）、
                             upstream_dns_backup 主备重试（detectors._upstream_targets）、
                             import_source staging 表三段式分批短事务（防长事务锁库）
+platform/app/silverfox.py ← 银狐情报共享站 API 拉取适配器（迭代 43，第十内置离线源）：get-humans 92 天窗口
+                            回溯事件列表 → get-human 逐事件 IOC + get-hot-ioc 热点合并；0.3s 限速；
+                            fetch_iocs 出口（空结果拒绝/连续 30 失败熔断），import_api_source 双 target 导入
+                            （域名主检测链/IP PTR 反查链）；出站走 http_client（生产自动经内网代理）
 platform/adapters/       ← 16 个威胁情报适配器（DNSBL/免Key/厂商/URLhaus，三态语义 + last_error）
 platform/app/            ← Web 管理：FastAPI 路由（list/threatintel/threatlist/logs/test/config/audit）
 platform/app/crypto.py   ← api_key 落库 Fernet 加密（密钥由 jwt_secret 派生；存量明文启动自动迁移）
@@ -43,7 +47,7 @@ web/index.html + css/ + js/ ← 多文件 SPA（零构建链）：css/{theme,bas
                             fusion/config/audit）；加载顺序固定：app → charts → pages/* → boot；
                             页面模块末尾 PAGE_LOADERS.xxx = loadXxx 注册
 tools/loadtest.py        ← DNS 压测（QPS/延迟分位；Windows 须 SelectorEventLoop）
-tests/                   ← 440 项 pytest（跑全部，新增功能必须补测试；conftest 已设 DNSF_TESTING=1）
+tests/                   ← 500 项 pytest（跑全部，新增功能必须补测试；conftest 已设 DNSF_TESTING=1）
 ```
 
 ## 2. 开发约定（增量改动按依赖关系）
@@ -109,7 +113,7 @@ python tools/loadtest.py 127.0.0.1 --qps 1000   # 压测（改动性能路径时
 - [x] 16 个威胁情报适配器 + 连通性测试（含 last_error 诊断）+ 单源熔断
 - [x] Web 全部页面可用（登录 → 大屏 → 人工情报源双 Tab → 情报源管理 → 测试中心 → 日志/审计）
 - [x] 端到端：配置黑名单/大名单后 dig 恶意域名返回告警 IP，filter_log 可见记录
-- [x] 离线大名单：9 内置源（hagezi×3/StevenBlack/URLhaus/OISD/ThreatFox/C2IntelFeeds/hagezi_nrd NRD）+ 自动更新 + 调度可视化 + 页面毫秒级响应
+- [x] 离线大名单：10 内置源（hagezi×3/StevenBlack/URLhaus/OISD/ThreatFox/C2IntelFeeds/hagezi_nrd NRD/silverfox 银狐 API 拉取型）+ 自动更新 + 调度可视化 + 页面毫秒级响应
 - [x] Docker 化部署 + 网络白名单清单 + 一键部署脚本（install-proxy.sh / install-platform.sh）
 - [x] Go 代理层编译验证 + 端到端四场景（放行/拦截/SERVFAIL 容灾/ECS 透传）
 - [x] 10 万终端前置五项（结论缓存/熔断/压测/采样/削峰）+ 解析速度优化五项（IP 缓存/DNSBL 默认/

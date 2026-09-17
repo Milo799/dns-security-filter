@@ -9,6 +9,8 @@ async function loadThreatlist(){
     var au = cfg.threatlist_auto_update, iv = cfg.threatlist_auto_interval_hours;
     document.getElementById('tlAutoUpdate').checked = au ? au.value === '1' : false;
     document.getElementById('tlAutoInterval').value = iv ? iv.value : 24;
+    var sfw = document.getElementById('tlSfWindow');
+    if (sfw) sfw.value = cfg.silverfox_window_days ? cfg.silverfox_window_days.value : '0';
     document.getElementById('tlRows').innerHTML = d.map(function(x){
       var has = x.total > 0;
       return '<tr><td style="white-space:nowrap"><b>' + esc(x.name) + '</b>' +
@@ -119,7 +121,8 @@ function tlPercent(d){
   return d.status === 'done' ? 100 : 0;
 }
 function tlStageText(d){
-  if (d.stage === 'download') return d.total_bytes > 0 ? ('下载 ' + fmtBytes(d.downloaded) + ' / ' + fmtBytes(d.total_bytes)) : ('下载中 ' + fmtBytes(d.downloaded));
+  // API 拉取型源（银狐）的进度靠 message 展示（无字节数），优先显示
+  if (d.stage === 'download') return d.message || (d.total_bytes > 0 ? ('下载 ' + fmtBytes(d.downloaded) + ' / ' + fmtBytes(d.total_bytes)) : ('下载中 ' + fmtBytes(d.downloaded)));
   if (d.stage === 'parse') return '解析中（已处理 ' + d.parsed.toLocaleString() + ' 行）';
   if (d.stage === 'insert') return '入库中 ' + d.inserted.toLocaleString() + ' / ' + d.total.toLocaleString();
   if (d.status === 'done') return d.message;
@@ -180,7 +183,17 @@ async function saveThreatListAuto(){
   h = Math.max(1, Math.min(h, 720));
   document.getElementById('tlAutoInterval').value = h;
   try{
-    await api('PUT', '/api/config', {threatlist_auto_update: on, threatlist_auto_interval_hours: h});
+    var body = {threatlist_auto_update: on, threatlist_auto_interval_hours: h};
+    // 银狐回溯窗口（迭代 43；随自动更新设置一并保存）
+    var sfwEl = document.getElementById('tlSfWindow');
+    if (sfwEl){
+      var w = parseInt(sfwEl.value, 10);
+      if (isNaN(w) || w < 0) w = 0;
+      w = Math.min(w, 3650);
+      sfwEl.value = w;
+      body.silverfox_window_days = w;
+    }
+    await api('PUT', '/api/config', body);
     toast(on ? '自动更新已开启（每 ' + h + ' 小时）' : '自动更新已关闭');
     loadThreatlist();
   }catch(e){ toast(e.message, true); }

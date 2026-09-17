@@ -122,6 +122,16 @@ SOURCES = [
         "max_bytes": 128 * 1024 * 1024,
         "update_interval_s": 24 * 3600,
     },
+    {
+        # API 拉取型源（迭代 43）：无 url，数据经 app/silverfox.py 两步
+        # 聚合（事件列表 → 逐事件 IOC），下载/导入链路按 "api" 键分流。
+        "key": "silverfox",
+        "name": "银狐木马情报共享站",
+        "api": "silverfox",
+        "format": "plain",
+        "description": "微步在线银狐（SilverFox）情报共享站 · 专打中文用户的远控木马家族事件级 IOC（仿冒国产软件官网投毒/钓鱼诱饵/C2），2023-06 至今全部事件约 1175 个、域名+IP 约 2200 条，免登录免 Key；整源替换导入（域名走主检测链、IP 走 PTR 反查链），回溯窗口经 silverfox_window_days 热配置（0=全量）",
+        "update_interval_s": 24 * 3600,
+    },
 ]
 
 # 内部状态：source 元数据表（含数据库统计，运行时刷新）
@@ -403,6 +413,33 @@ def import_source(source: str, text: str, enabled: bool = True,
                 f"列表疑似截断：文件头声明 {declared} 条，实际解析 "
                 f"{len(values)} 条（偏差超 1%），拒绝入库")
     rows = [(source, v, "domain", int(enabled)) for v in values]
+    return _replace_source_rows(source, rows, progress)
+
+
+def import_api_source(source: str, domains, ips,
+                      enabled: bool = True,
+                      progress: dict | None = None) -> int:
+    """API 拉取型源导入（迭代 43，银狐）：域名 + IP 双 target 整源替换。
+
+    与 import_source（文本解析、纯域名）不同，本入口接收已分类的
+    集合——域名走 target=domain（检测链 4.5 段主匹配），IP 走
+    target=ip（PTR 反查 find_ip 命中拦截）。空结果保护：双空直接抛
+    异常（整源替换导入 0 条会清掉旧数据，上游改版时的兜底）。
+    """
+    domains = sorted({str(d).strip().lower() for d in domains if str(d).strip()})
+    ips = sorted({str(i).strip().lower() for i in ips if str(i).strip()})
+    if not domains and not ips:
+        raise ValueError(f"来源 {source} 拉取结果为空，拒绝整源替换（保留旧数据）")
+    rows = ([(source, d, "domain", int(enabled)) for d in domains]
+            + [(source, i, "ip", int(enabled)) for i in ips])
+    return _replace_source_rows(source, rows, progress)
+
+
+def _replace_source_rows(source: str, rows: list, progress: dict | None) -> int:
+    """三段式整源替换入库（迭代 42 锁库加固抽取的核心）。
+
+    rows: [(source, value, target, enabled)]，调用方保证非空。
+    """
     if progress is not None:
         progress.update(stage="insert", total=len(rows),
                         message=f"入库中 0/{len(rows)}")
@@ -586,10 +623,18 @@ def auto_update_once(user_interval_s: int | None = None) -> dict:
             logger.debug("离线大名单自动更新 %s 未到周期（%ds），跳过", key, interval)
             continue
         try:
-            text = download(info["url"], info.get("max_bytes", 100 * 1024 * 1024),
-                            timeout_s=90)
-            n = import_source(key, text, enabled=True,
-                              fmt=info.get("format", "auto"))
+            if info.get("api"):
+                # API 拉取型源（迭代 43，银狐）：两步聚合后双 target 导入
+                from app import silverfox as _sf
+                iocs = _sf.fetch_iocs()
+                n = import_api_source(key, iocs["domains"], iocs["ips"],
+                                      enabled=True)
+            else:
+                text = download(info["url"],
+                                info.get("max_bytes", 100 * 1024 * 1024),
+                                timeout_s=90)
+                n = import_source(key, text, enabled=True,
+                                  fmt=info.get("format", "auto"))
             results[key] = {"ok": True, "imported": n, "error": None,
                             "skipped": False}
             logger.info("离线大名单自动更新 %s 完成：%d 条", key, n)

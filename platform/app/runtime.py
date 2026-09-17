@@ -32,7 +32,9 @@ _INT_KEYS = {"alert_ttl", "log_retention_days", "api_timeout_ms",
              # NRD 检测层（迭代 40）
              "nrd_max_age_days",
              # 生产稳定性加固（迭代 42）
-             "dnsbl_max_timeout_ms", "max_queue_depth"}
+             "dnsbl_max_timeout_ms", "max_queue_depth",
+             # 银狐情报共享站离线源（迭代 43）
+             "silverfox_window_days"}
 
 
 def _apply(key: str, value: str) -> None:

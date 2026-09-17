@@ -371,7 +371,7 @@ def test_sources_api(client, token):
     keys = {i["key"] for i in r.json()["data"]["items"]}
     assert keys == {"hagezi_ti", "hagezi_mini", "hagezi_ult",
                     "stevenblack", "urlhaus", "oisd", "threatfox_hosts",
-                    "c2intel_domains", "hagezi_nrd"}
+                    "c2intel_domains", "hagezi_nrd", "silverfox"}
     # 新源带更新周期元数据
     by_key = {i["key"]: i for i in r.json()["data"]["items"]}
     assert by_key["urlhaus"]["update_interval_s"] == 30 * 60

@@ -56,7 +56,7 @@ def _resolve_source(body: ImportBody) -> tuple[str, str, str]:
         raise HTTPException(
             status_code=400,
             detail=f"未知来源 {key}，内置可选：{sorted(meta)}；或提供自定义 url")
-    return key, meta[key]["url"], meta[key].get("format", "auto")
+    return key, meta[key].get("url", ""), meta[key].get("format", "auto")
 
 
 def _run_import_task(source: str, url: str, enabled: bool,
@@ -69,11 +69,27 @@ def _run_import_task(source: str, url: str, enabled: bool,
     """
     t = threat_list.import_progress(source)
     try:
-        t.update(stage="download", message="下载中…")
-        text = threat_list.download(url, timeout_s=90, progress=t)
-        t.update(stage="parse", message="解析中…")
-        n = threat_list.import_source(source, text, enabled=enabled,
-                                      progress=t, fmt=fmt)
+        meta = next((s for s in threat_list.SOURCES
+                     if s["key"] == source), {})
+        n = 0
+        if meta.get("api"):
+            # API 拉取型源（迭代 43，银狐）：两步聚合（事件列表 → 逐事件
+            # IOC），进度复用 download 阶段字段（parsed/total=事件进度）；
+            # 域名+IP 双 target 整源替换导入
+            from app import silverfox as _sf
+            t.update(stage="download", message="拉取银狐事件情报…")
+            iocs = _sf.fetch_iocs(progress=t)
+            t.update(stage="parse", message="解析完成，入库中…")
+            n = threat_list.import_api_source(
+                source, iocs["domains"], iocs["ips"],
+                enabled=enabled, progress=t)
+            url = f"api:{meta['api']}"
+        else:
+            t.update(stage="download", message="下载中…")
+            text = threat_list.download(url, timeout_s=90, progress=t)
+            t.update(stage="parse", message="解析中…")
+            n = threat_list.import_source(source, text, enabled=enabled,
+                                          progress=t, fmt=fmt)
         if n == 0:
             raise ValueError(
                 "列表解析后无有效域名（格式不支持或内容为空）")

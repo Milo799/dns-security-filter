@@ -383,6 +383,9 @@
                 <span class="form-hint" style="margin:0">间隔</span>
                 <input id="tlAutoInterval" type="number" min="1" max="720" style="width:72px;height:32px;border:1px solid var(--border);border-radius:6px;background:var(--bg-soft);padding:0 10px;color:var(--text)" onchange="saveThreatListAuto()">
                 <span class="form-hint" style="margin:0">小时</span>
+                <span class="form-hint" style="margin:0 0 0 16px" title="银狐情报共享站的事件回溯窗口：0=全量回溯至 2023-06 站点首个事件；N&gt;0 只保留近 N 天事件的 IOC（窗口外整源淘汰，控制老 IOC 被正常方接管后的误拦风险）">银狐回溯</span>
+                <input id="tlSfWindow" type="number" min="0" max="3650" style="width:72px;height:32px;border:1px solid var(--border);border-radius:6px;background:var(--bg-soft);padding:0 10px;color:var(--text)" onchange="saveThreatListAuto()">
+                <span class="form-hint" style="margin:0">天（0=全量）</span>
                 <label class="switch" title="开启后服务将在每个间隔周期自动更新已启用来源"><input id="tlAutoUpdate" type="checkbox" onchange="saveThreatListAuto()"><span class="slider"></span></label>
               </div>
             </div>
