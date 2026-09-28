@@ -23,6 +23,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 
 from dnslib import DNSRecord, QTYPE, RR, A, AAAA, RCODE
+from dnslib.dns import DNSError, DNSLabelError
 
 import domain_cache
 import ip_cache
@@ -447,6 +448,16 @@ def query_upstream_reply(request: DNSRecord) -> DNSRecord:
     - 全部上游失败才计一次熔断失败（fast-fail 语义不变）；
     - 动机：偶发单次上游超时（09-11 实测 80 连测出现 1 次）此前直接
       SERVFAIL 给客户端，nslookup 表现为"解析失败"；备用重试消除该毛刺。
+
+    NAPTR 解析失败降级（迭代 44，2026-09-20 生产观测：三日 940 次）：
+    - 223.5.5.5 对部分域名返回的 NAPTR 记录触发 dnslib 解压异常
+      （Invalid pointer in DNSLabel / Not enough bytes）——dnslib 对
+      压缩指针指向记录内偏移量的 NAPTR 有 bug 面；
+    - 上游是真实应答的，客户端（SIP 软电话/传真应用等）自己有能力
+      解析——dnslib 解析失败时**跳过 dnslib 的二次校验**，用 request
+      的原始 bytes 重组应答（header/question 原样保留，answer 段直接
+      塞上游原始 wire data），而非按"上游失败"返回 SERVFAIL；
+    - 同时计熔断成功（服务视角上游健康，是 dnslib 客户端库缺陷）。
     """
     # 熔断窗口内：fast-fail SERVFAIL（不占用出站等待）
     if not circuit_breaker.upstream_allows():
@@ -460,12 +471,66 @@ def query_upstream_reply(request: DNSRecord) -> DNSRecord:
             resp = DNSRecord.parse(data)
             circuit_breaker.upstream_record_success()   # 任何合法应答都算成功
             return resp
+        except (DNSError, DNSLabelError, UnicodeDecodeError) as e:
+            # dnslib 解析异常（NAPTR 压缩指针 bug / 非法字符编码）：
+            # 上游是真实应答，跳过 dnslib 校验直接重组应答透传
+            logger.warning(
+                "上游 dnslib 解析失败 %s:%s（透传降级）: %s", host, port, e)
+            try:
+                passthrough = _rebuild_passthrough(request, data)
+                circuit_breaker.upstream_record_success()   # 上游是健康的
+                return passthrough
+            except Exception as rebuild_err:      # noqa: BLE001
+                logger.warning(
+                    "上游透传重建失败 %s:%s: %s", host, port, rebuild_err)
+                continue
         except Exception as e:
             logger.warning("上游转发失败 %s:%s: %s", host, port, e)
     # 全部上游（含备用）失败：计一次熔断失败
     circuit_breaker.upstream_record_failure()
     reply = request.reply()
     reply.header.rcode = RCODE.SERVFAIL
+    return reply
+
+
+def _rebuild_passthrough(request: DNSRecord, upstream_data: bytes) -> DNSRecord:
+    """dnslib 解析失败时的降级：用 request 原始 bytes 重组应答。
+
+    - header 复制 request 的 id/opcode（客户端靠 id 匹配查询）；
+    - question 原样保留（与查询一致）；
+    - answer 段不经过 dnslib 的 RR 对象（跳过 NAPTR 等记录的二次解析），
+      直接透传上游原始 wire data——客户端从 wire format 自行解码；
+    - **pack 覆盖**：实例级方法替换 pack()，发送时直接返回上游原始
+      bytes（dns_server 对 reply.pack() 无感知，行为不变）。
+
+    注意：返回对象仍是 DNSRecord 实例，但 rr/ar 为空 + pack 被覆盖。
+    此降级仅用于 NAPTR 等非 A/AAAA 记录（非 FILTERABLE 类型的直通
+    路径），不影响 A/AAAA 的 IP 后置过滤逻辑。
+    """
+    from dnslib import DNSHeader
+    import struct
+    if len(upstream_data) < 12:
+        raise ValueError("上游应答报文过短，无法提取 header")
+    (uid, uflags, uqd, uan, uns, uar) = struct.unpack(">6H", upstream_data[:12])
+    header = DNSHeader(id=uid)
+    # flags 低 16 位按位保留上游设置（QR/OPCODE/AA/TC/RD/RA/Z/RCODE）
+    header.qr = (uflags >> 15) & 1
+    header.opcode = (uflags >> 11) & 0xF
+    header.aa = (uflags >> 10) & 1
+    header.tc = (uflags >> 9) & 1
+    header.rd = (uflags >> 8) & 1
+    header.ra = (uflags >> 7) & 1
+    header.rcode = uflags & 0xF
+    header.qdcount = uqd
+    header.ancount = uan
+    header.nscount = uns
+    header.arcount = uar
+    reply = DNSRecord(header=header, questions=request.questions)
+    # 不上 dnslib 的 RR 对象，避免 pack 时再解析
+    reply.rr = []
+    reply.ar = []
+    # 实例级方法覆盖：发送时直接返回上游原始 bytes
+    reply.pack = lambda: upstream_data      # noqa: B032 类型不一致但接口兼容
     return reply
 
 
