@@ -44,7 +44,7 @@
       </div>
     </header>
 
-    <!-- ══════════ 左翼：威胁分析 ══════════ -->
+    <!-- ══════════ 左翼：趋势与威胁面 ══════════ -->
     <section class="wing left-wing">
       <div class="sect">
         <div class="sect-head">
@@ -60,50 +60,40 @@
       <div class="sect">
         <div class="sect-head">
           <span class="sect-diamond"></span>
-          <div class="sect-titles"><b>TOP 拦截域名</b><small>BLOCKED DOMAINS · TODAY</small></div>
+          <div class="sect-titles"><b>TOP 威胁域名</b><small>TOP BLOCKED DOMAINS · TODAY</small></div>
         </div>
         <div class="sect-body" id="topDomains"></div>
       </div>
-
-      <div class="sect">
-        <div class="sect-head">
-          <span class="sect-diamond"></span>
-          <div class="sect-titles"><b>TOP 拦截源地址</b><small>BLOCKED CLIENTS · TODAY</small></div>
-        </div>
-        <div class="sect-body" id="topClients"></div>
-      </div>
     </section>
 
-    <!-- ══════════ 中央：全息能量核心 ══════════ -->
+    <!-- ══════════ 中央：全息能量核心 + 轨道指标卫星 ══════════ -->
     <section class="core-stage">
       <canvas id="coreCanvas"></canvas>
 
-      <div class="core-overlay">
-        <div class="core-index-label">威胁指数 · THREAT INDEX</div>
-        <div class="core-index" id="threatIndex">--</div>
-        <div class="core-level" id="threatLevel">态势评估中</div>
+      <!-- 轨道卫星层：四指标绕核心旋转，数据更新时卫星闪烁 -->
+      <div class="orbit-wrap">
+        <div class="orbit-spin">
+          <div class="orbit-sat s1"><div class="sat-inner" id="satBoxTotal">
+            <i class="sat-dot"></i><small>今日查询 · TOTAL</small><b id="satTotal">--</b>
+          </div></div>
+          <div class="orbit-sat s2"><div class="sat-inner red" id="satBoxInter">
+            <i class="sat-dot"></i><small>今日拦截 · INTERCEPT</small><b id="satInter">--</b>
+          </div></div>
+          <div class="orbit-sat s3"><div class="sat-inner amber" id="satBoxRemove">
+            <i class="sat-dot"></i><small>今日剔除 · REMOVE-IP</small><b id="satRemove">--</b>
+          </div></div>
+          <div class="orbit-sat s4"><div class="sat-inner blue" id="satBoxRate">
+            <i class="sat-dot"></i><small>实时吞吐 · QPS</small><b id="satQps">--</b>
+          </div></div>
+        </div>
       </div>
 
-      <!-- 四角浮游指标芯片 -->
-      <div class="core-chip c-tl">
-        <small>今日查询 TOTAL</small>
-        <b id="chipTotal">--</b>
-        <i class="chip-line"></i>
-      </div>
-      <div class="core-chip c-tr">
-        <small>今日拦截 INTERCEPT</small>
-        <b id="chipInter">--</b>
-        <i class="chip-line"></i>
-      </div>
-      <div class="core-chip c-bl">
-        <small>今日剔除 REMOVE-IP</small>
-        <b id="chipRemove">--</b>
-        <i class="chip-line"></i>
-      </div>
-      <div class="core-chip c-br">
-        <small>拦截率 RATE</small>
-        <b id="chipRate">--</b>
-        <i class="chip-line"></i>
+      <!-- 中央读数：真实拦截率（可解释口径），态势用文字徽章表达 -->
+      <div class="core-overlay">
+        <div class="core-index-label">今日拦截率 · BLOCK RATE</div>
+        <div class="core-index" id="threatRate">--</div>
+        <div class="core-sub" id="threatSub">拦截 -- / 查询 --</div>
+        <div class="core-level" id="threatLevel">态势评估中</div>
       </div>
 
       <div class="core-caption">
@@ -113,7 +103,7 @@
       </div>
     </section>
 
-    <!-- ══════════ 右翼：防御作战 ══════════ -->
+    <!-- ══════════ 右翼：事件与防御面 ══════════ -->
     <section class="wing right-wing">
       <div class="sect stream-sect">
         <div class="sect-head">
@@ -127,28 +117,30 @@
       <div class="sect">
         <div class="sect-head">
           <span class="sect-diamond"></span>
-          <div class="sect-titles"><b>拦截构成</b><small>SOURCE BREAKDOWN · TODAY</small></div>
+          <div class="sect-titles"><b>防御态势</b><small>DEFENSE POSTURE · TODAY</small></div>
         </div>
-        <div class="sect-body donut-body">
-          <div class="donut" id="donut"><div class="donut-hole"><b id="donutTotal">--</b><small>拦截总量</small></div></div>
-          <div class="donut-legend" id="donutLegend"></div>
+        <div class="sect-body posture-body">
+          <div class="stack-wrap">
+            <div class="stack-bar" id="stackBar"></div>
+            <div class="stack-legend" id="stackLegend"></div>
+          </div>
+          <div class="def-list" id="defMatrix"></div>
         </div>
-      </div>
-
-      <div class="sect">
-        <div class="sect-head">
-          <span class="sect-diamond"></span>
-          <div class="sect-titles"><b>防御矩阵</b><small>DEFENSE MATRIX</small></div>
-        </div>
-        <div class="sect-body" id="defMatrix"></div>
       </div>
     </section>
 
-    <!-- ══════════ 底部：吞吐波形 + 事件滚动 ══════════ -->
+    <!-- ══════════ 底部：吞吐波形 + 情报数字带 + 事件滚动 ══════════ -->
     <footer class="scr-footer">
       <div class="ft-wave-wrap">
-        <div class="ft-label"><b>实时吞吐</b><small>THROUGHPUT · QPS/10S</small></div>
+        <div class="ft-label"><b>实时吞吐</b><small>THROUGHPUT · QPS LIVE</small></div>
         <canvas id="waveCanvas"></canvas>
+      </div>
+      <div class="ft-stats">
+        <div class="ft-stat"><small>当前吞吐</small><b id="ftQps">--</b><span>QPS</span></div>
+        <div class="ft-stat"><small>24H 拦截总量</small><b id="ftDay">--</b><span>次</span></div>
+        <div class="ft-stat wide"><small>最热威胁域名</small><b id="ftTopDom">--</b><span id="ftTopDomN">-- 次</span></div>
+        <div class="ft-stat wide"><small>最活跃拦截源</small><b id="ftTopCli">--</b><span id="ftTopCliN">-- 次</span></div>
+        <div class="ft-stat"><small>离线情报库</small><b id="ftIntel">--</b><span>条 · 在库</span></div>
       </div>
       <div class="ft-ticker-wrap">
         <div class="ft-label red"><b>最新拦截</b><small>INTERCEPT FEED</small></div>

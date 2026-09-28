@@ -1,14 +1,15 @@
 /* ══════════════════════════════════════════════════════════════
-   DNS 安全态势感知平台 · 全息大屏
+   DNS 安全态势感知平台 · 全息大屏 v2
    数据：复用平台既有 API（Bearer 鉴权与管理端同源）
-   渲染：5 个 Canvas（星尘背景 / 全息核心 / 趋势 / 吞吐波形）+ DOM
+   渲染：4 个 Canvas（星尘背景 / 全息核心 / 趋势 / 吞吐波形）+ DOM
+   v2：四指标轨道卫星 / 中央真实拦截率 / 防御态势面板 / 情报数字带
    ══════════════════════════════════════════════════════════════ */
 (function(){
 'use strict';
 
 /* ── 常量 ───────────────────────────────────────────────── */
 var STAGE_W = 1920, STAGE_H = 1080;
-var STREAM_SIZE = 12;
+var STREAM_SIZE = 10;   // 右侧面板约 370px 高，10 行不溢出
 var REASON_MAP = {
   local_blacklist: '本地名单',
   ip_filter: 'IP 过滤',
@@ -33,7 +34,6 @@ var S = {
   wave: [],
   trend: null,
   _breaker: null,
-  _lastStatus: null,
   core: {
     intensity: 0.35, intensityT: 0.35,
     levelT: 0, levelTarget: 0,
@@ -76,14 +76,15 @@ function reasonShort(r){
 }
 /* 数字滚动：dec=保留小数位 */
 function countUp(el, to, suffix, dec){
-  if (!el) return;
+  if (!el) return false;
   suffix = suffix || ''; dec = dec || 0;
   var from = parseFloat(el.dataset.v || '0') || 0;
+  var changed = (from !== to);
   el.dataset.v = to;
   function show(v){
     el.textContent = dec ? v.toFixed(dec) + suffix : fmt(Math.round(v)) + suffix;
   }
-  if (from === to){ show(to); return; }
+  if (!changed){ show(to); return false; }
   var t0 = performance.now(), dur = 800;
   function step(t){
     var p = Math.min(1, (t - t0) / dur);
@@ -92,6 +93,17 @@ function countUp(el, to, suffix, dec){
     if (p < 1) requestAnimationFrame(step);
   }
   requestAnimationFrame(step);
+  return true;
+}
+/* 轨道卫星赋值：数值变化时卫星闪烁一次 */
+function satSet(boxId, elId, to, suffix, dec){
+  var changed = countUp($(elId), to, suffix, dec);
+  if (changed){
+    var box = $(boxId);
+    box.classList.remove('upd');
+    void box.offsetWidth;
+    box.classList.add('upd');
+  }
 }
 
 /* ── API 层 ─────────────────────────────────────────────── */
@@ -230,7 +242,6 @@ function drawCore(t){
   var c = core.cx, W = core.W, cx = W / 2, cy = W / 2;
   var st = S.core;
   var dt = 16.7;
-  /* 缓动逼近目标态 */
   st.intensity += (st.intensityT - st.intensity) * 0.02;
   st.levelT += (st.levelTarget - st.levelT) * 0.02;
   st.rot += 0.0016;
@@ -346,7 +357,6 @@ function drawCore(t){
     c.shadowBlur = 12;
     c.beginPath(); c.arc(bx, by, b.size, 0, Math.PI * 2); c.fill();
     c.shadowBlur = 0;
-    /* 拖尾 */
     c.strokeStyle = 'hsla(' + bhue + ',95%,64%,' + (0.25 * ba) + ')';
     c.lineWidth = 1.2;
     c.beginPath();
@@ -372,12 +382,11 @@ function drawCore(t){
 var tr = {cv: null, cx: null, w: 0, h: 0};
 function sizeDomCanvases(){
   var stageRect = document.getElementById('stage').getBoundingClientRect();
-  var scale = stageRect.width / STAGE_W || 1;   // 舞台实际缩放比
+  var scale = stageRect.width / STAGE_W || 1;
   [ ['trendCanvas', tr], ['waveCanvas', wv] ].forEach(function(pair){
     var el = $(pair[0]), o = pair[1];
     if (!el) return;
     var r = el.getBoundingClientRect();
-    /* getBoundingClientRect 含舞台 transform，换算回舞台坐标系 */
     var w = Math.max(80, Math.round(r.width / scale));
     var h = Math.max(50, Math.round(r.height / scale));
     o.w = w * 2; o.h = h * 2;   // 2x 保证清晰
@@ -398,7 +407,6 @@ function drawTrend(){
   for (i = 0; i < items.length; i++)
     max = Math.max(max, items[i].intercepts + items[i].removes);
   max *= 1.15;
-  /* 网格 */
   c.strokeStyle = 'rgba(94,160,220,.14)'; c.lineWidth = 1;
   var gy;
   for (i = 1; i <= 3; i++){
@@ -406,7 +414,6 @@ function drawTrend(){
     c.beginPath(); c.moveTo(padL, gy); c.lineTo(W - padR, gy); c.stroke();
   }
   var n = items.length, bw = cw / n;
-  /* 柱：拦截红 + 剔除琥珀 堆叠 */
   for (i = 0; i < n; i++){
     var it = items[i];
     var x = padL + i * bw + bw * 0.2;
@@ -445,7 +452,6 @@ function drawTrend(){
   }
   c.textAlign = 'left';
 }
-/* 平滑补间动画：趋势数据更新时重绘即可（低频 60s） */
 
 /* ═══════════════ 底部吞吐波形 ═══════════════ */
 var wv = {cv: null, cx: null, w: 0, h: 0};
@@ -473,7 +479,6 @@ function drawWave(){
   }
   qmax *= 1.2;
   var n = data.length, bw = W / WAVE_LEN;
-  /* QPS 面积波 */
   var x0 = W - n * bw;
   var g = c.createLinearGradient(0, padT, 0, H);
   g.addColorStop(0, 'rgba(34,211,238,.34)');
@@ -485,7 +490,6 @@ function drawWave(){
   c.lineTo(x0 + (n - 1) * bw, H - padB);
   c.closePath();
   c.fillStyle = g; c.fill();
-  /* 波峰线 */
   c.strokeStyle = 'rgba(126,231,252,.95)'; c.lineWidth = 2;
   c.shadowColor = 'rgba(34,211,238,.7)'; c.shadowBlur = 8;
   c.beginPath();
@@ -494,7 +498,6 @@ function drawWave(){
     if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
   }
   c.stroke(); c.shadowBlur = 0;
-  /* 拦截脉冲（红） */
   for (i = 0; i < n; i++){
     if (data[i].i <= 0) continue;
     var ih = Math.min(1, data[i].i / imax) * (ch * 0.8) + 4;
@@ -507,82 +510,50 @@ function drawWave(){
   }
 }
 
-/* ═══════════════ 渲染：状态/芯片/威胁指数 ═══════════════
-   威胁指数算法（0~100）：避免与拦截率重复显示
-     基础分 = 拦截率 × 4（25% 拦截率 = 100 分）
-     增速分 = 近 1h 拦截占全天比 × 40%（突发放大）
-     多样分 = 活跃来源数 × 6（多源并发攻击加分）
-     熔断分 = 上游熔断开启 +20
+/* ═══════════════ 渲染：中央读数 + 轨道卫星 ═══════════════
+   中央大数字 = 真实拦截率（可解释口径，不用复合指数吓人）；
+   态势等级只以文字徽章 + 核心色相表达（蓝/青/琥珀/红）。
 */
-function calcThreatIndex(d, hourlyItems, breaker){
-  var total = d.today_total || 0;
-  var blocked = (d.today_intercepts || 0) + (d.today_removes || 0);
-  if (total === 0) return {idx: 0, level: 'standby'};
-  var rate = blocked / total * 100;
-
-  /* 增速：近 1h 占全天 */
-  var recent = 0;
-  if (hourlyItems && hourlyItems.length){
-    recent = hourlyItems[hourlyItems.length - 1].intercepts +
-             hourlyItems[hourlyItems.length - 1].removes;
-  }
-  var recentPct = blocked > 0 ? Math.min(1, recent / Math.max(blocked, 1)) : 0;
-
-  /* 来源多样 */
-  var srcCount = 0;
-  if (hourlyItems && hourlyItems.length){
-    var last = hourlyItems[hourlyItems.length - 1];
-    if (last.local_blacklist > 0) srcCount++;
-    if (last.threat_list > 0) srcCount++;
-    if (last.threatintel > 0) srcCount++;
-    if (last.ip_filter > 0) srcCount++;
-  }
-
-  /* 熔断加成 */
-  var breakerOpen = breaker && breaker.upstream && breaker.upstream.state === 'open';
-
-  var idx = rate * 4 + recentPct * 40 + srcCount * 6 + (breakerOpen ? 20 : 0);
-  idx = Math.min(100, Math.round(idx));
-
-  var level = idx >= 70 ? 'severe' : (idx >= 45 ? 'elevated' : (idx >= 15 ? 'guarded' : 'steady'));
-  return {idx: idx, level: level, rate: rate};
-}
-
 function renderStatus(d){
   var total = d.today_total || 0;
   var inter = d.today_intercepts || 0;
   var rem = d.today_removes || 0;
-  var rate = total > 0 ? (inter + rem) / total * 100 : 0;
+  var blocked = inter + rem;
+  var rate = total > 0 ? blocked / total * 100 : 0;
 
-  countUp($('chipTotal'), total);
-  countUp($('chipInter'), inter);
-  countUp($('chipRemove'), rem);
-  countUp($('chipRate'), rate, '%', 1);
+  /* 轨道卫星（数据变化才闪烁） */
+  satSet('satBoxTotal', 'satTotal', total);
+  satSet('satBoxInter', 'satInter', inter);
+  satSet('satBoxRemove', 'satRemove', rem);
 
-  var th = calcThreatIndex(d, S.trend, S._breaker);
-  var idx = $('threatIndex');
-  countUp(idx, th.idx, '', 0);
+  /* 中央读数 */
+  var idx = $('threatRate');
   var lv = $('threatLevel');
   idx.classList.remove('warn', 'danger');
   lv.classList.remove('warn', 'danger');
-  if (th.level === 'standby'){
+  if (total === 0){
     idx.textContent = '--';
+    $('threatSub').textContent = '链路静默 · 等待查询流量';
     lv.textContent = '静默待机 · STANDBY';
     S.core.intensityT = 0.3; S.core.levelTarget = 0;
-  } else if (th.level === 'severe'){
-    lv.textContent = '高危态势 · SEVERE';
-    idx.classList.add('danger'); lv.classList.add('danger');
-    S.core.intensityT = 1.0; S.core.levelTarget = 1;
-  } else if (th.level === 'elevated'){
-    lv.textContent = '威胁升高 · ELEVATED';
-    idx.classList.add('warn'); lv.classList.add('warn');
-    S.core.intensityT = 0.78; S.core.levelTarget = 0.5;
-  } else if (th.level === 'guarded'){
-    lv.textContent = '常态警戒 · GUARDED';
-    S.core.intensityT = 0.55; S.core.levelTarget = 0;
   } else {
-    lv.textContent = '态势平稳 · STEADY';
-    S.core.intensityT = 0.38; S.core.levelTarget = 0;
+    countUp(idx, rate, '%', 1);
+    $('threatSub').textContent = '拦截 ' + fmt(blocked) + ' / 查询 ' + fmt(total);
+    if (rate >= 15){
+      lv.textContent = '高危态势 · SEVERE';
+      idx.classList.add('danger'); lv.classList.add('danger');
+      S.core.intensityT = 1.0; S.core.levelTarget = 1;
+    } else if (rate >= 8){
+      lv.textContent = '威胁升高 · ELEVATED';
+      idx.classList.add('warn'); lv.classList.add('warn');
+      S.core.intensityT = 0.78; S.core.levelTarget = 0.5;
+    } else if (rate >= 2){
+      lv.textContent = '常态警戒 · GUARDED';
+      S.core.intensityT = 0.55; S.core.levelTarget = 0;
+    } else {
+      lv.textContent = '态势平稳 · STEADY';
+      S.core.intensityT = 0.38; S.core.levelTarget = 0;
+    }
   }
 
   /* 头部：检测引擎灯 */
@@ -590,19 +561,20 @@ function renderStatus(d){
   hd.className = 'hd-light ' + (d.detection_enabled ? 'ok' : 'bad');
   hd.querySelector('b').textContent = d.detection_enabled ? 'ONLINE' : 'OFFLINE';
 
-  /* QPS：由相邻两次 total 差分 */
+  /* QPS：由相邻两次 total 差分；更新卫星与底部数字带 */
   var now = Date.now();
   if (S.lastTotal != null && now > S.lastTotalAt){
     var dq = total - S.lastTotal;
     if (dq >= 0) S.qps = dq / ((now - S.lastTotalAt) / 1000);
   }
   S.lastTotal = total; S.lastTotalAt = now;
-
-  return d;
+  satSet('satBoxRate', 'satQps', Math.round(S.qps * 10) / 10, '', 1);
+  var fq = $('ftQps');
+  if (fq) fq.textContent = S.qps.toFixed(1);
 }
 
 /* ═══════════════ 渲染：事件流 + Ticker + 核心联动 ═══════════════ */
-var evNodes = {};   // id -> row node（避免重建旧行重放动画）
+var evNodes = {};
 function renderStream(items){
   var box = $('eventStream');
   var newest = items[0];
@@ -612,7 +584,6 @@ function renderStream(items){
     if (!items.length){
       box.innerHTML = '<div class="stream-empty">今日暂无拦截事件 · 链路静默</div>';
     }
-    /* 旧→新 顺序插入（视觉上最新在顶部） */
     for (var i = items.length - 1; i >= 0; i--) box.appendChild(evRow(items[i], false));
     S.streamReady = true;
   } else {
@@ -623,11 +594,9 @@ function renderStream(items){
       box.insertBefore(row, box.firstChild);
       var em = box.querySelector('.stream-empty');
       if (em) em.remove();
-      /* 联动：核心冲击波 + 光点 + 背景流星 */
       coreAddBlip(it.action === 'remove_ip' ? 'remove' : 'intercept');
       spawnMeteor();
     }
-    /* 修剪多余行 */
     while (box.children.length > STREAM_SIZE){
       var last = box.lastChild;
       if (last.dataset && last.dataset.eid) delete evNodes[last.dataset.eid];
@@ -636,7 +605,6 @@ function renderStream(items){
   }
   if (newest) S.lastStreamId = Math.max(S.lastStreamId, newest.id);
 
-  /* Ticker：最近事件拼滚动条 */
   var html = items.map(function(it){
     return '<span class="tk-item"><span class="t">' + esc(hms(it.timestamp)) + '</span>' +
            '<span class="d">' + esc(it.domain) + '</span>' +
@@ -645,9 +613,9 @@ function renderStream(items){
   }).join('');
   if (html){
     var inner = $('tickerInner');
-    inner.innerHTML = html + html;   // 双份无缝滚动
+    inner.innerHTML = html + html;
     inner.style.animation = 'none';
-    void inner.offsetWidth;          // 重置动画
+    void inner.offsetWidth;
     inner.style.animation = '';
   }
 }
@@ -666,59 +634,65 @@ function evRow(it, fresh){
   return row;
 }
 
-/* ═══════════════ 渲染：构成环 / TOP 榜 / 防御矩阵 ═══════════════ */
+/* ═══════════════ 渲染：构成堆叠条 / TOP 榜 / 防御矩阵 / 数字带 ═══════════════ */
 function renderBreakdown(d){
-  /* 构成环 */
   var src = d.sources || [];
   var sum = src.reduce(function(a, s){ return a + (s.count || 0); }, 0);
-  var acc = 0, segs = [];
-  src.forEach(function(s){
-    var pct = sum > 0 ? s.count / sum : 0;
-    if (pct > 0){
-      segs.push(SOURCE_COLORS[s.key] + ' ' + (acc * 100).toFixed(2) + '% ' +
-                ((acc + pct) * 100).toFixed(2) + '%');
-    }
-    acc += pct;
-  });
-  $('donut').style.background = segs.length
-    ? 'conic-gradient(' + segs.join(',') + ')'
-    : 'conic-gradient(rgba(56,150,220,.15) 0 100%)';
-  countUp($('donutTotal'), sum);
-  $('donutLegend').innerHTML = src.map(function(s){
-    var pct = sum > 0 ? (s.count / sum * 100) : 0;
+
+  /* 构成堆叠条 */
+  $('stackBar').innerHTML = src.map(function(s){
+    var pct = sum > 0 ? s.count / sum * 100 : 0;
+    return '<i data-w="' + pct.toFixed(2) + '" style="background:' +
+           (SOURCE_COLORS[s.key] || '#475569') + ';box-shadow:0 0 10px ' +
+           (SOURCE_COLORS[s.key] || '#475569') + '66" title="' + esc(s.label) + ' ' +
+           fmt(s.count) + ' (' + pct.toFixed(1) + '%)"></i>';
+  }).join('');
+  $('stackLegend').innerHTML = src.map(function(s){
+    var pct = sum > 0 ? s.count / sum * 100 : 0;
     return '<div class="lg-row"><i style="background:' + SOURCE_COLORS[s.key] +
            ';color:' + SOURCE_COLORS[s.key] + '"></i>' +
            '<span class="lb">' + esc(s.label) + '</span>' +
            '<span class="vl">' + fmt(s.count) + '</span>' +
            '<span class="pc">' + pct.toFixed(1) + '%</span></div>';
   }).join('');
+  requestAnimationFrame(function(){
+    var segs = $('stackBar').querySelectorAll('i');
+    for (var i = 0; i < segs.length; i++) segs[i].style.width = segs[i].dataset.w + '%';
+  });
 
-  /* TOP 域名 / 客户端 */
-  renderRank($('topDomains'), d.top_domains || [], 'domain');
-  renderRank($('topClients'), d.top_clients || [], 'client_ip');
+  /* TOP 域名榜 */
+  renderRank($('topDomains'), d.top_domains || [], 'domain', sum);
+
+  /* 底部数字带：最热威胁域名 / 最活跃拦截源 */
+  var td = (d.top_domains || [])[0], tc = (d.top_clients || [])[0];
+  $('ftTopDom').textContent = td ? td.domain : '--';
+  $('ftTopDomN').textContent = td ? fmt(td.count) + ' 次' : '';
+  $('ftTopDom').title = td ? td.domain : '';
+  $('ftTopCli').textContent = tc ? tc.client_ip : '--';
+  $('ftTopCliN').textContent = tc ? fmt(tc.count) + ' 次' : '';
 }
-function renderRank(box, rows, key){
+function renderRank(box, rows, key, total){
   if (!rows.length){
     box.innerHTML = '<div class="stream-empty">暂无数据</div>';
     return;
   }
   var max = rows[0].count || 1;
   box.innerHTML = rows.slice(0, 6).map(function(r, i){
+    var pct = total > 0 ? (r.count / total * 100).toFixed(1) : '0.0';
     return '<div class="rank-row">' +
            '<span class="rk">' + (i + 1) + '</span>' +
            '<span class="nm" title="' + esc(r[key]) + '">' + esc(r[key]) + '</span>' +
+           '<span class="pc">' + pct + '%</span>' +
            '<span class="ct">' + fmt(r.count) + '</span>' +
            '<span class="bar"><i data-w="' + (r.count / max * 100).toFixed(1) + '"></i></span>' +
            '</div>';
   }).join('');
-  /* 触发动画 */
   requestAnimationFrame(function(){
     var bars = box.querySelectorAll('.bar i');
     for (var i = 0; i < bars.length; i++) bars[i].style.width = bars[i].dataset.w + '%';
   });
 }
 function renderDefense(d){
-  /* d = {status, breaker, intelOn, intelTotal, offlineRows, offlineSrc} */
   var rows = [];
   var det = d.status.detection_enabled;
   rows.push({n: '检测引擎', v: det ? 'ONLINE' : 'OFFLINE', cls: det ? 'ok' : 'bad'});
@@ -744,12 +718,15 @@ function renderDefense(d){
     return '<div class="def-row ' + r.cls + '"><span class="dl"></span>' +
            '<span class="dn">' + r.n + '</span><span class="dv">' + r.v + '</span></div>';
   }).join('');
+
+  /* 底部数字带：离线情报库 */
+  $('ftIntel').textContent = d.offlineRows >= 10000
+    ? (d.offlineRows / 10000).toFixed(1) + ' 万' : fmt(d.offlineRows);
 }
 
 /* ═══════════════ 轮询调度 ═══════════════ */
 function pollStatus(){
   return api('/api/status').then(function(d){
-    S._lastStatus = d;
     renderStatus(d);
   }).catch(function(){});
 }
@@ -768,9 +745,8 @@ function pollHourly(){
     S.trend = (d && d.items) || [];
     var sum = S.trend.reduce(function(a, it){ return a + it.intercepts + it.removes; }, 0);
     $('trendTotal').textContent = fmt(sum) + ' / 24H';
+    $('ftDay').textContent = fmt(sum);
     drawTrend();
-    /* 威胁指数依赖 trend，趋势到达后联动重算 */
-    if (S._lastStatus) renderStatus(S._lastStatus);
   }).catch(function(){});
 }
 function pollBreakdown(){
@@ -799,7 +775,6 @@ function pollDefense(){
       offlineRows: rows,
       offlineSrc: srcCnt
     });
-    /* 头部：上游灯 */
     var up = breaker && breaker.upstream && breaker.upstream.state || 'closed';
     var hd = $('hdUpstream');
     hd.className = 'hd-light ' + (up === 'closed' ? 'ok' : (up === 'open' ? 'bad' : 'warn'));
@@ -831,11 +806,9 @@ function loop(t){
 fit();
 initBg();
 initCore();
-/* DOM 画布尺寸依赖缩放完成后的布局 */
 requestAnimationFrame(function(){ sizeDomCanvases(); });
 requestAnimationFrame(loop);
 
-/* 鉴权引导：有 token 直接启动，401 时 api 层自动弹登录 */
 if (S.token) bootData(); else showLogin();
 
 })();
