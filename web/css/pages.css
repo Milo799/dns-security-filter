@@ -562,6 +562,7 @@ body.light .hk-value::after{background:linear-gradient(100deg,transparent,rgba(5
   border:1px solid rgba(56,189,248,.35);
   animation:dnsf-corepulse 2.4s ease-out infinite;
 }
+.holo-core-pulse.p2{animation-delay:1.2s;border-color:rgba(99,102,241,.3)}
 @keyframes dnsf-corepulse{
   0%{transform:scale(.6);opacity:.9}
   100%{transform:scale(2.2);opacity:0}
@@ -733,4 +734,129 @@ body.light .hk-Kimi{opacity:.5}
 }
 @media(prefers-reduced-motion:reduce){
   .live-dot,.rail-pulse,.radar-sweep,.holo-core-orbit,.holo-core-pulse{animation:none}
+}
+
+/* ================= 全息核心强化（能量核心 + 环形扫描 + 威胁脉冲） ================= */
+.holo-core-stage{--core-intensity:.35}
+/* ---- 刻度环：conic 重复刻度线 ---- */
+.holo-core-ticks{
+  position:absolute;left:50%;top:50%;width:236px;height:236px;margin:-118px 0 0 -118px;border-radius:50%;
+  background:repeating-conic-gradient(from 0deg, rgba(56,189,248,.28) 0deg 1deg, transparent 1deg 15deg);
+  -webkit-mask:radial-gradient(circle, transparent 112px, #000 113px, #000 118px, transparent 119px);
+  mask:radial-gradient(circle, transparent 112px, #000 113px, #000 118px, transparent 119px);
+  animation:dnsf-ticks 24s linear infinite;
+}
+@keyframes dnsf-ticks{to{transform:rotate(360deg)}}
+/* ---- 环形扫描扇 ---- */
+.holo-core-scan{
+  position:absolute;left:50%;top:50%;width:236px;height:236px;margin:-118px 0 0 -118px;border-radius:50%;
+  background:conic-gradient(from 0deg, rgba(56,189,248,.30), rgba(56,189,248,.06) 22%, transparent 30%);
+  -webkit-mask:radial-gradient(circle, transparent 92px, #000 93px, #000 118px, transparent 119px);
+  mask:radial-gradient(circle, transparent 92px, #000 93px, #000 118px, transparent 119px);
+  animation:dnsf-spin 4.2s linear infinite;
+  filter:drop-shadow(0 0 10px rgba(56,189,248,.35));
+}
+/* ---- 威胁标记点（JS 按拦截数生成） ---- */
+.core-marker{
+  position:absolute;left:50%;top:50%;width:7px;height:7px;margin:-3.5px 0 0 -3.5px;border-radius:50%;
+  background:var(--danger);box-shadow:0 0 10px rgba(244,63,94,.8);
+  animation:dnsf-marker 2.6s ease-in-out infinite;
+}
+.core-marker.warn{background:var(--warning);box-shadow:0 0 10px rgba(251,191,36,.8)}
+@keyframes dnsf-marker{0%,100%{opacity:.45;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}
+/* ---- 等离子体能量核 ---- */
+.holo-core-plasma{
+  position:absolute;left:50%;top:50%;width:112px;height:112px;margin:-56px 0 0 -56px;border-radius:50%;
+  background:
+    radial-gradient(circle at 35% 35%, rgba(255,255,255,.35), transparent 28%),
+    conic-gradient(from 0deg, rgba(56,189,248,.5), rgba(99,102,241,.45), rgba(56,189,248,.2), rgba(56,189,248,.5));
+  -webkit-mask:radial-gradient(circle, transparent 52px, #000 53px, #000 68px, transparent 69px);
+  mask:radial-gradient(circle, transparent 52px, #000 53px, #000 68px, transparent 69px);
+  animation:dnsf-spin 7s linear infinite;
+  opacity:calc(.45 + var(--core-intensity) * .55);
+  filter:drop-shadow(0 0 calc(8px + var(--core-intensity) * 18px) rgba(56,189,248,.55));
+}
+/* ---- 拦截事件冲击波（JS 触发 .flash） ---- */
+.holo-core-shock{
+  position:absolute;left:50%;top:50%;width:60px;height:60px;margin:-30px 0 0 -30px;border-radius:50%;
+  border:2px solid rgba(244,63,94,.0);pointer-events:none;
+}
+.holo-core-shock.flash{
+  border-color:rgba(244,63,94,.75);
+  box-shadow:0 0 30px rgba(244,63,94,.5), inset 0 0 20px rgba(244,63,94,.25);
+  animation:dnsf-shock .9s ease-out forwards;
+}
+@keyframes dnsf-shock{
+  0%{transform:scale(.5);opacity:1}
+  100%{transform:scale(3.4);opacity:0}
+}
+/* ---- 四角 HUD 角标 ---- */
+.core-corner{position:absolute;width:22px;height:22px;pointer-events:none}
+.core-corner.tl{top:10px;left:10px;border-top:2px solid rgba(56,189,248,.5);border-left:2px solid rgba(56,189,248,.5);border-top-left-radius:8px}
+.core-corner.tr{top:10px;right:10px;border-top:2px solid rgba(56,189,248,.5);border-right:2px solid rgba(56,189,248,.5);border-top-right-radius:8px}
+.core-corner.bl{bottom:10px;left:10px;border-bottom:2px solid rgba(56,189,248,.5);border-left:2px solid rgba(56,189,248,.5);border-bottom-left-radius:8px}
+.core-corner.br{bottom:10px;right:10px;border-bottom:2px solid rgba(56,189,248,.5);border-right:2px solid rgba(56,189,248,.5);border-bottom-right-radius:8px}
+/* ---- 核心左右读数 ---- */
+.core-readout{
+  position:absolute;top:50%;transform:translateY(-50%);text-align:left;
+  font-family:var(--mono);
+}
+.core-readout.left{left:18px}
+.core-readout.right{right:18px;text-align:right}
+.core-readout b{display:block;font-size:9px;letter-spacing:.18em;color:var(--text-dim)}
+.core-readout span{display:block;margin-top:5px;font-size:12px;font-weight:700;color:var(--accent)}
+/* ---- 核心内环随强度发光 ---- */
+.holo-core-inner{
+  box-shadow:inset 0 0 calc(18px + var(--core-intensity) * 22px) rgba(56,189,248, calc(.06 + var(--core-intensity) * .12)),
+             0 0 calc(24px + var(--core-intensity) * 26px) rgba(56,189,248, calc(.06 + var(--core-intensity) * .14));
+  transition:box-shadow .6s ease;
+}
+.holo-core-value{
+  text-shadow:0 0 calc(10px + var(--core-intensity) * 22px) rgba(56,189,248, calc(.2 + var(--core-intensity) * .5));
+}
+/* ---- 雷达增强：扫描拖尾 + 方位刻度 ---- */
+.radar-trail{
+  position:absolute;inset:0;border-radius:50%;opacity:.5;
+  background:conic-gradient(from -40deg, transparent 0deg, rgba(56,189,248,.12) 40deg, transparent 42deg);
+  animation:dnsf-spin 5s linear infinite;
+}
+.radar-dir{
+  position:absolute;font-family:var(--mono);font-size:9px;color:var(--text-dim);letter-spacing:.1em;
+}
+.radar-dir.n{top:4px;left:50%;transform:translateX(-50%)}
+.radar-dir.s{bottom:4px;left:50%;transform:translateX(-50%)}
+.radar-dir.e{right:6px;top:50%;transform:translateY(-50%)}
+.radar-dir.w{left:6px;top:50%;transform:translateY(-50%)}
+/* ---- 作战面板 ---- */
+.ops-panel{padding:14px}
+.ops-head{
+  display:flex;align-items:center;gap:8px;padding:0 2px 10px;
+  font-size:13px;font-weight:800;letter-spacing:.04em;
+}
+.ops-head .ops-tag{margin-left:auto;font-family:var(--mono);font-size:9px;letter-spacing:.16em;color:var(--text-dim)}
+.ops-dot{width:8px;height:8px;border-radius:50%;background:var(--success);box-shadow:0 0 10px rgba(52,211,153,.7);animation:dnsf-blink 1.8s ease-in-out infinite}
+.ops-row{
+  display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:10px;
+  background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.03);
+  font-size:12px;color:var(--text-sec);
+}
+.ops-row + .ops-row{margin-top:8px}
+.ops-row b{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--text)}
+.ops-light{
+  width:7px;height:7px;border-radius:50%;flex-shrink:0;
+  background:var(--success);box-shadow:0 0 8px rgba(52,211,153,.75);
+  animation:dnsf-blink 2.2s ease-in-out infinite;
+}
+.ops-light.warn{background:var(--warning);box-shadow:0 0 8px rgba(251,191,36,.75)}
+.ops-light.bad{background:var(--danger);box-shadow:0 0 8px rgba(244,63,94,.75)}
+.ops-row:nth-child(3) .ops-light{animation-delay:.5s}
+.ops-row:nth-child(4) .ops-light{animation-delay:1s}
+body.light .holo-core-ticks{background:repeating-conic-gradient(from 0deg, rgba(2,132,199,.35) 0deg 1deg, transparent 1deg 15deg)}
+body.light .ops-row{background:rgba(15,23,42,.03);border-color:rgba(15,23,42,.06)}
+@media(max-width:760px){
+  .core-readout{display:none}
+  .holo-core-ticks,.holo-core-scan{width:200px;height:200px;margin:-100px 0 0 -100px}
+}
+@media(prefers-reduced-motion:reduce){
+  .holo-core-ticks,.holo-core-scan,.holo-core-plasma,.radar-trail{animation:none}
 }

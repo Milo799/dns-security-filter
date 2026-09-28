@@ -78,6 +78,13 @@ function renderGauge(rate, risk){
   if (hv) hv.textContent = numeric ? rate + '%' : '--';
   var hl = document.getElementById('holoCoreLabel');
   if (hl) hl.textContent = numeric ? ((risk ? risk.label : '') + ' 风险 · 全息威胁指数') : '口径不足';
+  /* 能量核心强度联动：拦截率越高，等离子体与光晕越亮（0.35~1.0） */
+  var stage = document.getElementById('holoCoreStage');
+  if (stage) stage.style.setProperty('--core-intensity',
+    numeric ? Math.min(1, .35 + rate / 20).toFixed(2) : .35);
+  /* 核心左右读数 */
+  var readL = document.getElementById('coreReadL');
+  if (readL) readL.textContent = numeric ? 'INDEX ' + rate + '%' : 'STANDBY';
   el.innerHTML =
     '<svg viewBox="0 0 160 104" xmlns="http://www.w3.org/2000/svg" role="img" style="width:132px;height:auto">' +
     '<path d="M ' + (cx - r) + ' ' + cy + ' A ' + r + ' ' + r + ' 0 0 ' + sweep + ' ' + (cx + r) + ' ' + cy + '"' +
@@ -107,6 +114,9 @@ async function loadDashboard(){
     /* 状态轨道：接真实数据，不做静态装饰 */
     var railMesh = document.getElementById('railMesh');
     if (railMesh) railMesh.textContent = s.detection_enabled ? 'ONLINE' : 'DISABLED';
+    /* 作战面板：检测链路状态 */
+    var opsChain = document.getElementById('opsChain');
+    if (opsChain) opsChain.textContent = s.detection_enabled ? 'ONLINE' : 'DISABLED';
 
     var tr = (await api('GET', '/api/status/trend?days=7')).data;
     var items = tr.items || [];
@@ -124,6 +134,8 @@ async function loadDashboard(){
     countUpIfChanged('hkInter', s.today_intercepts || 0);
     countUpIfChanged('hkRem', s.today_removes || 0);
     countUpIfChanged('hkAllow', s.today_allows || 0);
+    /* 核心环威胁标记：按今日拦截量生成（1 点/千次，上限 12；真实数据驱动） */
+    renderCoreMarkers(s.today_intercepts || 0, (s.today_removes || 0));
     document.getElementById('hkInterFoot').innerHTML =
       trendChip((today ? today.intercept : 0) || 0,
                 (yesterday ? yesterday.intercept : 0) || 0, elapsedH);
@@ -293,6 +305,14 @@ async function renderPlatformHealth(status){
       if (railUp) railUp.textContent =
         cb.upstream.state === 'closed' ? 'STABLE' :
         cb.upstream.state === 'open' ? 'BROKEN' : 'PROBING';
+      /* 作战面板：上游状态与状态轨道同源 */
+      var opsUp = document.getElementById('opsUp');
+      if (opsUp) opsUp.textContent =
+        cb.upstream.state === 'closed' ? 'STABLE' :
+        cb.upstream.state === 'open' ? 'BROKEN' : 'PROBING';
+      var opsUpLight = opsUp ? opsUp.parentNode.querySelector('.ops-light') : null;
+      if (opsUpLight) opsUpLight.className = 'ops-light ' +
+        (cb.upstream.state === 'closed' ? 'ok' : 'bad');
     }
     var OK = Charts.cssVar('--success', '#34d399');
     var AC = Charts.cssVar('--accent', '#38bdf8');
@@ -380,6 +400,15 @@ async function loadEventStream(){
        且无 COUNT(*) 全表扫描，3s 高频轮询开销 O(size)。 */
     var d = (await api('GET', '/api/logs/stream?size=8')).data;
     var items = (d && d.items) || [];
+    /* 拦截事件冲击波：有新事件到达时核心爆发一次（首屏不触发） */
+    if (items.length && items[0].id && evLastId && items[0].id > evLastId){
+      var shock = document.getElementById('holoShock');
+      if (shock){
+        shock.classList.remove('flash');
+        void shock.offsetWidth;   /* 重置动画 */
+        shock.classList.add('flash');
+      }
+    }
     if (items.length && items[0].id && items[0].id <= evLastId) return;
     evLastId = items.length ? items[0].id : 0;
     if (!items.length){
@@ -465,6 +494,31 @@ function renderChain(smap){
             '<span class="cf-badge ' + r.state + '">' + r.badge + '</span></div>';
   });
   document.getElementById('chainViz').innerHTML = html;
+}
+
+/* ---------- 核心环威胁标记（按今日拦截量，真实数据驱动） ----------
+   拦截数 → 环上标记点数（1 点/千次拦截，上限 12）；剔除量映射为
+   橙色标记（占剔除/拦截比例）。确定性角度分布，10s 刷新不闪烁。 */
+var coreMarkersSig = '';
+function renderCoreMarkers(intercepts, removes){
+  var box = document.getElementById('coreMarkers');
+  if (!box) return;
+  var n = Math.min(12, Math.floor(intercepts / 1000));
+  var w = n ? Math.min(n, Math.max(1, Math.round(n * removes / Math.max(1, intercepts)))) : 0;
+  var sig = n + '-' + w;
+  if (sig === coreMarkersSig) return;
+  coreMarkersSig = sig;
+  var html = '';
+  for (var i = 0; i < n; i++){
+    var ang = (i * 137.5) % 360;   /* 黄金角分布 */
+    var rad = ang * Math.PI / 180;
+    var x = 50 + 47 * Math.cos(rad);
+    var y = 50 + 47 * Math.sin(rad);
+    html += '<span class="core-marker' + (i < w ? ' warn' : '') + '"' +
+            ' style="left:' + x.toFixed(1) + '%;top:' + y.toFixed(1) +
+            '%;animation-delay:' + (i * 0.35).toFixed(2) + 's"></span>';
+  }
+  box.innerHTML = html;
 }
 
 /* ---------- SOC 时钟 ---------- */

@@ -182,23 +182,35 @@
           </div>
         </div>
 
-        <div class="holo-core-stage">
-          <div class="holo-core-ring r1"></div>
-          <div class="holo-core-ring r2"></div>
-          <div class="holo-core-ring r3"></div>
-          <div class="holo-core-ring r4"></div>
+        <div class="holo-core-stage" id="holoCoreStage">
+          <!-- 环形扫描：刻度环 + 旋转扫描扇 + 威胁标记点（JS 按今日拦截数生成） -->
+          <div class="holo-core-ticks"></div>
+          <div class="holo-core-scan"></div>
+          <div class="holo-core-markers" id="coreMarkers"></div>
+          <!-- 能量核心：等离子体 + 内外光晕 + 数值 -->
           <div class="holo-core-axis x"></div>
           <div class="holo-core-axis y"></div>
           <div class="holo-core-glow"></div>
+          <div class="holo-core-plasma"></div>
           <div class="holo-core-inner">
             <div class="holo-core-title">RISK CORE</div>
             <div class="holo-core-value" id="holoCoreValue">--</div>
             <div class="holo-core-label" id="holoCoreLabel">全息威胁指数</div>
           </div>
+          <!-- 威胁脉冲：常态脉冲环 + 拦截事件触发的冲击波 -->
           <div class="holo-core-pulse"></div>
+          <div class="holo-core-pulse p2"></div>
+          <div class="holo-core-shock" id="holoShock"></div>
           <div class="holo-core-orbit o1"></div>
           <div class="holo-core-orbit o2"></div>
           <div class="holo-core-orbit o3"></div>
+          <!-- 四角 HUD 角标 -->
+          <div class="core-corner tl"></div>
+          <div class="core-corner tr"></div>
+          <div class="core-corner bl"></div>
+          <div class="core-corner br"></div>
+          <div class="core-readout left"><b>THREAT INDEX</b><span id="coreReadL">STANDBY</span></div>
+          <div class="core-readout right"><b>SHIELD LAYERS</b><span id="coreReadR">5 ACTIVE</span></div>
         </div>
 
         <div class="holo-hud">
@@ -218,6 +230,7 @@
               <div class="radar-wrap">
                 <div class="radar-core">
                   <div class="radar-sweep"></div>
+                  <div class="radar-trail"></div>
                   <div class="radar-ring r1"></div>
                   <div class="radar-ring r2"></div>
                   <div class="radar-ring r3"></div>
@@ -225,6 +238,10 @@
                   <div class="radar-cross x1"></div>
                   <div class="radar-cross x2"></div>
                   <div class="radar-center"></div>
+                  <span class="radar-dir n">N</span>
+                  <span class="radar-dir e">E</span>
+                  <span class="radar-dir s">S</span>
+                  <span class="radar-dir w">W</span>
                   <div class="radar-blip b1"></div>
                   <div class="radar-blip b2"></div>
                   <div class="radar-blip b3"></div>
@@ -237,10 +254,11 @@
                 <div><b>DNS</b><span>协议域</span></div>
               </div>
             </div>
-            <div class="holo-panel mini-metric">
-              <div class="mini-metric-row"><span>策略链</span><b>5 层</b></div>
-              <div class="mini-metric-row"><span>情报源</span><b>在线 + 离线</b></div>
-              <div class="mini-metric-row"><span>数据刷新</span><b>10s / 3s / 30s</b></div>
+            <div class="holo-panel ops-panel">
+              <div class="ops-head"><span class="ops-dot"></span>作战状态<span class="ops-tag">COMBAT STATUS</span></div>
+              <div class="ops-row"><span class="ops-light ok"></span><span>策略链</span><b>5 层在线</b></div>
+              <div class="ops-row"><span class="ops-light ok"></span><span>情报源</span><b>在线 + 离线同步</b></div>
+              <div class="ops-row"><span class="ops-light ok"></span><span>数据刷新</span><b>10s / 3s / 30s</b></div>
             </div>
           </aside>
 
@@ -283,10 +301,11 @@
               </div>
               <div class="event-stream holo-stream" id="eventStream"><div class="loading">加载中…</div></div>
             </div>
-            <div class="holo-panel mini-metric">
-              <div class="mini-metric-row"><span>上游状态</span><b>STABLE</b></div>
-              <div class="mini-metric-row"><span>检测链路</span><b>ONLINE</b></div>
-              <div class="mini-metric-row"><span>数据通道</span><b>LIVE</b></div>
+            <div class="holo-panel ops-panel">
+              <div class="ops-head"><span class="ops-dot"></span>防御矩阵<span class="ops-tag">DEFENSE MATRIX</span></div>
+              <div class="ops-row"><span class="ops-light ok"></span><span>上游状态</span><b id="opsUp">STABLE</b></div>
+              <div class="ops-row"><span class="ops-light ok"></span><span>检测链路</span><b id="opsChain">ONLINE</b></div>
+              <div class="ops-row"><span class="ops-light ok"></span><span>数据通道</span><b id="opsFeed">LIVE</b></div>
             </div>
           </aside>
         </div>
