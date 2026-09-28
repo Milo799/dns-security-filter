@@ -70,20 +70,24 @@
     <section class="core-stage">
       <canvas id="coreCanvas"></canvas>
 
-      <!-- 轨道卫星层：四指标绕核心旋转，数据更新时卫星闪烁 -->
+      <!-- 轨道卫星层：四颗能量球绕核心旋转，数据更新时球体爆发闪光 -->
       <div class="orbit-wrap">
         <div class="orbit-spin">
           <div class="orbit-sat s1"><div class="sat-inner" id="satBoxTotal">
-            <i class="sat-dot"></i><small>今日查询 · TOTAL</small><b id="satTotal">--</b>
+            <div class="sat-orb"></div>
+            <div class="sat-text"><small>今日查询 · TOTAL</small><b id="satTotal">--</b></div>
           </div></div>
           <div class="orbit-sat s2"><div class="sat-inner red" id="satBoxInter">
-            <i class="sat-dot"></i><small>今日拦截 · INTERCEPT</small><b id="satInter">--</b>
+            <div class="sat-orb"></div>
+            <div class="sat-text"><small>今日拦截 · INTERCEPT</small><b id="satInter">--</b></div>
           </div></div>
           <div class="orbit-sat s3"><div class="sat-inner amber" id="satBoxRemove">
-            <i class="sat-dot"></i><small>今日剔除 · REMOVE-IP</small><b id="satRemove">--</b>
+            <div class="sat-orb"></div>
+            <div class="sat-text"><small>今日剔除 · REMOVE-IP</small><b id="satRemove">--</b></div>
           </div></div>
           <div class="orbit-sat s4"><div class="sat-inner blue" id="satBoxRate">
-            <i class="sat-dot"></i><small>实时吞吐 · QPS</small><b id="satQps">--</b>
+            <div class="sat-orb"></div>
+            <div class="sat-text"><small>实时吞吐 · QPS</small><b id="satQps">--</b></div>
           </div></div>
         </div>
       </div>

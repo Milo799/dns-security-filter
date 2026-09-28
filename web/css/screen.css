@@ -250,49 +250,82 @@ body{font-family:var(--sans);color:var(--text-mid);-webkit-font-smoothing:antial
 .orbit-sat.s2{transform:rotate(90deg)  translate(350px)}
 .orbit-sat.s3{transform:rotate(180deg) translate(350px)}
 .orbit-sat.s4{transform:rotate(270deg) translate(350px)}
+/* 能量球卫星：球体 + 无框悬浮发光文字（无方形框，转动轻盈） */
 .sat-inner{
-  display:flex;flex-direction:column;align-items:center;gap:2px;
-  min-width:172px;padding:9px 18px 10px;position:relative;
+  display:flex;flex-direction:column;align-items:center;gap:7px;
+  position:relative;
   transform:translate(-50%,-50%);
-  background:linear-gradient(150deg, rgba(13,30,58,.85), rgba(8,16,34,.6));
-  border:1px solid rgba(34,211,238,.4);border-radius:4px;
-  box-shadow:0 0 18px rgba(34,211,238,.18), inset 0 0 18px rgba(34,211,238,.05);
   animation:orbit-rev 48s linear infinite;
-  backdrop-filter:blur(2px);
 }
 @keyframes orbit-rev{
   from{transform:translate(-50%,-50%) rotate(0)}
   to{transform:translate(-50%,-50%) rotate(-360deg)}
 }
-.sat-inner::before,.sat-inner::after{
-  content:"";position:absolute;width:10px;height:10px;
-  border:1px solid rgba(126,231,252,.8);
+.sat-orb{
+  width:40px;height:40px;border-radius:50%;position:relative;flex:none;
+  background:radial-gradient(circle at 34% 30%, rgba(224,251,255,.95), rgba(34,211,238,.85) 34%, rgba(8,47,73,.9) 78%);
+  box-shadow:
+    0 0 16px rgba(34,211,238,.85),
+    0 0 46px rgba(34,211,238,.4),
+    inset -6px -8px 14px rgba(2,10,20,.55);
+  animation:orb-breathe 3.2s ease-in-out infinite;
 }
-.sat-inner::before{left:-1px;top:-1px;border-right:none;border-bottom:none}
-.sat-inner::after{right:-1px;bottom:-1px;border-left:none;border-top:none}
-.sat-inner small{font:600 9.5px var(--mono);letter-spacing:1.5px;color:var(--text-dim);white-space:nowrap}
-.sat-inner b{
-  font:700 26px var(--mono);color:#eaf6ff;line-height:1.1;
-  text-shadow:0 0 14px rgba(34,211,238,.5);font-variant-numeric:tabular-nums;
+/* 球体高光点 */
+.sat-orb::after{
+  content:"";position:absolute;left:22%;top:16%;width:26%;height:18%;
+  border-radius:50%;background:rgba(255,255,255,.85);filter:blur(2px);
 }
-.sat-inner .sat-dot{
-  position:absolute;top:-4px;left:50%;margin-left:-4px;width:8px;height:8px;border-radius:50%;
-  background:var(--cyan);box-shadow:0 0 12px var(--cyan), 0 0 26px rgba(34,211,238,.6);
+/* 球体细环（行星环） */
+.sat-orb::before{
+  content:"";position:absolute;left:-24%;top:38%;width:148%;height:24%;
+  border-radius:50%;border:1px solid rgba(126,231,252,.5);
+  transform:rotate(-12deg);
+  filter:drop-shadow(0 0 3px rgba(34,211,238,.6));
 }
-.sat-inner.red{border-color:rgba(251,77,109,.45);box-shadow:0 0 18px rgba(251,77,109,.18), inset 0 0 18px rgba(251,77,109,.05)}
-.sat-inner.red b{color:#fff2f5;text-shadow:0 0 14px rgba(251,77,109,.55)}
-.sat-inner.red .sat-dot{background:var(--red);box-shadow:0 0 12px var(--red), 0 0 26px rgba(251,77,109,.6)}
-.sat-inner.amber{border-color:rgba(251,191,36,.45);box-shadow:0 0 18px rgba(251,191,36,.16), inset 0 0 18px rgba(251,191,36,.05)}
-.sat-inner.amber b{color:#fff8e6;text-shadow:0 0 14px rgba(251,191,36,.55)}
-.sat-inner.amber .sat-dot{background:var(--amber);box-shadow:0 0 12px var(--amber), 0 0 26px rgba(251,191,36,.6)}
-.sat-inner.blue{border-color:rgba(96,165,250,.45);box-shadow:0 0 18px rgba(96,165,250,.18), inset 0 0 18px rgba(96,165,250,.05)}
-.sat-inner.blue b{color:#eef4ff;text-shadow:0 0 14px rgba(96,165,250,.55)}
-.sat-inner.blue .sat-dot{background:#60a5fa;box-shadow:0 0 12px #60a5fa, 0 0 26px rgba(96,165,250,.6)}
-/* 数据更新闪烁（叠加在公转反向动画之上） */
-.sat-inner.upd{animation:orbit-rev 48s linear infinite, sat-flash 1s ease-out}
-@keyframes sat-flash{
-  0%{box-shadow:0 0 34px rgba(126,231,252,.85), inset 0 0 26px rgba(126,231,252,.4)}
-  100%{box-shadow:0 0 18px rgba(34,211,238,.18), inset 0 0 18px rgba(34,211,238,.05)}
+@keyframes orb-breathe{
+  0%,100%{transform:scale(1)}
+  50%{transform:scale(1.1)}
+}
+.sat-text{display:flex;flex-direction:column;align-items:center;gap:1px;text-align:center}
+.sat-text small{
+  font:600 9px var(--mono);letter-spacing:2px;color:var(--text-dim);
+  white-space:nowrap;text-shadow:0 1px 6px rgba(2,6,15,.9);
+}
+.sat-text b{
+  font:700 24px var(--mono);color:#eaf6ff;line-height:1.1;font-variant-numeric:tabular-nums;
+  text-shadow:0 0 14px rgba(34,211,238,.8), 0 2px 8px rgba(2,6,15,.95), 0 0 2px rgba(2,6,15,.9);
+  white-space:nowrap;
+}
+/* 四色球体 */
+.sat-inner.red .sat-orb{
+  background:radial-gradient(circle at 34% 30%, rgba(255,228,233,.95), rgba(251,77,109,.85) 34%, rgba(76,5,25,.9) 78%);
+  box-shadow:0 0 16px rgba(251,77,109,.85), 0 0 46px rgba(251,77,109,.4), inset -6px -8px 14px rgba(20,2,8,.55);
+}
+.sat-inner.red .sat-orb::before{border-color:rgba(253,164,181,.5);filter:drop-shadow(0 0 3px rgba(251,77,109,.6))}
+.sat-inner.red .sat-text b{color:#fff2f5;text-shadow:0 0 14px rgba(251,77,109,.8), 0 2px 8px rgba(2,6,15,.95), 0 0 2px rgba(2,6,15,.9)}
+.sat-inner.amber .sat-orb{
+  background:radial-gradient(circle at 34% 30%, rgba(255,248,220,.95), rgba(251,191,36,.85) 34%, rgba(69,26,3,.9) 78%);
+  box-shadow:0 0 16px rgba(251,191,36,.85), 0 0 46px rgba(251,191,36,.4), inset -6px -8px 14px rgba(20,10,2,.55);
+}
+.sat-inner.amber .sat-orb::before{border-color:rgba(253,230,138,.5);filter:drop-shadow(0 0 3px rgba(251,191,36,.6))}
+.sat-inner.amber .sat-text b{color:#fff8e6;text-shadow:0 0 14px rgba(251,191,36,.8), 0 2px 8px rgba(2,6,15,.95), 0 0 2px rgba(2,6,15,.9)}
+.sat-inner.blue .sat-orb{
+  background:radial-gradient(circle at 34% 30%, rgba(224,242,255,.95), rgba(96,165,250,.85) 34%, rgba(30,27,75,.9) 78%);
+  box-shadow:0 0 16px rgba(96,165,250,.85), 0 0 46px rgba(96,165,250,.4), inset -6px -8px 14px rgba(4,6,20,.55);
+}
+.sat-inner.blue .sat-orb::before{border-color:rgba(191,219,254,.5);filter:drop-shadow(0 0 3px rgba(96,165,250,.6))}
+.sat-inner.blue .sat-text b{color:#eef4ff;text-shadow:0 0 14px rgba(96,165,250,.8), 0 2px 8px rgba(2,6,15,.95), 0 0 2px rgba(2,6,15,.9)}
+/* 数据更新：球体爆发闪光（叠加在公转反向动画之上） */
+.sat-inner.upd{animation:orbit-rev 48s linear infinite}
+.sat-inner.upd .sat-orb{animation:orb-breathe 3.2s ease-in-out infinite, orb-flash 1s ease-out}
+.sat-inner.upd .sat-text b{animation:sat-text-flash 1s ease-out}
+@keyframes orb-flash{
+  0%{box-shadow:0 0 30px rgba(224,251,255,1), 0 0 90px rgba(126,231,252,.8), inset -6px -8px 14px rgba(2,10,20,.4)}
+  100%{box-shadow:0 0 16px rgba(34,211,238,.85), 0 0 46px rgba(34,211,238,.4), inset -6px -8px 14px rgba(2,10,20,.55)}
+}
+@keyframes sat-text-flash{
+  0%{color:#fff;text-shadow:0 0 26px rgba(255,255,255,.95), 0 0 60px rgba(126,231,252,.8)}
+  100%{color:#eaf6ff}
 }
 
 /* ── 中央读数（真实拦截率 + 态势徽章） ───────────────────── */
