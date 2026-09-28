@@ -250,10 +250,12 @@ body{font-family:var(--sans);color:var(--text-mid);-webkit-font-smoothing:antial
 }
 @keyframes orbit-run{from{transform:rotate(0)}to{transform:rotate(360deg)}}
 .orbit-sat{position:absolute;left:50%;top:50%}
-.orbit-sat.s1{transform:rotate(0deg)   translate(255px)}
-.orbit-sat.s2{transform:rotate(90deg)  translate(285px)}
-.orbit-sat.s3{transform:rotate(180deg) translate(312px)}
-.orbit-sat.s4{transform:rotate(270deg) translate(338px)}
+/* 定位角放置后再转回坐标系（rotate(A) translate(R) rotate(-A)），
+   保证四颗球的文字永远水平、永远在球下方，不随位置角翻转 */
+.orbit-sat.s1{transform:rotate(0deg)   translate(255px) rotate(0deg)}
+.orbit-sat.s2{transform:rotate(90deg)  translate(285px) rotate(-90deg)}
+.orbit-sat.s3{transform:rotate(180deg) translate(312px) rotate(-180deg)}
+.orbit-sat.s4{transform:rotate(270deg) translate(338px) rotate(-270deg)}
 /* 能量球卫星：半透明发光球 + 无框悬浮发光文字；反向自转保持文字水平 */
 .sat-inner{
   position:absolute;left:0;top:0;

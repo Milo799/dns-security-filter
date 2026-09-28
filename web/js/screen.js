@@ -397,7 +397,7 @@ function sizeDomCanvases(){
   drawWave();
 }
 function drawTrend(){
-  if (!tr.cx || !S.trend) return;
+  if (!tr.cx || !S.trend || !S.trend.length) return;
   var c = tr.cx, W = tr.w, H = tr.h;
   var items = S.trend;
   c.clearRect(0, 0, W, H);
