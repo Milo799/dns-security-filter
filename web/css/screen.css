@@ -246,9 +246,9 @@ body{font-family:var(--sans);color:var(--text-mid);-webkit-font-smoothing:antial
 /* 旋转臂：每颗卫星独立轨道半径/速度/方向（近快远慢，两顺两逆） */
 .orbit-arm{position:absolute;left:50%;top:50%;width:0;height:0;animation:orbit-run linear infinite}
 .orbit-arm.a1{animation-duration:34s}
-.orbit-arm.a2{animation-duration:44s;animation-direction:reverse}
+.orbit-arm.a2{animation-duration:44s}
 .orbit-arm.a3{animation-duration:54s}
-.orbit-arm.a4{animation-duration:64s;animation-direction:reverse}
+.orbit-arm.a4{animation-duration:64s}
 @keyframes orbit-run{from{transform:rotate(0)}to{transform:rotate(360deg)}}
 .sat-pos{position:absolute;top:0;left:0}
 .orbit-arm.a1 .sat-pos{transform:translateX(290px)}
@@ -263,9 +263,9 @@ body{font-family:var(--sans);color:var(--text-mid);-webkit-font-smoothing:antial
   animation:orbit-rev linear infinite;
 }
 .orbit-arm.a1 .sat-inner{animation-duration:34s}
-.orbit-arm.a2 .sat-inner{animation-duration:44s;animation-direction:reverse}
+.orbit-arm.a2 .sat-inner{animation-duration:44s}
 .orbit-arm.a3 .sat-inner{animation-duration:54s}
-.orbit-arm.a4 .sat-inner{animation-duration:64s;animation-direction:reverse}
+.orbit-arm.a4 .sat-inner{animation-duration:64s}
 @keyframes orbit-rev{
   from{transform:translate(-50%,-50%) rotate(0)}
   to{transform:translate(-50%,-50%) rotate(-360deg)}
