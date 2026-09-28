@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DNS 安全态势感知平台 · 全息大屏</title>
+<link rel="stylesheet" href="/css/screen.css">
+</head>
+<body>
+<!-- 1920x1080 基准舞台，JS 按视口等比缩放 -->
+<div id="viewport">
+  <div id="stage">
+
+    <!-- 背景层：星尘粒子 / 透视网格地面 / 扫描线 / 暗角 -->
+    <canvas id="bgCanvas"></canvas>
+    <div class="grid-floor"></div>
+    <div class="aurora a1"></div>
+    <div class="aurora a2"></div>
+    <div class="scanlines"></div>
+    <div class="vignette"></div>
+
+    <!-- ══════════ 顶部指挥舱标题栏 ══════════ -->
+    <header class="scr-header">
+      <div class="hd-left">
+        <div class="hd-logo">DNSF</div>
+        <div class="hd-sys">
+          <b>SEC-OPS CENTER</b>
+          <span>安全运营中心 · 全息态势终端</span>
+        </div>
+      </div>
+      <div class="hd-center">
+        <div class="hd-wing left"></div>
+        <h1 class="hd-title">DNS 安全态势感知平台</h1>
+        <div class="hd-wing right"></div>
+      </div>
+      <div class="hd-right">
+        <div class="hd-light" id="hdDetect"><i></i><span>检测引擎</span><b>--</b></div>
+        <div class="hd-light" id="hdUpstream"><i></i><span>上游链路</span><b>--</b></div>
+        <div class="hd-clock">
+          <b id="scrClock">--:--:--</b>
+          <span id="scrDate">----年--月--日 星期-</span>
+        </div>
+        <button class="hd-fs" id="btnFs" title="全屏 (F)">⛶</button>
+      </div>
+    </header>
+
+    <!-- ══════════ 左翼：威胁分析 ══════════ -->
+    <section class="wing left-wing">
+      <div class="sect">
+        <div class="sect-head">
+          <span class="sect-diamond"></span>
+          <div class="sect-titles"><b>24H 拦截趋势</b><small>INTERCEPT TREND · HOURLY</small></div>
+          <div class="sect-extra" id="trendTotal">--</div>
+        </div>
+        <div class="sect-body trend-body">
+          <canvas id="trendCanvas"></canvas>
+        </div>
+      </div>
+
+      <div class="sect">
+        <div class="sect-head">
+          <span class="sect-diamond"></span>
+          <div class="sect-titles"><b>TOP 拦截域名</b><small>BLOCKED DOMAINS · TODAY</small></div>
+        </div>
+        <div class="sect-body" id="topDomains"></div>
+      </div>
+
+      <div class="sect">
+        <div class="sect-head">
+          <span class="sect-diamond"></span>
+          <div class="sect-titles"><b>TOP 拦截源地址</b><small>BLOCKED CLIENTS · TODAY</small></div>
+        </div>
+        <div class="sect-body" id="topClients"></div>
+      </div>
+    </section>
+
+    <!-- ══════════ 中央：全息能量核心 ══════════ -->
+    <section class="core-stage">
+      <canvas id="coreCanvas"></canvas>
+
+      <div class="core-overlay">
+        <div class="core-index-label">威胁指数 · THREAT INDEX</div>
+        <div class="core-index" id="threatIndex">--</div>
+        <div class="core-level" id="threatLevel">态势评估中</div>
+      </div>
+
+      <!-- 四角浮游指标芯片 -->
+      <div class="core-chip c-tl">
+        <small>今日查询 TOTAL</small>
+        <b id="chipTotal">--</b>
+        <i class="chip-line"></i>
+      </div>
+      <div class="core-chip c-tr">
+        <small>今日拦截 INTERCEPT</small>
+        <b id="chipInter">--</b>
+        <i class="chip-line"></i>
+      </div>
+      <div class="core-chip c-bl">
+        <small>今日剔除 REMOVE-IP</small>
+        <b id="chipRemove">--</b>
+        <i class="chip-line"></i>
+      </div>
+      <div class="core-chip c-br">
+        <small>拦截率 RATE</small>
+        <b id="chipRate">--</b>
+        <i class="chip-line"></i>
+      </div>
+
+      <div class="core-caption">
+        <span class="cap-pulse"></span>
+        <b>全息威胁感知核心</b>
+        <small>HOLOGRAPHIC THREAT CORE · 实时联动</small>
+      </div>
+    </section>
+
+    <!-- ══════════ 右翼：防御作战 ══════════ -->
+    <section class="wing right-wing">
+      <div class="sect stream-sect">
+        <div class="sect-head">
+          <span class="sect-diamond"></span>
+          <div class="sect-titles"><b>实时威胁事件流</b><small>LIVE THREAT STREAM · 3S</small></div>
+          <div class="sect-extra live"><i></i>LIVE</div>
+        </div>
+        <div class="sect-body stream-body" id="eventStream"></div>
+      </div>
+
+      <div class="sect">
+        <div class="sect-head">
+          <span class="sect-diamond"></span>
+          <div class="sect-titles"><b>拦截构成</b><small>SOURCE BREAKDOWN · TODAY</small></div>
+        </div>
+        <div class="sect-body donut-body">
+          <div class="donut" id="donut"><div class="donut-hole"><b id="donutTotal">--</b><small>拦截总量</small></div></div>
+          <div class="donut-legend" id="donutLegend"></div>
+        </div>
+      </div>
+
+      <div class="sect">
+        <div class="sect-head">
+          <span class="sect-diamond"></span>
+          <div class="sect-titles"><b>防御矩阵</b><small>DEFENSE MATRIX</small></div>
+        </div>
+        <div class="sect-body" id="defMatrix"></div>
+      </div>
+    </section>
+
+    <!-- ══════════ 底部：吞吐波形 + 事件滚动 ══════════ -->
+    <footer class="scr-footer">
+      <div class="ft-wave-wrap">
+        <div class="ft-label"><b>实时吞吐</b><small>THROUGHPUT · QPS/10S</small></div>
+        <canvas id="waveCanvas"></canvas>
+      </div>
+      <div class="ft-ticker-wrap">
+        <div class="ft-label red"><b>最新拦截</b><small>INTERCEPT FEED</small></div>
+        <div class="ticker" id="ticker"><div class="ticker-inner" id="tickerInner"></div></div>
+      </div>
+    </footer>
+
+  </div>
+</div>
+
+<!-- 登录遮罩（401 时出现） -->
+<div class="login-overlay" id="loginOverlay" style="display:none">
+  <form class="login-box" id="loginForm">
+    <div class="login-logo">DNSF</div>
+    <h2>安全态势终端 · 身份核验</h2>
+    <input type="text" id="loginUser" placeholder="账号" autocomplete="username" required>
+    <input type="password" id="loginPass" placeholder="密码" autocomplete="current-password" required>
+    <div class="login-err" id="loginErr"></div>
+    <button type="submit">接 入 终 端</button>
+  </form>
+</div>
+
+<script src="/js/screen.js"></script>
+</body>
+</html>
