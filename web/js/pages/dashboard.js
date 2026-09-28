@@ -73,6 +73,11 @@ function renderGauge(rate, risk){
   var sweep = 1; /* 起点左 终点右，经过上方 */
   var mainText = numeric ? rate + '%' : '?';
   var subText = numeric ? ((risk ? risk.label : '') + ' 风险') : '口径不足';
+  /* 全息核心（RISK CORE）联动：与半环仪表同源数值，避免死元素 */
+  var hv = document.getElementById('holoCoreValue');
+  if (hv) hv.textContent = numeric ? rate + '%' : '--';
+  var hl = document.getElementById('holoCoreLabel');
+  if (hl) hl.textContent = numeric ? ((risk ? risk.label : '') + ' 风险 · 全息威胁指数') : '口径不足';
   el.innerHTML =
     '<svg viewBox="0 0 160 104" xmlns="http://www.w3.org/2000/svg" role="img" style="width:132px;height:auto">' +
     '<path d="M ' + (cx - r) + ' ' + cy + ' A ' + r + ' ' + r + ' 0 0 ' + sweep + ' ' + (cx + r) + ' ' + cy + '"' +
@@ -99,6 +104,9 @@ async function loadDashboard(){
       badge.className = 'tag ' + (s.detection_enabled ? 'tag-success' : 'tag-error');
       badge.innerHTML = '<span class="dot pulse"></span>' + (s.detection_enabled ? '检测运行中' : '检测已关闭');
     }
+    /* 状态轨道：接真实数据，不做静态装饰 */
+    var railMesh = document.getElementById('railMesh');
+    if (railMesh) railMesh.textContent = s.detection_enabled ? 'ONLINE' : 'DISABLED';
 
     var tr = (await api('GET', '/api/status/trend?days=7')).data;
     var items = tr.items || [];
@@ -229,6 +237,9 @@ async function renderHealth(){
     var up = (cfg.upstream_dns && cfg.upstream_dns.value) || '未配置';
     var hpUp = document.getElementById('hpUpstream');
     if (hpUp) hpUp.textContent = up;
+    /* 状态轨道：情报面=启用源数+离线库条数；上游由 renderPlatformHealth 按熔断器状态权威写入 */
+    var railIntel = document.getElementById('railIntel');
+    if (railIntel) railIntel.textContent = total > 0 ? 'SYNCED' : 'EMPTY';
   }catch(e){ /* 健康信息获取失败不阻塞主视图 */ }
 }
 
@@ -269,11 +280,20 @@ async function renderPlatformHealth(status){
       api('GET', '/api/log-writer/stats'),
       api('GET', '/api/queue-stats'),
       api('GET', '/api/log-retention/stats'),
+      api('GET', '/api/circuit-breaker/stats'),
     ]);
     var dc = results[0].status === 'fulfilled' ? results[0].value.data : null;
     var lw = results[1].status === 'fulfilled' ? results[1].value.data : null;
     var qs = results[2].status === 'fulfilled' ? results[2].value.data : null;
     var lr = results[3].status === 'fulfilled' ? results[3].value.data : null;
+    var cb = results[4].status === 'fulfilled' ? results[4].value.data : null;
+    /* 状态轨道：上游=熔断器真实状态（覆盖配置存在性的粗略判断） */
+    if (cb && cb.upstream){
+      var railUp = document.getElementById('railUp');
+      if (railUp) railUp.textContent =
+        cb.upstream.state === 'closed' ? 'STABLE' :
+        cb.upstream.state === 'open' ? 'BROKEN' : 'PROBING';
+    }
     var OK = Charts.cssVar('--success', '#34d399');
     var AC = Charts.cssVar('--accent', '#38bdf8');
     var A2 = Charts.cssVar('--accent-2', '#6366f1');
@@ -446,5 +466,17 @@ function renderChain(smap){
   });
   document.getElementById('chainViz').innerHTML = html;
 }
+
+/* ---------- SOC 时钟 ---------- */
+function updateSocClock(){
+  var el = document.getElementById('socClock');
+  if (!el) return;
+  var d = new Date();
+  el.textContent = [d.getHours(), d.getMinutes(), d.getSeconds()].map(function(v){
+    return String(v).padStart(2, '0');
+  }).join(':');
+}
+var socClockTimer = setInterval(updateSocClock, 1000);
+updateSocClock();
 
 PAGE_LOADERS.dashboard = loadDashboard;

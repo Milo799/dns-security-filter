@@ -90,58 +90,208 @@
 
       <!-- ========== 安全态势总览（SOC 三段式大屏） ========== -->
       <div class="page active" id="page-dashboard">
-        <div class="page-head">
-          <div><div class="page-title">安全态势总览</div><div class="page-sub">DNS 过滤实时监控 · 威胁总览 / 分析维度 / 实时事件流</div></div>
-          <div class="toolbar">
-            <span class="tag tag-neutral">自动刷新 10s</span>
+        <div class="page-head dashboard-head">
+          <div class="dashboard-heading">
+            <div class="eyebrow"><span class="eyebrow-line"></span>SECURITY OPERATIONS CENTER <span class="eyebrow-sep">/</span> LIVE TELEMETRY</div>
+            <div class="page-title">安全态势总览</div>
+            <div class="page-sub">DNS 过滤实时监控 · 威胁总览 / 分析维度 / 实时事件流</div>
+          </div>
+          <div class="toolbar dashboard-toolbar">
+            <div class="live-clock"><span class="live-dot"></span><span id="socClock">--:--:--</span><small>LOCAL NODE</small></div>
+            <span class="tag tag-neutral refresh-tag">自动刷新 10s</span>
             <button class="btn btn-normal btn-compact" onclick="loadDashboard()">↻ 刷新</button>
           </div>
         </div>
-
-        <!-- 第一段：威胁总览大数字带 -->
-        <div class="hero-grid">
-          <div class="hero-kpi"><div class="hk-label">今日请求</div><div class="hk-value" id="hkTotal">--</div><div class="hk-foot" id="hkTotalFoot">今日决策数 · 放行需开启放行日志</div></div>
-          <div class="hero-kpi hk-red"><div class="hk-label">今日拦截</div><div class="hk-value" id="hkInter">--</div><div class="hk-foot" id="hkInterFoot">较上一日 --</div></div>
-          <div class="hero-kpi hk-orange"><div class="hk-label">今日剔除 IP</div><div class="hk-value" id="hkRem">--</div><div class="hk-foot" id="hkRemFoot">较上一日 --</div></div>
-          <div class="hero-kpi hk-green"><div class="hk-label">今日放行</div><div class="hk-value" id="hkAllow">--</div><div class="hk-foot" id="hkAllowFoot">allow 记录</div></div>
-          <div class="hero-kpi hk-gauge"><div class="hk-label">风险等级</div><div class="gauge-box" id="riskGauge"></div><div class="hk-foot" id="riskFoot">由今日拦截率推导</div></div>
+        <div class="soc-status-rail" aria-label="平台运行状态">
+          <div class="rail-node"><span class="rail-icon">◈</span><span><b>DNS FILTER MESH</b><small>多层策略引擎</small></span><i class="rail-ok" id="railMesh">ONLINE</i></div>
+          <div class="rail-connector"></div>
+          <div class="rail-node"><span class="rail-icon">◉</span><span><b>INTELLIGENCE FABRIC</b><small>离线情报 + 在线探测</small></span><i class="rail-ok" id="railIntel">SYNCED</i></div>
+          <div class="rail-connector"></div>
+          <div class="rail-node"><span class="rail-icon">⬡</span><span><b>UPSTREAM RESOLUTION</b><small>安全 DNS 出口</small></span><i class="rail-ok" id="railUp">STABLE</i></div>
+          <div class="rail-spacer"></div>
+          <div class="rail-meta"><span class="rail-pulse"></span><b>LIVE FEED</b><small>实时数据流</small></div>
         </div>
 
-        <!-- 第二段：分析维度三列 -->
-        <div class="dash-3col">
-          <div class="card card-corner">
-            <div class="card-head"><div class="card-title">近 24h 拦截趋势</div><span class="tag tag-neutral">柱=拦截 / 线=剔除 · 下=来源热力</span></div>
-            <div class="card-body">
-              <div class="chart-box" id="hourlyChart"><div class="loading">加载中…</div></div>
-              <div class="sub-chart" id="hourlyHeat"><div class="loading">加载中…</div></div>
+        <div class="hero-grid holo-grid">
+          <div class="hero-kpi hero-primary holo-card holo-hero" data-variant="telemetry">
+            <div class="holo-card-glow"></div>
+            <div class="hk-meta">
+              <div class="hk-label">今日请求<span class="hk-sub">DNS TELEMETRY</span></div>
+              <div class="hk-value" id="hkTotal">--</div>
+              <div class="hk-foot" id="hkTotalFoot">今日决策数 · 放行需开启放行日志</div>
+            </div>
+            <div class="hk-Kimi" aria-hidden="true">
+              <svg viewBox="0 0 120 40" preserveAspectRatio="none"><path d="M0 30 L18 22 L36 28 L54 14 L72 20 L90 8 L108 16 L120 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
             </div>
           </div>
-          <div class="card card-corner">
-            <div class="card-head"><div class="card-title">拦截来源构成</div><span class="tag tag-neutral">今日</span></div>
-            <div class="card-body">
-              <div class="chart-box" id="donutChart" style="min-height:150px"><div class="loading">加载中…</div></div>
-              <div id="topDomainsMini"><div class="loading" style="min-height:60px">加载中…</div></div>
+          <div class="hero-kpi hk-red holo-card holo-hero" data-variant="intercept">
+            <div class="holo-card-glow"></div>
+            <div class="hk-meta">
+              <div class="hk-label">今日拦截<span class="hk-sub">INTERCEPTED</span></div>
+              <div class="hk-value" id="hkInter">--</div>
+              <div class="hk-foot" id="hkInterFoot">较上一日 --</div>
+            </div>
+            <div class="hk-Kimi" aria-hidden="true">
+              <svg viewBox="0 0 120 40" preserveAspectRatio="none"><path d="M0 32 L20 24 L40 28 L60 16 L80 22 L100 10 L120 18" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
             </div>
           </div>
-          <div class="card card-corner">
-            <div class="card-head"><div class="card-title">五层检测链路</div><span class="tag tag-neutral">今日命中分布</span></div>
-            <div class="card-body">
-              <div id="chainViz" class="chain-flow"></div>
-              <div class="health-panel">
-                <div class="hp-row"><span class="hp-dot ok"></span><span>情报源健康</span><b id="hpSources">--</b></div>
-                <div class="hp-row"><span class="hp-dot warn"></span><span>离线情报库</span><b id="hpOffline">--</b></div>
-                <div class="hp-row"><span class="hp-dot info"></span><span>上游 DNS</span><b id="hpUpstream">--</b></div>
+          <div class="hero-kpi hk-orange holo-card holo-hero" data-variant="filtered">
+            <div class="holo-card-glow"></div>
+            <div class="hk-meta">
+              <div class="hk-label">今日剔除 IP<span class="hk-sub">IP FILTERED</span></div>
+              <div class="hk-value" id="hkRem">--</div>
+              <div class="hk-foot" id="hkRemFoot">较上一日 --</div>
+            </div>
+            <div class="hk-Kimi" aria-hidden="true">
+              <svg viewBox="0 0 120 40" preserveAspectRatio="none"><path d="M0 28 L20 32 L40 20 L60 24 L80 12 L100 18 L120 8" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+            </div>
+          </div>
+          <div class="hero-kpi hk-green holo-card holo-hero" data-variant="allowed">
+            <div class="holo-card-glow"></div>
+            <div class="hk-meta">
+              <div class="hk-label">今日放行<span class="hk-sub">ALLOWED</span></div>
+              <div class="hk-value" id="hkAllow">--</div>
+              <div class="hk-foot" id="hkAllowFoot">allow 记录</div>
+            </div>
+            <div class="hk-Kimi" aria-hidden="true">
+              <svg viewBox="0 0 120 40" preserveAspectRatio="none"><path d="M0 20 L20 26 L40 16 L60 22 L80 10 L100 18 L120 6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+            </div>
+          </div>
+          <div class="hero-kpi hk-gauge holo-card holo-core" data-variant="risk">
+            <div class="holo-card-glow"></div>
+            <div class="hk-meta">
+              <div class="hk-label">风险等级<span class="hk-sub">RISK INDEX</span></div>
+              <div class="gauge-box holo-gauge" id="riskGauge"></div>
+              <div class="hk-foot" id="riskFoot">由今日拦截率推导</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="holo-command-bar">
+          <div class="holo-command-left">
+            <span class="hc-chip hc-live">LIVE</span>
+            <span class="hc-chip">全息态势</span>
+            <span class="hc-chip">威胁雷达</span>
+            <span class="hc-chip">实时事件流</span>
+          </div>
+          <div class="holo-command-right">
+            <span class="hc-sep">SIGNAL</span>
+            <span class="hc-sep">TELEMETRY</span>
+            <span class="hc-sep">CORE</span>
+            <span class="hc-signal"><span></span><span></span><span></span><span></span></span>
+          </div>
+        </div>
+
+        <div class="holo-core-stage">
+          <div class="holo-core-ring r1"></div>
+          <div class="holo-core-ring r2"></div>
+          <div class="holo-core-ring r3"></div>
+          <div class="holo-core-ring r4"></div>
+          <div class="holo-core-axis x"></div>
+          <div class="holo-core-axis y"></div>
+          <div class="holo-core-glow"></div>
+          <div class="holo-core-inner">
+            <div class="holo-core-title">RISK CORE</div>
+            <div class="holo-core-value" id="holoCoreValue">--</div>
+            <div class="holo-core-label" id="holoCoreLabel">全息威胁指数</div>
+          </div>
+          <div class="holo-core-pulse"></div>
+          <div class="holo-core-orbit o1"></div>
+          <div class="holo-core-orbit o2"></div>
+          <div class="holo-core-orbit o3"></div>
+        </div>
+
+        <div class="holo-hud">
+          <div class="holo-hud-item"><b>MODE</b><span>COMMAND CENTER</span></div>
+          <div class="holo-hud-item"><b>CHANNEL</b><span>DNS SECURITY</span></div>
+          <div class="holo-hud-item"><b>UPTIME</b><span>REALTIME</span></div>
+        </div>
+
+        <div class="soc-holo-grid">
+          <aside class="soc-holo-side">
+            <div class="holo-panel radar-panel">
+              <div class="panel-head">
+                <div class="panel-kicker">THREAT RADAR</div>
+                <div class="panel-title">威胁雷达</div>
+                <div class="panel-sub">实时拦截事件 / 攻击源方位感知</div>
+              </div>
+              <div class="radar-wrap">
+                <div class="radar-core">
+                  <div class="radar-sweep"></div>
+                  <div class="radar-ring r1"></div>
+                  <div class="radar-ring r2"></div>
+                  <div class="radar-ring r3"></div>
+                  <div class="radar-ring r4"></div>
+                  <div class="radar-cross x1"></div>
+                  <div class="radar-cross x2"></div>
+                  <div class="radar-center"></div>
+                  <div class="radar-blip b1"></div>
+                  <div class="radar-blip b2"></div>
+                  <div class="radar-blip b3"></div>
+                  <div class="radar-blip b4"></div>
+                </div>
+              </div>
+              <div class="radar-meta">
+                <div><b>LIVE</b><span>事件流</span></div>
+                <div><b>360°</b><span>探测面</span></div>
+                <div><b>DNS</b><span>协议域</span></div>
               </div>
             </div>
-          </div>
+            <div class="holo-panel mini-metric">
+              <div class="mini-metric-row"><span>策略链</span><b>5 层</b></div>
+              <div class="mini-metric-row"><span>情报源</span><b>在线 + 离线</b></div>
+              <div class="mini-metric-row"><span>数据刷新</span><b>10s / 3s / 30s</b></div>
+            </div>
+          </aside>
+
+          <section class="soc-holo-center">
+            <div class="holo-center-stack">
+              <div class="card card-corner holo-center-card">
+                <div class="card-head"><div class="card-title">近 24h 拦截趋势</div><span class="tag tag-neutral">柱=拦截 / 线=剔除 · 下=来源热力</span></div>
+                <div class="card-body">
+                  <div class="chart-box" id="hourlyChart"><div class="loading">加载中…</div></div>
+                  <div class="sub-chart" id="hourlyHeat"><div class="loading">加载中…</div></div>
+                </div>
+              </div>
+              <div class="card card-corner holo-center-card">
+                <div class="card-head"><div class="card-title">拦截来源构成</div><span class="tag tag-neutral">今日</span></div>
+                <div class="card-body">
+                  <div class="chart-box" id="donutChart" style="min-height:150px"><div class="loading">加载中…</div></div>
+                  <div id="topDomainsMini"><div class="loading" style="min-height:60px">加载中…</div></div>
+                </div>
+              </div>
+              <div class="card card-corner holo-center-card">
+                <div class="card-head"><div class="card-title">五层检测链路</div><span class="tag tag-neutral">今日命中分布</span></div>
+                <div class="card-body">
+                  <div id="chainViz" class="chain-flow"></div>
+                  <div class="health-panel">
+                    <div class="hp-row"><span class="hp-dot ok"></span><span>情报源健康</span><b id="hpSources">--</b></div>
+                    <div class="hp-row"><span class="hp-dot warn"></span><span>离线情报库</span><b id="hpOffline">--</b></div>
+                    <div class="hp-row"><span class="hp-dot info"></span><span>上游 DNS</span><b id="hpUpstream">--</b></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <aside class="soc-holo-side right">
+            <div class="holo-panel stream-panel">
+              <div class="panel-head">
+                <div class="panel-kicker">LIVE THREAT STREAM</div>
+                <div class="panel-title">实时威胁流</div>
+                <div class="panel-sub">拦截事件滚动播报</div>
+              </div>
+              <div class="event-stream holo-stream" id="eventStream"><div class="loading">加载中…</div></div>
+            </div>
+            <div class="holo-panel mini-metric">
+              <div class="mini-metric-row"><span>上游状态</span><b>STABLE</b></div>
+              <div class="mini-metric-row"><span>检测链路</span><b>ONLINE</b></div>
+              <div class="mini-metric-row"><span>数据通道</span><b>LIVE</b></div>
+            </div>
+          </aside>
         </div>
 
-        <!-- 第三段：实时事件流三列 -->
-        <div class="dash-3col">
-          <div class="card card-corner">
-            <div class="card-head"><div class="card-title">实时拦截事件</div><span class="tag tag-error" id="evTag">3s 刷新</span></div>
-            <div class="card-body"><div class="event-stream" id="eventStream"><div class="loading">加载中…</div></div></div>
-          </div>
+        <div class="dash-3col dashboard-triple holo-bottom">
           <div class="card card-corner">
             <div class="card-head"><div class="card-title">近 7 日拦截趋势</div><span class="tag tag-neutral">柱=拦截 / 线=剔除</span></div>
             <div class="card-body"><div class="chart-box" id="weekTrend"><div class="loading">加载中…</div></div></div>
@@ -150,6 +300,16 @@
             <div class="card-head"><div class="card-title">平台运行健康</div><span class="tag tag-neutral" id="healthTag">30s 刷新</span></div>
             <div class="card-body">
               <div class="hp-grid" id="platformHealth"><div class="loading">加载中…</div></div>
+            </div>
+          </div>
+          <div class="card card-corner">
+            <div class="card-head"><div class="card-title">系统能力矩阵</div><span class="tag tag-neutral">策略 / 情报 / 转发</span></div>
+            <div class="card-body">
+              <div class="cap-matrix">
+                <div class="cap-item"><b>POLICY</b><span>人工名单 / 离线情报 / 在线情报 / IP 后置</span></div>
+                <div class="cap-item"><b>INTEL</b><span>Hagezi / StevenBlack / SilverFox / ThreatFox</span></div>
+                <div class="cap-item"><b>RESOLUTION</b><span>Proxy / Platform / Upstream DNS</span></div>
+              </div>
             </div>
           </div>
         </div>
