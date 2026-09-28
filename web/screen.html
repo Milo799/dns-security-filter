@@ -70,26 +70,36 @@
     <section class="core-stage">
       <canvas id="coreCanvas"></canvas>
 
-      <!-- 轨道卫星层：四颗能量球绕核心旋转，数据更新时球体爆发闪光 -->
+      <!-- 轨道卫星层：四颗能量球多轨道运行（近大远小/近快远慢/两顺两逆） -->
       <div class="orbit-wrap">
-        <div class="orbit-spin">
-          <div class="orbit-sat s1"><div class="sat-inner" id="satBoxTotal">
-            <div class="sat-orb"></div>
-            <div class="sat-text"><small>今日查询 · TOTAL</small><b id="satTotal">--</b></div>
-          </div></div>
-          <div class="orbit-sat s2"><div class="sat-inner red" id="satBoxInter">
+        <div class="orbit-path p1"></div>
+        <div class="orbit-path p2"></div>
+        <div class="orbit-path p3"></div>
+        <div class="orbit-path p4"></div>
+        <div class="orbit-arm a1"><div class="sat-pos">
+          <div class="sat-inner red sz-xl" id="satBoxInter">
             <div class="sat-orb"></div>
             <div class="sat-text"><small>今日拦截 · INTERCEPT</small><b id="satInter">--</b></div>
-          </div></div>
-          <div class="orbit-sat s3"><div class="sat-inner amber" id="satBoxRemove">
+          </div>
+        </div></div>
+        <div class="orbit-arm a2"><div class="sat-pos">
+          <div class="sat-inner sz-l" id="satBoxTotal">
+            <div class="sat-orb"></div>
+            <div class="sat-text"><small>今日查询 · TOTAL</small><b id="satTotal">--</b></div>
+          </div>
+        </div></div>
+        <div class="orbit-arm a3"><div class="sat-pos">
+          <div class="sat-inner amber sz-m" id="satBoxRemove">
             <div class="sat-orb"></div>
             <div class="sat-text"><small>今日剔除 · REMOVE-IP</small><b id="satRemove">--</b></div>
-          </div></div>
-          <div class="orbit-sat s4"><div class="sat-inner blue" id="satBoxRate">
+          </div>
+        </div></div>
+        <div class="orbit-arm a4"><div class="sat-pos">
+          <div class="sat-inner blue sz-s" id="satBoxRate">
             <div class="sat-orb"></div>
             <div class="sat-text"><small>实时吞吐 · QPS</small><b id="satQps">--</b></div>
-          </div></div>
-        </div>
+          </div>
+        </div></div>
       </div>
 
       <!-- 中央读数：真实拦截率（可解释口径），态势用文字徽章表达 -->
