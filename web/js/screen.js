@@ -830,8 +830,11 @@ function renderRank(box, rows, key, total){
 function renderLayerChips(){
   var box = $('layerChips');
   if (!box) return;
-  box.innerHTML = LAYERS.map(function(ly){
-    var off = ly.count === 0;
+  var offMap = S._layerOff || {};
+  box.innerHTML = LAYERS.map(function(ly, idx){
+    /* "停用"只按真实配置标注（L3=NRD 开关 / L4=在线源启用数），
+       计数为 0 不等于停用（NRD/IP 后置常年 0 拦截但链路在线） */
+    var off = !!offMap[idx];
     return '<div class="lyr' + (off ? ' off' : '') + '">' +
       '<span class="dot" style="background:' + ly.color + ';color:' + ly.color + '"></span>' +
       '<span class="tx"><span class="nm">' + ly.label + '</span>' +
@@ -905,9 +908,10 @@ function pollDefense(){
   Promise.all([
     api('/api/status'),
     api('/api/circuit-breaker/stats').catch(function(){ return null; }),
-    api('/api/threatlist/sources').catch(function(){ return null; })
+    api('/api/threatlist/sources').catch(function(){ return null; }),
+    api('/api/config').catch(function(){ return null; })
   ]).then(function(rs){
-    var status = rs[0], breaker = rs[1], sources = rs[2];
+    var status = rs[0], breaker = rs[1], sources = rs[2], cfgRes = rs[3];
     S._breaker = breaker;
     /* 离线情报库：所有离线源 total 之和（在库规模，含停用源的在库数据）。
        注意：接口返回无 enabled 字段（None），真实字段是 total/enabled_cnt，
@@ -920,10 +924,18 @@ function pollDefense(){
       });
     }
     var ti = status.threatintel_sources || [];
+    var intelOn = ti.filter(function(s){ return s.enabled; }).length;
+    /* 层"停用"按真实配置标注：L3=NRD（在线+离线开关全关才算停用），
+       L4=在线情报源启用数为 0；计数为 0 ≠ 停用（链路在线但当日无命中） */
+    var cfg = (cfgRes && cfgRes.items) || {};
+    var nrdOn = (cfg.nrd_enabled && cfg.nrd_enabled.value === '1') ||
+                (cfg.nrd_offline_enabled && cfg.nrd_offline_enabled.value === '1');
+    S._layerOff = {2: !nrdOn, 3: intelOn === 0};
+    renderLayerChips();
     renderDefense({
       status: status,
       breaker: breaker,
-      intelOn: ti.filter(function(s){ return s.enabled; }).length,
+      intelOn: intelOn,
       intelTotal: ti.length,
       offlineRows: rows,
       offlineSrc: srcCnt
