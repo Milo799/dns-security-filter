@@ -51,12 +51,39 @@ body{font-family:var(--sans);color:var(--text-mid);-webkit-font-smoothing:antial
   -webkit-mask-image:linear-gradient(180deg, transparent, #000 38%);
   mask-image:linear-gradient(180deg, transparent, #000 38%);
   animation:floor-drift 14s linear infinite;
+  transition:opacity 1.2s ease;
+}
+/* 威胁升高时网格变红（CSS 变量驱动，与核心联动） */
+#stage[data-level="warn"] .grid-floor{
+  background-image:
+    linear-gradient(rgba(251,191,36,.16) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(251,191,36,.16) 1px, transparent 1px);
+}
+#stage[data-level="danger"] .grid-floor{
+  background-image:
+    linear-gradient(rgba(251,77,109,.18) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(251,77,109,.18) 1px, transparent 1px);
 }
 @keyframes floor-drift{from{background-position:0 0,0 0}to{background-position:0 64px,0 0}}
 
 .aurora{position:absolute;border-radius:50%;filter:blur(120px);z-index:1;pointer-events:none;opacity:.5}
 .aurora.a1{width:900px;height:500px;left:-200px;top:-240px;background:radial-gradient(closest-side, rgba(34,211,238,.16), transparent)}
-.aurora.a2{width:900px;height:500px;right:-240px;top:-200px;background:radial-gradient(closest-side, rgba(99,102,241,.13), transparent)}
+.aurora.a2{
+  width:900px;height:500px;right:-240px;top:-200px;
+  background:radial-gradient(closest-side, rgba(99,102,241,.13), transparent);
+  transition:background 1.5s ease;
+  animation:aurora-shift 22s ease-in-out infinite alternate;
+}
+@keyframes aurora-shift{
+  from{transform:translate(0,0) scale(1)}
+  to{transform:translate(-120px,40px) scale(1.15)}
+}
+#stage[data-level="warn"] .aurora.a2{
+  background:radial-gradient(closest-side, rgba(251,191,36,.14), transparent);
+}
+#stage[data-level="danger"] .aurora.a2{
+  background:radial-gradient(closest-side, rgba(251,77,109,.16), transparent);
+}
 
 .scanlines{
   position:absolute;inset:0;z-index:40;pointer-events:none;opacity:.5;
@@ -163,6 +190,22 @@ body{font-family:var(--sans);color:var(--text-mid);-webkit-font-smoothing:antial
 }
 .sect::before{left:0;top:0;border-right:none;border-bottom:none}
 .sect::after{right:0;top:0;border-left:none;border-bottom:none}
+/* 威胁态势联动：面板角标变色 */
+#stage[data-level="warn"] .sect::before,#stage[data-level="warn"] .sect::after,
+#stage[data-level="warn"] .sect-body::before,#stage[data-level="warn"] .sect-body::after{
+  border-color:rgba(251,191,36,.75);
+  filter:drop-shadow(0 0 4px rgba(251,191,36,.6));
+}
+#stage[data-level="danger"] .sect::before,#stage[data-level="danger"] .sect::after,
+#stage[data-level="danger"] .sect-body::before,#stage[data-level="danger"] .sect-body::after{
+  border-color:rgba(251,77,109,.8);
+  filter:drop-shadow(0 0 5px rgba(251,77,109,.7));
+  animation:corner-alert 1.6s ease-in-out infinite;
+}
+@keyframes corner-alert{
+  0%,100%{opacity:1}
+  50%{opacity:.55}
+}
 .sect-body::before{left:-16px;bottom:-14px;border-right:none;border-top:none}
 .sect-body::after{right:-16px;bottom:-14px;border-left:none;border-top:none}
 .left-wing .sect:nth-child(1){flex:1.25}
@@ -371,19 +414,34 @@ body{font-family:var(--sans);color:var(--text-mid);-webkit-font-smoothing:antial
 .core-caption small{font:600 9px var(--mono);letter-spacing:3px;color:var(--text-dim)}
 .cap-pulse{width:8px;height:8px;border-radius:50%;background:var(--cyan);box-shadow:0 0 12px var(--cyan);animation:light-blink 2s infinite;margin-bottom:4px}
 
-/* ── 事件流 ─────────────────────────────────────────────── */
-.stream-body{display:flex;flex-direction:column;gap:5px;padding-right:2px;overflow:hidden}
+/* ── 事件流（瀑布流式：底部涌生 → 向上流动 → 顶部消散） ───── */
+.stream-body{
+  display:flex;flex-direction:column;justify-content:flex-end;
+  gap:5px;padding-right:2px;overflow:hidden;
+}
 .ev{
   display:flex;align-items:center;gap:9px;padding:4px 8px;flex:none;
   background:linear-gradient(90deg, rgba(251,77,109,.09), transparent 70%);
   border-left:2px solid rgba(251,77,109,.55);
-  animation:ev-in .5s cubic-bezier(.22,1,.36,1);
+  overflow:hidden;
+  transition:height .38s cubic-bezier(.22,1,.36,1), opacity .38s ease,
+             padding .38s, margin .38s;
 }
 .ev.remove{background:linear-gradient(90deg, rgba(251,191,36,.09), transparent 70%);border-left-color:rgba(251,191,36,.55)}
-@keyframes ev-in{
-  from{opacity:0;transform:translateX(26px);box-shadow:0 0 24px rgba(251,77,109,.5) inset}
-  to{opacity:1;transform:none}
+/* 新生事件：底部涌生闪光 */
+.ev.born{animation:ev-born 1.6s ease-out}
+@keyframes ev-born{
+  0%{box-shadow:inset 0 0 30px rgba(251,77,109,.65);background:linear-gradient(90deg, rgba(251,77,109,.4), transparent 80%)}
+  100%{box-shadow:inset 0 0 0 rgba(251,77,109,0)}
 }
+/* 事件行内部元素防压缩 */
+.ev .tm,.ev .dm,.ev .cl,.ev .tag{flex-shrink:0}
+.ev .dm{flex-shrink:1;min-width:0}
+/* 新行高度动画的基础：内容绝对定位以支持 height 过渡 */
+.ev{position:relative}
+/* 消散事件：顶部收缩淡出 */
+.ev.out{height:0 !important;padding-top:0 !important;padding-bottom:0 !important;
+  margin-top:0 !important;margin-bottom:0 !important;opacity:0 !important;border-left-width:0}
 .ev .tm{font:600 11px var(--mono);color:var(--text-dim);flex:none}
 .ev .dm{
   flex:1;min-width:0;font:600 12.5px var(--mono);color:#ffd9e0;
@@ -475,7 +533,11 @@ body{font-family:var(--sans);color:var(--text-mid);-webkit-font-smoothing:antial
   font:700 24px var(--mono);color:#eaf6ff;line-height:1.1;
   text-shadow:0 0 12px rgba(34,211,238,.45);font-variant-numeric:tabular-nums;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  transition:color .8s ease, text-shadow .8s ease;
 }
+/* 威胁联动：数字带变色 */
+#stage[data-level="warn"] .ft-stat b{color:#fff3d6;text-shadow:0 0 12px rgba(251,191,36,.55)}
+#stage[data-level="danger"] .ft-stat b{color:#ffe0e6;text-shadow:0 0 14px rgba(251,77,109,.6)}
 .ft-stat span{font:600 9.5px var(--mono);color:var(--text-dim);letter-spacing:1px}
 .ft-stat.wide b{font-size:18px;color:#ffd9e0;text-shadow:0 0 12px rgba(251,77,109,.4)}
 .ft-stat.wide{border-left-color:rgba(251,77,109,.55)}

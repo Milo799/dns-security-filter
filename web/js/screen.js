@@ -561,6 +561,17 @@ function renderStatus(d){
   hd.className = 'hd-light ' + (d.detection_enabled ? 'ok' : 'bad');
   hd.querySelector('b').textContent = d.detection_enabled ? 'ONLINE' : 'OFFLINE';
 
+  /* 态势等级 → data-level 驱动全场联动（网格/极光/面板角/数字带） */
+  var lvl = 'steady';
+  if (total === 0){
+    lvl = 'standby';
+  } else if (rate >= 15){
+    lvl = 'danger';
+  } else if (rate >= 8){
+    lvl = 'warn';
+  }
+  document.getElementById('stage').dataset.level = lvl;
+
   /* QPS：由相邻两次 total 差分；更新卫星与底部数字带 */
   var now = Date.now();
   if (S.lastTotal != null && now > S.lastTotalAt){
@@ -573,34 +584,62 @@ function renderStatus(d){
   if (fq) fq.textContent = S.qps.toFixed(1);
 }
 
-/* ═══════════════ 渲染：事件流 + Ticker + 核心联动 ═══════════════ */
+/* ═══════════════ 渲染：事件流 + Ticker + 核心联动 ═══════════════
+   瀑布流式：最新事件在底部涌生（0 高展开+闪光），旧事件向上流动，
+   超容量时最老一条在顶部收缩消散——无跳变，视觉连续。
+*/
+var EV_ROW_H = 29;   // 与 CSS：4px*2 padding + ~21px 行高一致
 var evNodes = {};
 function renderStream(items){
   var box = $('eventStream');
   var newest = items[0];
   if (!S.streamReady){
+    /* 首次：底部对齐铺入（旧→新，最新在最底部） */
     box.innerHTML = '';
     evNodes = {};
     if (!items.length){
       box.innerHTML = '<div class="stream-empty">今日暂无拦截事件 · 链路静默</div>';
     }
     for (var i = items.length - 1; i >= 0; i--) box.appendChild(evRow(items[i], false));
+    while (box.children.length > STREAM_SIZE && box.firstChild){
+      var fc = box.firstChild;
+      if (fc.dataset && fc.dataset.eid) delete evNodes[fc.dataset.eid];
+      fc.remove();
+    }
     S.streamReady = true;
   } else {
+    /* 增量：新事件底部涌生（0 高展开上推旧行），最老行顶部收缩消散 */
     for (var j = items.length - 1; j >= 0; j--){
       var it = items[j];
       if (it.id <= S.lastStreamId || evNodes[it.id]) continue;
       var row = evRow(it, true);
-      box.insertBefore(row, box.firstChild);
+      row.style.height = '0px';
+      row.style.opacity = '0';
+      box.appendChild(row);
       var em = box.querySelector('.stream-empty');
       if (em) em.remove();
+      (function(r){
+        requestAnimationFrame(function(){
+          r.style.height = EV_ROW_H + 'px';
+          r.style.opacity = '1';
+        });
+      })(row);
       coreAddBlip(it.action === 'remove_ip' ? 'remove' : 'intercept');
       spawnMeteor();
     }
-    while (box.children.length > STREAM_SIZE){
-      var last = box.lastChild;
-      if (last.dataset && last.dataset.eid) delete evNodes[last.dataset.eid];
-      last.remove();
+    while (box.children.length > STREAM_SIZE && box.firstChild){
+      var old = box.firstChild;
+      if (old.dataset && old.dataset.eid) delete evNodes[old.dataset.eid];
+      if (old.classList && old.classList.contains('ev')){
+        old.style.height = '0px';
+        old.style.opacity = '0';
+        old.addEventListener('transitionend', function h(e){
+          e.target.removeEventListener('transitionend', h);
+          if (e.target.parentNode) e.target.remove();
+        });
+      } else {
+        old.remove();
+      }
     }
   }
   if (newest) S.lastStreamId = Math.max(S.lastStreamId, newest.id);
@@ -622,8 +661,8 @@ function renderStream(items){
 function evRow(it, fresh){
   var row = document.createElement('div');
   row.className = 'ev' + (it.action === 'remove_ip' ? ' remove' : '');
+  if (fresh) row.classList.add('born');
   row.dataset.eid = it.id;
-  if (!fresh) row.style.animation = 'none';
   row.innerHTML =
     '<span class="tm">' + esc(hms(it.timestamp)) + '</span>' +
     '<span class="dm" title="' + esc(it.domain) + '">' + esc(it.domain) + '</span>' +
