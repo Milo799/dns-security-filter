@@ -799,10 +799,14 @@ function pollDefense(){
   ]).then(function(rs){
     var status = rs[0], breaker = rs[1], sources = rs[2];
     S._breaker = breaker;
+    /* 离线情报库：所有离线源 total 之和（在库规模，含停用源的在库数据）。
+       注意：接口返回无 enabled 字段（None），真实字段是 total/enabled_cnt，
+       按 enabled 过滤会全排除得 0——生产 09-29 实锤。 */
     var rows = 0, srcCnt = 0;
     if (sources && sources.items){
       sources.items.forEach(function(s){
-        if (s.enabled){ rows += s.enabled_cnt || 0; srcCnt++; }
+        rows += s.total || 0;
+        srcCnt++;
       });
     }
     var ti = status.threatintel_sources || [];
