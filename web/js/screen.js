@@ -20,9 +20,27 @@ var REASON_MAP = {
 var SOURCE_COLORS = {
   local_blacklist: '#fb4d6d',
   threat_list: '#22d3ee',
+  nrd: '#60a5fa',
   threatintel: '#a78bfa',
   ip_filter: '#fbbf24'
 };
+/* ═══ 五层防御环（核心即链路，迭代 46） ═══ */
+var LAYERS = [
+  {key: 'local_blacklist', label: 'L1 本地名单', hue: 348, r: 150, share: 0, count: 0, flash: 0, color: '#fb4d6d'},
+  {key: 'threat_list',    label: 'L2 离线大名单', hue: 190, r: 180, share: 0, count: 0, flash: 0, color: '#22d3ee'},
+  {key: 'nrd',            label: 'L3 NRD 检测',  hue: 220, r: 210, share: 0, count: 0, flash: 0, color: '#60a5fa'},
+  {key: 'threatintel',    label: 'L4 在线情报',  hue: 265, r: 240, share: 0, count: 0, flash: 0, color: '#a78bfa'},
+  {key: 'ip_filter',      label: 'L5 IP 后置',   hue: 42,  r: 270, share: 0, count: 0, flash: 0, color: '#fbbf24'}
+];
+function reasonToLayer(r){
+  if (!r) return 1;
+  if (r === 'local_blacklist') return 0;
+  if (r.indexOf('threat_list') === 0) return 1;
+  if (r.indexOf('nrd') === 0) return 2;
+  if (r.indexOf('threatintel') === 0) return 3;
+  if (r === 'ip_filter') return 4;
+  return 1;
+}
 
 /* ── 全局状态 ───────────────────────────────────────────── */
 var S = {
@@ -37,7 +55,7 @@ var S = {
   core: {
     intensity: 0.35, intensityT: 0.35,
     levelT: 0, levelTarget: 0,
-    rot: 0, blips: [], shocks: []
+    rot: 0, blips: [], shocks: [], flow: [], absorbs: []
   },
   booted: false
 };
@@ -224,14 +242,17 @@ function coreHue(){
   else h = 42 + (348 - 42) * ((t - 0.5) * 2);
   return h;
 }
-function coreAddBlip(kind){
+function coreAddBlip(kind, reason){
   var c = S.core;
+  var ly = LAYERS[reasonToLayer(reason)];
+  ly.flash = 1;
   c.blips.push({
     ang: Math.random() * Math.PI * 2,
     spd: (0.15 + Math.random() * 0.3) * (Math.random() < 0.5 ? 1 : -1),
-    rad: 288 + Math.random() * 40,
+    rad: ly.r + (Math.random() - 0.5) * 10,
     size: 2 + Math.random() * 2.5,
     kind: kind || 'intercept',
+    hue: ly.hue,
     life: 1
   });
   if (c.blips.length > 42) c.blips.splice(0, c.blips.length - 42);
@@ -324,6 +345,22 @@ function drawCore(t){
   c.strokeStyle = col(0.12); c.lineWidth = 5;
   c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2); c.stroke();
 
+  /* 5.6 五层防御环（核心即链路：环亮度=该层今日拦截占比，拦截事件层爆闪） */
+  var li2;
+  for (li2 = 0; li2 < LAYERS.length; li2++){
+    var ly2 = LAYERS[li2];
+    ly2.flash = Math.max(0, ly2.flash - 0.025);
+    var la = 0.07 + ly2.share * 0.45 + ly2.flash * 0.55;
+    c.strokeStyle = 'hsla(' + ly2.hue + ',90%,64%,' + Math.min(1, la).toFixed(3) + ')';
+    c.lineWidth = ly2.flash > 0.02 ? 2.4 : 1.1;
+    c.beginPath(); c.arc(cx, cy, ly2.r, 0, Math.PI * 2); c.stroke();
+    c.fillStyle = 'hsla(' + ly2.hue + ',90%,72%,' + Math.min(1, 0.30 + ly2.share * 0.6 + ly2.flash).toFixed(3) + ')';
+    c.font = '600 11px Consolas, monospace';
+    c.textAlign = 'center';
+    c.fillText(ly2.label, cx, cy - ly2.r - 6);
+    c.textAlign = 'left';
+  }
+
   /* 6. 等离子能量核 */
   var pr = 96 * pulse + inten * 26;
   var g1 = c.createRadialGradient(cx, cy, 0, cx, cy, pr * 1.7);
@@ -342,6 +379,53 @@ function drawCore(t){
     c.stroke();
   }
 
+  /* 6.8 查询粒子流：从环外持续流向核心，~rate% 在某层被拦（层爆闪+驻留光点），其余到达核心被吸收 */
+  if (Math.random() < 0.10 && st.flow.length < 90){
+    var tgt = -1;
+    if (Math.random() * 100 < (S._rate || 7)){
+      var tw = Math.random(), acc2 = 0, li3;
+      for (li3 = 0; li3 < LAYERS.length; li3++){
+        acc2 += LAYERS[li3].share;
+        if (tw <= acc2){ tgt = li3; break; }
+      }
+      if (tgt < 0) tgt = 1;
+    }
+    st.flow.push({a: Math.random() * Math.PI * 2, r: 360,
+      sp: 150 + Math.random() * 110, tgt: tgt});
+  }
+  for (i = st.flow.length - 1; i >= 0; i--){
+    var fp = st.flow[i];
+    fp.r -= fp.sp * dt / 1000;
+    if (fp.tgt >= 0 && fp.r <= LAYERS[fp.tgt].r){
+      LAYERS[fp.tgt].flash = 1;
+      coreAddBlip('intercept', LAYERS[fp.tgt].key);
+      st.flow.splice(i, 1);
+      continue;
+    }
+    if (fp.tgt < 0 && fp.r <= 105){
+      st.absorbs.push({r: 105, a: 0.5});
+      st.flow.splice(i, 1);
+      continue;
+    }
+    var fpx = cx + Math.cos(fp.a) * fp.r, fpy = cy + Math.sin(fp.a) * fp.r * 0.98;
+    c.fillStyle = col(0.8);
+    c.shadowColor = col(1); c.shadowBlur = 6;
+    c.beginPath(); c.arc(fpx, fpy, 1.8, 0, Math.PI * 2); c.fill();
+    c.shadowBlur = 0;
+    var ftx = cx + Math.cos(fp.a) * (fp.r + 14), fty = cy + Math.sin(fp.a) * (fp.r + 14) * 0.98;
+    c.strokeStyle = col(0.28); c.lineWidth = 1;
+    c.beginPath(); c.moveTo(ftx, fty); c.lineTo(fpx, fpy); c.stroke();
+  }
+  /* 放行吸收微光环 */
+  for (i = st.absorbs.length - 1; i >= 0; i--){
+    var ab = st.absorbs[i];
+    ab.r -= 1.2; ab.a -= 0.02;
+    if (ab.a <= 0){ st.absorbs.splice(i, 1); continue; }
+    c.strokeStyle = col(ab.a * 0.6);
+    c.lineWidth = 1.5;
+    c.beginPath(); c.arc(cx, cy, Math.max(10, ab.r), 0, Math.PI * 2); c.stroke();
+  }
+
   /* 7. 威胁光点（事件驱动） */
   for (i = st.blips.length - 1; i >= 0; i--){
     var b = st.blips[i];
@@ -350,7 +434,7 @@ function drawCore(t){
     if (b.life <= 0){ st.blips.splice(i, 1); continue; }
     var bx = cx + Math.cos(b.ang) * b.rad;
     var by = cy + Math.sin(b.ang) * b.rad * 0.98;
-    var bhue = b.kind === 'remove' ? 42 : 348;
+    var bhue = b.hue || (b.kind === 'remove' ? 42 : 348);
     var ba = Math.min(1, b.life * 3);
     c.fillStyle = 'hsla(' + bhue + ',95%,64%,' + (0.9 * ba) + ')';
     c.shadowColor = 'hsla(' + bhue + ',95%,60%,1)';
@@ -578,6 +662,7 @@ function renderStatus(d){
     var dq = total - S.lastTotal;
     if (dq >= 0) S.qps = dq / ((now - S.lastTotalAt) / 1000);
   }
+  S._rate = rate;
   S.lastTotal = total; S.lastTotalAt = now;
   satSet('satBoxRate', 'satQps', Math.round(S.qps * 10) / 10, '', 1);
   var fq = $('ftQps');
@@ -624,7 +709,7 @@ function renderStream(items){
           r.style.opacity = '1';
         });
       })(row);
-      coreAddBlip(it.action === 'remove_ip' ? 'remove' : 'intercept');
+      coreAddBlip(it.action === 'remove_ip' ? 'remove' : 'intercept', it.filter_reason);
       spawnMeteor();
     }
     while (box.children.length > STREAM_SIZE && box.firstChild){
@@ -699,6 +784,17 @@ function renderBreakdown(d){
     for (var i = 0; i < segs.length; i++) segs[i].style.width = segs[i].dataset.w + '%';
   });
 
+  /* 五层防御环：占比 + 读数面板 */
+  var lsum = 0, li4;
+  for (li4 = 0; li4 < LAYERS.length; li4++){
+    var hit = src.filter(function(x){ return x.key === LAYERS[li4].key; })[0];
+    LAYERS[li4].count = hit ? hit.count : 0;
+    lsum += LAYERS[li4].count;
+  }
+  for (li4 = 0; li4 < LAYERS.length; li4++)
+    LAYERS[li4].share = lsum > 0 ? LAYERS[li4].count / lsum : 0;
+  renderLayerChips();
+
   /* TOP 域名榜 */
   renderRank($('topDomains'), d.top_domains || [], 'domain', sum);
 
@@ -730,6 +826,20 @@ function renderRank(box, rows, key, total){
     var bars = box.querySelectorAll('.bar i');
     for (var i = 0; i < bars.length; i++) bars[i].style.width = bars[i].dataset.w + '%';
   });
+}
+function renderLayerChips(){
+  var box = $('layerChips');
+  if (!box) return;
+  box.innerHTML = LAYERS.map(function(ly){
+    var off = ly.count === 0;
+    return '<div class="lyr' + (off ? ' off' : '') + '">' +
+      '<span class="dot" style="background:' + ly.color + ';color:' + ly.color + '"></span>' +
+      '<span class="tx"><span class="nm">' + ly.label + '</span>' +
+      '<span class="vl">' + fmt(ly.count) + '<small>' + (ly.share * 100).toFixed(1) + '%</small></span>' +
+      '<span class="bar"><i style="width:' + (ly.share * 100).toFixed(1) +
+      '%;background:' + ly.color + ';color:' + ly.color + '"></i></span>' +
+      '</span></div>';
+  }).join('');
 }
 function renderDefense(d){
   var rows = [];

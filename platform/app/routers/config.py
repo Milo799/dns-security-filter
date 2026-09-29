@@ -465,13 +465,15 @@ def status_breakdown(days: int = 7, top: int = 10, scope: str | None = None,
                      _: str = Depends(get_current_user)):
     """拦截来源构成 + Top 拦截域名（仪表盘态势图用，只读）。
 
-    来源按 filter_reason 前缀归类：
+    来源按 filter_reason 前缀归类（迭代 46 起五段，供大屏五层防御环）：
       local_blacklist → 本地黑名单；threat_list → 离线大名单；
+      nrd             → NRD 新注册域名（nrd + nrd_offline 拦截，
+                        不含 nrd_observe/nrd_offline_observe 观察行）；
       threatintel:*   → 在线情报；  ip_filter      → IP 后置过滤。
 
     窗口口径（迭代 38）：
       scope=today → 自然日（今日 00:00 起，与威胁总览大数字带同口径，
-                     来源构成四段之和 = 今日拦截+剔除，可直接对账）；
+                     来源构成五段之和 = 今日拦截+剔除，可直接对账）；
       默认 days=N → 过去 N*24h 滚动窗（向后兼容旧行为）。
       注意 days=1 是滚动 24h 不是自然日，两者在上午时段差异显著。
     时间窗口统一本地时区（filter_log.timestamp 存 localtime；
@@ -492,6 +494,8 @@ def status_breakdown(days: int = 7, top: int = 10, scope: str | None = None,
                      THEN 1 ELSE 0 END) AS local_blacklist,
                  SUM(CASE WHEN filter_reason LIKE 'threat_list%'
                      THEN 1 ELSE 0 END) AS threat_list,
+                 SUM(CASE WHEN filter_reason IN ('nrd','nrd_offline')
+                     THEN 1 ELSE 0 END) AS nrd,
                  SUM(CASE WHEN filter_reason LIKE 'threatintel:%'
                      THEN 1 ELSE 0 END) AS threatintel,
                  SUM(CASE WHEN filter_reason='ip_filter'
@@ -506,6 +510,8 @@ def status_breakdown(days: int = 7, top: int = 10, scope: str | None = None,
              "count": row["local_blacklist"] or 0},
             {"key": "threat_list", "label": "离线大名单",
              "count": row["threat_list"] or 0},
+            {"key": "nrd", "label": "NRD 检测",
+             "count": row["nrd"] or 0},
             {"key": "threatintel", "label": "在线情报",
              "count": row["threatintel"] or 0},
             {"key": "ip_filter", "label": "IP 后置",

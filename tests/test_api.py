@@ -419,7 +419,15 @@ def test_status_breakdown(client, token):
                       ('10.0.0.8', 'bd-b.test', 'A', 'threatintel:any:urlhaus',
                        'intercept', '', 'alert_ip:1.2.3.4', 'urlhaus'),
                       ('', 'bd-c.test', 'A', 'ip_filter', 'remove_ip',
-                       '6.6.6.6', 'remaining_ips:7.7.7.7', '')"""
+                       '6.6.6.6', 'remaining_ips:7.7.7.7', ''),
+                      ('10.0.0.9', 'bd-nrd.test', 'A', 'nrd', 'intercept',
+                       '', 'alert_ip:1.2.3.4', 'rdap_nrd'),
+                      ('10.0.0.9', 'bd-nrd2.test', 'A', 'nrd_offline', 'intercept',
+                       '', 'alert_ip:1.2.3.4', 'hagezi_nrd'),
+                      ('10.0.0.9', 'bd-obs.test', 'A', 'nrd_observe', 'observe',
+                       '', 'observe', 'rdap_nrd'),
+                      ('10.0.0.9', 'bd-obs2.test', 'A', 'nrd_offline_observe',
+                       'observe', '', 'observe', 'hagezi_nrd')"""
         )
     r = client.get("/api/status/breakdown", headers=_h(token))
     assert r.status_code == 200
@@ -430,6 +438,11 @@ def test_status_breakdown(client, token):
     assert by["threat_list"] >= 1
     assert by["threatintel"] >= 1
     assert by["ip_filter"] >= 1
+    # 迭代 46：NRD 段——nrd + nrd_offline 拦截计入，observe 观察行排除
+    assert by["nrd"] >= 2
+    assert all(s["key"] in ("local_blacklist", "threat_list", "nrd",
+                            "threatintel", "ip_filter")
+               for s in data["sources"])
     assert any(t["domain"] == "bd-a.test" and t["count"] >= 2
                for t in data["top_domains"])
     # 客户端 Top（空 client_ip 不参与）

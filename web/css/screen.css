@@ -597,3 +597,21 @@ body{font-family:var(--sans);color:var(--text-mid);-webkit-font-smoothing:antial
   .hd-title,.hd-wing::after,.grid-floor,.ticker-inner,.orbit-spin,.sat-inner,.sat-orb,
   .hd-light i,.sect-extra.live i,.def-row .dl,.cap-pulse{animation:none !important}
 }
+
+/* ═══ 五层防御环读数面板（迭代 46）：核心左侧 ═══ */
+.layer-chips{
+  position:absolute;left:1%;top:47%;transform:translateY(-50%);z-index:7;
+  display:flex;flex-direction:column;gap:14px;pointer-events:none;
+}
+.lyr{display:flex;align-items:center;gap:10px;transition:opacity .6s}
+.lyr .dot{width:10px;height:10px;flex:none;border-radius:50%;box-shadow:0 0 10px currentColor}
+.lyr .tx{display:flex;flex-direction:column;gap:1px;min-width:0}
+.lyr .nm{font:600 11px var(--mono);letter-spacing:2px;color:var(--text-mid);white-space:nowrap}
+.lyr .vl{font:700 17px var(--mono);color:#eaf6ff;font-variant-numeric:tabular-nums;
+  text-shadow:0 0 10px rgba(34,211,238,.4)}
+.lyr .vl small{font:600 10px var(--mono);color:var(--text-dim);margin-left:6px}
+.lyr .bar{width:120px;height:3px;border-radius:2px;background:rgba(56,150,220,.12);margin-top:3px;overflow:hidden}
+.lyr .bar i{display:block;height:100%;border-radius:2px;box-shadow:0 0 8px currentColor;
+  transition:width 1s cubic-bezier(.22,1,.36,1)}
+.lyr.off{opacity:.42}
+.lyr.off .nm::after{content:" · 停用";color:var(--text-dim);font-size:9px}
