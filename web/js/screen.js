@@ -393,10 +393,12 @@ function sizeDomCanvases(){
     el.width = o.w; el.height = o.h;
     o.cv = el; o.cx = el.getContext('2d');
   });
-  if (S.trend) drawTrend();
+  if (S.trend) drawTrend(0);
   drawWave();
 }
-function drawTrend(){
+/* 趋势图（24H）：每帧渲染——扫描光带/曲线流光/当前柱呼吸/数据生长过渡 */
+var trendAnim = {hi: [], hr: []};   // 柱高动画当前值（lerp 逼近目标）
+function drawTrend(t){
   if (!tr.cx || !S.trend || !S.trend.length) return;
   var c = tr.cx, W = tr.w, H = tr.h;
   var items = S.trend;
@@ -407,6 +409,7 @@ function drawTrend(){
   for (i = 0; i < items.length; i++)
     max = Math.max(max, items[i].intercepts + items[i].removes);
   max *= 1.15;
+  /* 网格 */
   c.strokeStyle = 'rgba(94,160,220,.14)'; c.lineWidth = 1;
   var gy;
   for (i = 1; i <= 3; i++){
@@ -414,26 +417,40 @@ function drawTrend(){
     c.beginPath(); c.moveTo(padL, gy); c.lineTo(W - padR, gy); c.stroke();
   }
   var n = items.length, bw = cw / n;
+  /* 柱高动画目标值与缓动 */
+  if (trendAnim.hi.length !== n){
+    trendAnim.hi = items.map(function(it){ return ch * it.intercepts / max; });
+    trendAnim.hr = items.map(function(it){ return ch * it.removes / max; });
+  }
   for (i = 0; i < n; i++){
-    var it = items[i];
+    var thi = ch * items[i].intercepts / max;
+    var thr = ch * items[i].removes / max;
+    trendAnim.hi[i] += (thi - trendAnim.hi[i]) * 0.08;
+    trendAnim.hr[i] += (thr - trendAnim.hr[i]) * 0.08;
+  }
+  /* 柱：拦截红 + 剔除琥珀 堆叠（当前小时呼吸脉动） */
+  for (i = 0; i < n; i++){
     var x = padL + i * bw + bw * 0.2;
     var bwid = bw * 0.6;
-    var hi = ch * it.intercepts / max, hr = ch * it.removes / max;
+    var hi = trendAnim.hi[i], hr = trendAnim.hr[i];
     var last = (i === n - 1);
-    c.fillStyle = last ? 'rgba(251,77,109,.95)' : 'rgba(251,77,109,.62)';
+    var ba = last ? (0.72 + 0.23 * Math.sin(t / 380)) : 1;
+    c.fillStyle = last ? 'rgba(251,77,109,' + (0.95 * ba).toFixed(3) + ')'
+                       : 'rgba(251,77,109,.62)';
     c.fillRect(x, padT + ch - hi, bwid, hi);
-    c.fillStyle = last ? 'rgba(251,191,36,.95)' : 'rgba(251,191,36,.55)';
+    c.fillStyle = last ? 'rgba(251,191,36,' + (0.95 * ba).toFixed(3) + ')'
+                       : 'rgba(251,191,36,.55)';
     c.fillRect(x, padT + ch - hi - hr, bwid, hr);
   }
   /* 总量平滑曲线 */
-  c.strokeStyle = 'rgba(126,231,252,.9)'; c.lineWidth = 2.4;
-  c.shadowColor = 'rgba(34,211,238,.8)'; c.shadowBlur = 10;
-  c.beginPath();
   var pts = [];
   for (i = 0; i < n; i++){
     pts.push([padL + i * bw + bw / 2,
-              padT + ch - ch * (items[i].intercepts + items[i].removes) / max]);
+              padT + ch - (trendAnim.hi[i] + trendAnim.hr[i])]);
   }
+  c.strokeStyle = 'rgba(126,231,252,.9)'; c.lineWidth = 2.4;
+  c.shadowColor = 'rgba(34,211,238,.8)'; c.shadowBlur = 10;
+  c.beginPath();
   c.moveTo(pts[0][0], pts[0][1]);
   for (i = 1; i < pts.length; i++){
     var xc = (pts[i - 1][0] + pts[i][0]) / 2, yc = (pts[i - 1][1] + pts[i][1]) / 2;
@@ -441,6 +458,34 @@ function drawTrend(){
   }
   c.lineTo(pts[pts.length - 1][0], pts[pts.length - 1][1]);
   c.stroke();
+  c.shadowBlur = 0;
+  /* 扫描光带：周期从左扫到右，扫过区域微亮（雷达刷新感） */
+  var scanP = (t % 12000) / 12000;
+  var scanX = padL + scanP * cw;
+  var sg = c.createLinearGradient(padL, 0, scanX, 0);
+  sg.addColorStop(0, 'rgba(126,231,252,0)');
+  sg.addColorStop(0.85, 'rgba(126,231,252,.03)');
+  sg.addColorStop(1, 'rgba(126,231,252,.10)');
+  c.fillStyle = sg;
+  c.fillRect(padL, padT, Math.max(0, scanX - padL), ch);
+  c.fillStyle = 'rgba(126,231,252,.30)';
+  c.fillRect(scanX - 1.5, padT, 1.5, ch);
+  /* 曲线流光点：沿总量曲线循环行进 + 拖尾 */
+  var prog = (t % 9000) / 9000 * (n - 1);
+  var pi = Math.min(n - 2, Math.floor(prog)), pf2 = prog - pi;
+  var fx = pts[pi][0] + (pts[pi + 1][0] - pts[pi][0]) * pf2;
+  var fy = pts[pi][1] + (pts[pi + 1][1] - pts[pi][1]) * pf2;
+  for (i = 1; i <= 4; i++){   /* 拖尾（沿曲线回退） */
+    var tp = Math.max(0, prog - i * 0.35);
+    var ti2 = Math.min(n - 2, Math.floor(tp)), tf = tp - ti2;
+    var tx = pts[ti2][0] + (pts[ti2 + 1][0] - pts[ti2][0]) * tf;
+    var ty = pts[ti2][1] + (pts[ti2 + 1][1] - pts[ti2][1]) * tf;
+    c.fillStyle = 'rgba(126,231,252,' + (0.28 - i * 0.06).toFixed(3) + ')';
+    c.beginPath(); c.arc(tx, ty, 3.5 - i * 0.5, 0, Math.PI * 2); c.fill();
+  }
+  c.fillStyle = 'rgba(224,251,255,.98)';
+  c.shadowColor = 'rgba(126,231,252,1)'; c.shadowBlur = 14;
+  c.beginPath(); c.arc(fx, fy, 4.5, 0, Math.PI * 2); c.fill();
   c.shadowBlur = 0;
   /* X 轴刻度（每 4 小时），画布 2x 分辨率，字号同步 2x */
   c.fillStyle = 'rgba(148,197,255,.5)';
@@ -851,6 +896,7 @@ function loop(t){
   try {
     drawBg(t || 0);
     drawCore(t || 0);
+    drawTrend(t || 0);
   } catch (e){ /* 单帧异常不致命，下一帧继续 */ }
   requestAnimationFrame(loop);
 }
