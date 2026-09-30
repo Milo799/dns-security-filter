@@ -425,6 +425,8 @@ def status_hourly(hours: int = 24, _: str = Depends(get_current_user)):
                    AS local_blacklist,
                  SUM(CASE WHEN filter_reason LIKE 'threat_list%' THEN 1 ELSE 0 END)
                    AS threat_list,
+                 SUM(CASE WHEN filter_reason IN ('nrd','nrd_offline') THEN 1 ELSE 0 END)
+                   AS nrd,
                  SUM(CASE WHEN filter_reason LIKE 'threatintel:%' THEN 1 ELSE 0 END)
                    AS threatintel,
                  SUM(CASE WHEN filter_reason='ip_filter' THEN 1 ELSE 0 END)
@@ -453,6 +455,7 @@ def status_hourly(hours: int = 24, _: str = Depends(get_current_user)):
             "removes": r.get("removes") or 0,
             "local_blacklist": r.get("local_blacklist") or 0,
             "threat_list": r.get("threat_list") or 0,
+            "nrd": r.get("nrd") or 0,
             "threatintel": r.get("threatintel") or 0,
             "ip_filter": r.get("ip_filter") or 0,
         })

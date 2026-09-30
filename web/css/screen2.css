@@ -346,7 +346,7 @@ body{font-family:var(--sans);color:var(--text-mid);-webkit-font-smoothing:antial
 }
 .ft-label b{font-size:14px;letter-spacing:3px;color:#dff1ff}
 .ft-label small{font:600 8.5px var(--mono);letter-spacing:1.5px;color:var(--text-dim)}
-#profileCanvas{flex:1;height:100%}
+#heatCanvas{flex:1;height:100%}
 
 /* ── 登录遮罩 ────────────────────────────────────────────── */
 .login-overlay{

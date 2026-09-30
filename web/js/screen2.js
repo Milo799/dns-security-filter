@@ -42,6 +42,7 @@ var S = {
   token: localStorage.getItem('dnsf_token') || '',
   lastStreamId: 0, streamReady: false,
   rate: 0, total: 0, blocked: 0, allows: 0,
+  hourly: null,
   layers: LAYERS.map(function(){ return {count: 0, active: true, share: 0, h: 30, flash: 0}; }),
   flow: [], caps: [], absorbs: [],
   booted: false
@@ -385,113 +386,87 @@ function drawChain(t){
   c.textAlign = 'left';
 }
 
-/* ═══════════════ 底部：通过剖面流带 ═══════════════ */
-var pf = {cv: null, cx: null, w: 0, h: 0};
-var pfCur = null;   // 当前动画值 {total, layers[5], allow}
+/* ═══════════════ 底部：24H 分层拦截热力图 ═══════════════
+   五层 × 24 小时格阵：亮度=该层该小时拦截量（sqrt 映射+全局归一），
+   与中央流水线互补——中央=实时透视，底部=全天回顾。
+*/
+var hm = {cv: null, cx: null, w: 0, h: 0};
+var HM_PADL = 116, HM_PADR = 96, HM_PADT = 6, HM_PADB = 22;
 
-function drawProfile(t){
-  if (!pf.cx) return;
-  var c = pf.cx, W = pf.w, H = pf.h;
+function hexRgb(hex){
+  return [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16),
+          parseInt(hex.slice(5, 7), 16)];
+}
+function drawHeat(t){
+  if (!hm.cx) return;
+  var c = hm.cx, W = hm.w, H = hm.h;
   c.clearRect(0, 0, W, H);
-  var total = S.total, allow = S.allows;
-  if (total <= 0){
+  var items = S.hourly;
+  if (!items || !items.length){
     c.fillStyle = 'rgba(148,197,255,.4)';
     c.font = '600 24px Consolas, monospace';
-    c.fillText('剖面采样中…', 24, H / 2);
+    c.fillText('热力采样中…', 24, H / 2);
     return;
   }
-  /* sqrt 缩放厚度（拦截占比小但须可见） */
-  var maxT = H * 0.52;
-  var f = function(v){ return Math.sqrt(Math.max(v, 0) / total) * maxT; };
-  /* 动画缓动 */
-  var tgt = {total: f(total), allow: f(allow), layers: S.layers.map(function(l){ return f(l.count); })};
-  if (!pfCur) pfCur = JSON.parse(JSON.stringify(tgt));
-  var k = 0.06;
-  pfCur.total += (tgt.total - pfCur.total) * k;
-  pfCur.allow += (tgt.allow - pfCur.allow) * k;
-  for (var i = 0; i < 5; i++) pfCur.layers[i] += (tgt.layers[i] - pfCur.layers[i]) * k;
+  var cols = items.length, rows = 5, i, j;
+  var gw = (W - HM_PADL - HM_PADR) / cols;
+  var gh = (H - HM_PADT - HM_PADB) / rows;
+  var cw = Math.max(2, gw - 4), chh = Math.max(2, gh - 4);
+  /* 全局归一（sqrt 提升小数值可见度） */
+  var vmax = 1;
+  for (i = 0; i < rows; i++)
+    for (j = 0; j < cols; j++)
+      vmax = Math.max(vmax, items[j][LAYERS[i].key] || 0);
+  /* 行末层合计（今日口径=24h 合计） */
+  var rowSum = [0, 0, 0, 0, 0];
+  for (i = 0; i < rows; i++)
+    for (j = 0; j < cols; j++) rowSum[i] += items[j][LAYERS[i].key] || 0;
 
-  var yc = H * 0.40;
-  var x0 = 10, x1 = W - 150;
-  var bx = [];   // 分流点 x
-  for (i = 0; i < 5; i++) bx.push(x0 + 190 + i * ((x1 - x0 - 320) / 4));
-
-  /* 主带：左→右逐渐变细 */
-  var x, remain, peelSum;
-  c.beginPath();
-  var topPts = [], botPts = [];
-  for (x = x0; x <= x1; x += 8){
-    remain = pfCur.total;
-    for (i = 0; i < 5; i++) if (x > bx[i]) remain -= pfCur.layers[i];
-    remain = Math.max(remain, pfCur.allow);
-    topPts.push([x, yc - remain / 2]);
-    botPts.push([x, yc + remain / 2]);
-  }
-  c.beginPath();
-  c.moveTo(topPts[0][0], topPts[0][1]);
-  for (i = 1; i < topPts.length; i++) c.lineTo(topPts[i][0], topPts[i][1]);
-  for (i = botPts.length - 1; i >= 0; i--) c.lineTo(botPts[i][0], botPts[i][1]);
-  c.closePath();
-  var gm = c.createLinearGradient(x0, 0, x1, 0);
-  gm.addColorStop(0, 'rgba(34,211,238,.34)');
-  gm.addColorStop(0.8, 'rgba(34,211,238,.20)');
-  gm.addColorStop(1, 'rgba(52,211,153,.30)');
-  c.fillStyle = gm;
-  c.fill();
-  c.strokeStyle = 'rgba(126,231,252,.55)'; c.lineWidth = 1.4;
-  c.stroke();
-
-  /* 五条分流（向下汇入拦截池） */
-  for (i = 0; i < 5; i++){
-    var th = pfCur.layers[i];
-    if (th < 1.5) th = 1.5;   // 最小可见
-    var active = S.layers[i].active;
-    var colB = active ? LAYERS[i].color : '#64748b';
-    var sx = bx[i], syTop = yc + pfCur.total / 2 - 2;
-    for (var q = 0; q < i; q++) syTop -= 0;   // 占位：分支从主带底缘分出
-    /* 分流曲线 */
-    var ey = H - 30;
-    c.beginPath();
-    c.moveTo(sx - th / 2, syTop);
-    c.quadraticCurveTo(sx - th / 2, syTop + (ey - syTop) * 0.55, sx - th / 2 - 8, ey);
-    c.lineTo(sx + th / 2 - 8, ey);
-    c.quadraticCurveTo(sx + th / 2, syTop + (ey - syTop) * 0.55, sx + th / 2, syTop);
-    c.closePath();
-    c.fillStyle = colB + '55';
-    c.fill();
-    c.strokeStyle = colB + 'cc';
-    c.lineWidth = 1.2;
-    c.stroke();
-    /* 分支标签 */
-    c.textAlign = 'center';
-    c.fillStyle = active ? colB : 'rgba(100,116,139,.8)';
-    c.font = '700 19px Consolas, monospace';
-    c.fillText(LAYERS[i].tag, sx - 8, ey + 24);
-    c.font = '600 14px "Microsoft YaHei", sans-serif';
-    c.fillStyle = 'rgba(190,224,255,.7)';
-    c.fillText(fmt(S.layers[i].count), sx - 8, ey + 42);
+  for (i = 0; i < rows; i++){
+    var ly = LAYERS[i];
+    var y = HM_PADT + i * gh;
+    /* 层标签 */
+    var rgb = hexRgb(ly.color);
+    c.fillStyle = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',.95)';
+    c.font = '700 17px Consolas, monospace';
     c.textAlign = 'left';
+    c.fillText(ly.tag, 6, y + gh / 2 + 5);
+    c.fillStyle = 'rgba(190,224,255,.75)';
+    c.font = '600 14px "Microsoft YaHei", sans-serif';
+    c.fillText(ly.name, 42, y + gh / 2 + 5);
+    /* 行末合计 */
+    c.textAlign = 'right';
+    c.fillStyle = 'rgba(234,246,255,.9)';
+    c.font = '700 17px Consolas, monospace';
+    c.fillText(fmt(rowSum[i]), W - 8, y + gh / 2 + 5);
+    c.textAlign = 'left';
+    /* 格阵 */
+    for (j = 0; j < cols; j++){
+      var v = items[j][ly.key] || 0;
+      var x = HM_PADL + j * gw;
+      var cur = (j === cols - 1);
+      if (v > 0){
+        var a = 0.14 + 0.86 * Math.sqrt(v / vmax);
+        if (cur) a = Math.min(1, a * (0.75 + 0.25 * Math.sin(t / 300)));
+        c.fillStyle = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + a.toFixed(3) + ')';
+        c.fillRect(x, y, cw, chh);
+      } else {
+        c.fillStyle = 'rgba(56,150,220,.05)';
+        c.fillRect(x, y, cw, chh);
+        c.strokeStyle = 'rgba(56,150,220,.10)';
+        c.lineWidth = 1;
+        c.strokeRect(x + 0.5, y + 0.5, cw - 1, chh - 1);
+      }
+    }
   }
-
-  /* 左端 / 右端大数字 */
-  c.textAlign = 'left';
-  c.fillStyle = 'rgba(234,246,255,.95)';
-  c.font = '700 26px Consolas, monospace';
-  c.shadowColor = 'rgba(34,211,238,.6)'; c.shadowBlur = 10;
-  c.fillText(fmt(total), x0 + 4, yc - pfCur.total / 2 - 14);
-  c.shadowBlur = 0;
-  c.font = '600 11px "Microsoft YaHei", sans-serif';
-  c.fillStyle = 'rgba(148,197,255,.6)';
-  c.fillText('查询总量', x0 + 4, yc - pfCur.total / 2 - 40);
-  c.textAlign = 'right';
-  c.fillStyle = 'rgba(233,255,246,.95)';
-  c.font = '700 26px Consolas, monospace';
-  c.shadowColor = 'rgba(52,211,153,.6)'; c.shadowBlur = 10;
-  c.fillText(fmt(allow), W - 12, yc - pfCur.allow / 2 - 14);
-  c.shadowBlur = 0;
-  c.font = '600 11px "Microsoft YaHei", sans-serif';
-  c.fillStyle = 'rgba(110,231,183,.65)';
-  c.fillText('穿越放行', W - 12, yc - pfCur.allow / 2 - 40);
+  /* X 轴刻度（每 4 小时） */
+  c.fillStyle = 'rgba(148,197,255,.5)';
+  c.font = '600 13px Consolas, monospace';
+  c.textAlign = 'center';
+  for (j = 0; j < cols; j += 4){
+    c.fillText(items[j].hour.slice(11, 13) + '时',
+               HM_PADL + j * gw + cw / 2, H - 6);
+  }
   c.textAlign = 'left';
 }
 
@@ -669,6 +644,11 @@ function pollLayers(){
     renderLayers((d && d.layers) || []);
   }).catch(function(){});
 }
+function pollHourly(){
+  return api('/api/status/hourly?hours=24').then(function(d){
+    S.hourly = (d && d.items) || [];
+  }).catch(function(){});
+}
 function pollDefense(){
   Promise.all([
     api('/api/status'),
@@ -697,23 +677,24 @@ var timers = [];
 function bootData(){
   if (S.booted) return;
   S.booted = true;
-  pollStatus(); pollStream(); pollLayers(); pollDefense();
+  pollStatus(); pollStream(); pollLayers(); pollHourly(); pollDefense();
   timers.push(setInterval(pollStatus, 10000));
   timers.push(setInterval(pollStream, 3000));
   timers.push(setInterval(pollLayers, 60000));
+  timers.push(setInterval(pollHourly, 60000));
   timers.push(setInterval(pollDefense, 15000));
 }
 
 function sizeCanvases(){
-  var el = $('profileCanvas');
+  var el = $('heatCanvas');
   if (el){
     var stageRect = document.getElementById('stage').getBoundingClientRect();
     var scale = stageRect.width / STAGE_W || 1;
     var r = el.getBoundingClientRect();
-    pf.w = Math.max(80, Math.round(r.width / scale)) * 2;
-    pf.h = Math.max(50, Math.round(r.height / scale)) * 2;
-    el.width = pf.w; el.height = pf.h;
-    pf.cx = el.getContext('2d');
+    hm.w = Math.max(80, Math.round(r.width / scale)) * 2;
+    hm.h = Math.max(50, Math.round(r.height / scale)) * 2;
+    el.width = hm.w; el.height = hm.h;
+    hm.cx = el.getContext('2d');
   }
 }
 
@@ -722,7 +703,7 @@ function loop(t){
   try {
     drawBg(t || 0);
     drawChain(t || 0);
-    drawProfile(t || 0);
+    drawHeat(t || 0);
   } catch (e){ /* 单帧异常不致命，下一帧继续 */ }
   requestAnimationFrame(loop);
 }
