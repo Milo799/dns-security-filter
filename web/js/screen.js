@@ -33,7 +33,6 @@ var S = {
   qps: 0,
   wave: [],
   trend: null,
-  evMinute: null,
   _breaker: null,
   core: {
     intensity: 0.35, intensityT: 0.35,
@@ -394,93 +393,47 @@ function sizeDomCanvases(){
     el.width = o.w; el.height = o.h;
     o.cv = el; o.cx = el.getContext('2d');
   });
-  if (S.trend) drawTrend(0);
+  if (S.trend) drawTrend();
   drawWave();
 }
-/* 趋势图（24H）：小时区（前段）+ 分钟区（后段 30 分钟，细颗粒流动）
-   每帧渲染——扫描光带/曲线流光/当前柱呼吸/数据生长过渡 */
-var trendAnim = {hi: [], hr: []};   // 柱高动画当前值（lerp 逼近目标）
-var MIN_SPLIT = 18;                 // 前 18 格=小时，后 10 格=分钟（10 分钟窗）
-function drawTrend(t){
+function drawTrend(){
   if (!tr.cx || !S.trend || !S.trend.length) return;
   var c = tr.cx, W = tr.w, H = tr.h;
-  var hourly = S.trend;             // 24 小时
-  /* 分钟段：事件流按分钟聚合最近 10 分钟（10 格） */
-  var mins = [];
-  if (S.evMinute && S.evMinute.length){
-    mins = S.evMinute;
-  }
-  /* 组合序列：小时[0..17] + 分钟[0..11] */
-  var n = MIN_SPLIT + 10;
-  var items = [];
-  var i, j;
-  for (i = 0; i < Math.min(MIN_SPLIT, hourly.length); i++)
-    items.push({label: hourly[i].hour.slice(11, 13) + '时',
-                intercepts: hourly[i].intercepts, removes: hourly[i].removes,
-                kind: 'hour'});
-  for (i = 0; i < 10; i++){
-    var m = mins.length > i ? mins[i] : {label: '', intercepts: 0, removes: 0};
-    items.push({label: m.label || '', intercepts: m.intercepts || 0,
-                removes: m.removes || 0, kind: 'min'});
-  }
+  var items = S.trend;
   c.clearRect(0, 0, W, H);
   var padL = 10, padR = 10, padT = 16, padB = 34;
   var cw = W - padL - padR, ch = H - padT - padB;
-  var max = 1;
+  var max = 1, i;
   for (i = 0; i < items.length; i++)
     max = Math.max(max, items[i].intercepts + items[i].removes);
   max *= 1.15;
-  /* 网格 */
   c.strokeStyle = 'rgba(94,160,220,.14)'; c.lineWidth = 1;
   var gy;
   for (i = 1; i <= 3; i++){
     gy = padT + ch * i / 4;
     c.beginPath(); c.moveTo(padL, gy); c.lineTo(W - padR, gy); c.stroke();
   }
-  var bw = cw / n;
-  /* 分区背景：分钟区微亮标出 */
-  var minX0 = padL + MIN_SPLIT * bw;
-  c.fillStyle = 'rgba(34,211,238,.04)';
-  c.fillRect(minX0, padT, W - padR - minX0, ch);
-  c.strokeStyle = 'rgba(126,231,252,.25)';
-  c.lineWidth = 1;
-  c.setLineDash([3, 4]);
-  c.beginPath(); c.moveTo(minX0, padT); c.lineTo(minX0, padT + ch); c.stroke();
-  c.setLineDash([]);
-  /* 柱高动画目标值与缓动 */
-  if (trendAnim.hi.length !== n){
-    trendAnim.hi = items.map(function(it){ return ch * it.intercepts / max; });
-    trendAnim.hr = items.map(function(it){ return ch * it.removes / max; });
-  }
+  var n = items.length, bw = cw / n;
   for (i = 0; i < n; i++){
-    var thi = ch * items[i].intercepts / max;
-    var thr = ch * items[i].removes / max;
-    trendAnim.hi[i] += (thi - trendAnim.hi[i]) * 0.08;
-    trendAnim.hr[i] += (thr - trendAnim.hr[i]) * 0.08;
-  }
-  /* 柱：拦截红 + 剔除琥珀 堆叠（当前柱呼吸脉动） */
-  for (i = 0; i < n; i++){
+    var it = items[i];
     var x = padL + i * bw + bw * 0.2;
     var bwid = bw * 0.6;
-    var hi = trendAnim.hi[i], hr = trendAnim.hr[i];
-    var cur = (i === n - 1);
-    var ba = cur ? (0.72 + 0.23 * Math.sin(t / 380)) : 1;
-    c.fillStyle = cur ? 'rgba(251,77,109,' + (0.95 * ba).toFixed(3) + ')'
-                      : 'rgba(251,77,109,.62)';
+    var hi = ch * it.intercepts / max, hr = ch * it.removes / max;
+    var last = (i === n - 1);
+    c.fillStyle = last ? 'rgba(251,77,109,.95)' : 'rgba(251,77,109,.62)';
     c.fillRect(x, padT + ch - hi, bwid, hi);
-    c.fillStyle = cur ? 'rgba(251,191,36,' + (0.95 * ba).toFixed(3) + ')'
-                      : 'rgba(251,191,36,.55)';
+    c.fillStyle = last ? 'rgba(251,191,36,.95)' : 'rgba(251,191,36,.55)';
     c.fillRect(x, padT + ch - hi - hr, bwid, hr);
   }
   /* 总量平滑曲线 */
-  var pts = [];
-  for (i = 0; i < n; i++){
-    pts.push([padL + i * bw + bw / 2,
-              padT + ch - (trendAnim.hi[i] + trendAnim.hr[i])]);
-  }
   c.strokeStyle = 'rgba(126,231,252,.9)'; c.lineWidth = 2.4;
   c.shadowColor = 'rgba(34,211,238,.8)'; c.shadowBlur = 10;
   c.beginPath();
+  var pts = [];
+  for (i = 0; i < n; i++){
+    pts.push([padL + i * bw + bw / 2,
+              padT + ch - ch * (items[i].intercepts + items[i].removes) / max]);
+  }
   c.moveTo(pts[0][0], pts[0][1]);
   for (i = 1; i < pts.length; i++){
     var xc = (pts[i - 1][0] + pts[i][0]) / 2, yc = (pts[i - 1][1] + pts[i][1]) / 2;
@@ -489,79 +442,15 @@ function drawTrend(t){
   c.lineTo(pts[pts.length - 1][0], pts[pts.length - 1][1]);
   c.stroke();
   c.shadowBlur = 0;
-  /* 扫描光带：周期从左扫到右 */
-  var scanP = (t % 12000) / 12000;
-  var scanX = padL + scanP * cw;
-  var sg = c.createLinearGradient(padL, 0, scanX, 0);
-  sg.addColorStop(0, 'rgba(126,231,252,0)');
-  sg.addColorStop(0.85, 'rgba(126,231,252,.03)');
-  sg.addColorStop(1, 'rgba(126,231,252,.10)');
-  c.fillStyle = sg;
-  c.fillRect(padL, padT, Math.max(0, scanX - padL), ch);
-  c.fillStyle = 'rgba(126,231,252,.30)';
-  c.fillRect(scanX - 1.5, padT, 1.5, ch);
-  /* 曲线流光点 + 拖尾 */
-  var prog = (t % 9000) / 9000 * (n - 1);
-  var pi = Math.min(n - 2, Math.floor(prog)), pf2 = prog - pi;
-  var fx = pts[pi][0] + (pts[pi + 1][0] - pts[pi][0]) * pf2;
-  var fy = pts[pi][1] + (pts[pi + 1][1] - pts[pi][1]) * pf2;
-  for (i = 1; i <= 4; i++){
-    var tp = Math.max(0, prog - i * 0.35);
-    var ti2 = Math.min(n - 2, Math.floor(tp)), tf = tp - ti2;
-    var tx = pts[ti2][0] + (pts[ti2 + 1][0] - pts[ti2][0]) * tf;
-    var ty = pts[ti2][1] + (pts[ti2 + 1][1] - pts[ti2][1]) * tf;
-    c.fillStyle = 'rgba(126,231,252,' + (0.28 - i * 0.06).toFixed(3) + ')';
-    c.beginPath(); c.arc(tx, ty, 3.5 - i * 0.5, 0, Math.PI * 2); c.fill();
-  }
-  c.fillStyle = 'rgba(224,251,255,.98)';
-  c.shadowColor = 'rgba(126,231,252,1)'; c.shadowBlur = 14;
-  c.beginPath(); c.arc(fx, fy, 4.5, 0, Math.PI * 2); c.fill();
-  c.shadowBlur = 0;
-  /* X 轴刻度：小时区每 6 小时、分钟区每 6 分钟 */
+  /* X 轴刻度（每 4 小时），画布 2x 分辨率，字号同步 2x */
   c.fillStyle = 'rgba(148,197,255,.5)';
-  c.font = '600 20px Consolas, monospace';
+  c.font = '600 21px Consolas, monospace';
   c.textAlign = 'center';
-  for (i = 0; i < MIN_SPLIT; i += 6){
-    c.fillText(items[i].label, padL + i * bw + bw / 2, H - 10);
+  for (i = 0; i < n; i += 4){
+    c.fillText(items[i].hour.slice(11, 13) + '时',
+               padL + i * bw + bw / 2, H - 10);
   }
-  c.fillStyle = 'rgba(148,197,255,.65)';
-  c.font = '600 19px Consolas, monospace';
-  for (i = MIN_SPLIT; i < n; i += 5){
-    c.fillText(items[i].label, padL + i * bw + bw / 2, H - 10);
-  }
-  /* 分钟区标识 */
-  c.textAlign = 'right';
-  c.fillStyle = 'rgba(126,231,252,.5)';
-  c.font = '600 16px Consolas, monospace';
-  c.fillText('近 10 分钟（分钟级）', W - padR - 4, padT + 14);
   c.textAlign = 'left';
-}
-/* 分钟聚合：事件流时间戳按分钟归入最近 10 分钟窗（10 格） */
-function buildMinuteBins(items){
-  var now = Date.now();
-  var bins = [];
-  var i;
-  for (i = 9; i >= 0; i--){
-    var mStart = new Date(now - i * 60000);
-    bins.push({label: pad2(mStart.getMinutes()) + '分',
-               key: mStart.getFullYear() + '-' + mStart.getMonth() + '-' + mStart.getDate() + '-' +
-                    mStart.getHours() + ':' + mStart.getMinutes(),
-               intercepts: 0, removes: 0});
-  }
-  items.forEach(function(it){
-    var d = new Date(String(it.timestamp).replace(' ', 'T'));
-    if (isNaN(d)) return;
-    var key = d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate() + '-' +
-              d.getHours() + ':' + d.getMinutes();
-    for (var b = 0; b < bins.length; b++){
-      if (bins[b].key === key){
-        if (it.action === 'remove_ip') bins[b].removes++;
-        else bins[b].intercepts++;
-        return;
-      }
-    }
-  });
-  S.evMinute = bins;
 }
 
 /* ═══════════════ 底部吞吐波形 ═══════════════ */
@@ -761,7 +650,6 @@ function renderStream(items){
     }
   }
   if (newest) S.lastStreamId = Math.max(S.lastStreamId, newest.id);
-  buildMinuteBins(items);
 
   var html = items.map(function(it){
     return '<span class="tk-item"><span class="t">' + esc(hms(it.timestamp)) + '</span>' +
@@ -963,7 +851,6 @@ function loop(t){
   try {
     drawBg(t || 0);
     drawCore(t || 0);
-    drawTrend(t || 0);
   } catch (e){ /* 单帧异常不致命，下一帧继续 */ }
   requestAnimationFrame(loop);
 }
