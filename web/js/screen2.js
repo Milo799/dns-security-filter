@@ -44,7 +44,7 @@ var S = {
   rate: 0, total: 0, blocked: 0, allows: 0,
   hourly: null,
   layers: LAYERS.map(function(){ return {count: 0, active: true, share: 0, h: 30, flash: 0}; }),
-  flow: [], caps: [], absorbs: [],
+  flow: [], sliders: [], absorbs: [], ringRot: [0, 0.9, 1.8, 2.7, 3.6],
   booted: false
 };
 
@@ -193,8 +193,13 @@ function drawBg(t){
 
 /* ═══════════════ 中央：五层流水线 ═══════════════ */
 var ch = {cv: null, cx: null, W: 1008, H: 640};
-var TOWER_X = [130, 320, 510, 700, 890];
-var FLOW_Y = 400, BASE_Y = 560, INLET_X = 26, OUTLET_X = 986;
+/* 纵深防御隧道：五道同心环闸门（近大远小透视），圆心即被守护的核心 */
+var CH_CX = 504, CH_CY = 322;
+var RINGS = [290, 232, 182, 140, 105];      /* L1 最近最大 → L5 最深最小 */
+var RING_LW = [4.5, 4, 3.2, 2.6, 2.2];       /* 近粗远细 */
+var RING_FONT = [16, 15, 14, 13, 12];        /* 近大远小 */
+var RING_SPD = [0.00022, 0.00030, 0.00040, 0.00052, 0.00068];  /* 同向不同速，同心环永不相遇 */
+var INLET_R = 302;                           /* 粒子入口半径 */
 
 function initChain(){
   ch.cv = $('chainCanvas');
@@ -203,9 +208,9 @@ function initChain(){
   ch.cx.scale(2, 2);
 }
 
-/* 粒子生成：按真实拦截率与层占比决定命运 */
+/* 粒子生成：隧道口外缘随机角度向心涌入，按真实拦截率与层占比决定命运 */
 function spawnFlow(){
-  if (S.flow.length >= 110) return;
+  if (S.flow.length >= 130) return;
   var tgt = -1;
   if (Math.random() * 100 < S.rate){
     var tw = Math.random(), acc = 0;
@@ -216,172 +221,179 @@ function spawnFlow(){
     }
   }
   S.flow.push({
-    x: INLET_X - 14, y: FLOW_Y + (Math.random() - 0.5) * 14,
-    sp: 130 + Math.random() * 90, tgt: tgt
+    a: Math.random() * Math.PI * 2,
+    r: INLET_R + Math.random() * 14,
+    sp: 46 + Math.random() * 34,             /* 径向速度（近快远慢自然透视） */
+    tgt: tgt
   });
 }
 
 function drawChain(t){
   if (!ch.cx) return;
-  var c = ch.cx, W = ch.W, H = ch.H;
-  var dt = 16.7;
-  c.clearRect(0, 0, W, H);
+  var c = ch.cx, dt = 16.7;
+  c.clearRect(0, 0, ch.W, ch.H);
   c.save();
+  c.globalCompositeOperation = 'lighter';
 
   var i, j, ly;
 
-  /* ── 入口 / 出口 ── */
-  /* 入口发光门 */
-  var gi = c.createLinearGradient(0, 0, 60, 0);
-  gi.addColorStop(0, 'rgba(34,211,238,.30)');
-  gi.addColorStop(1, 'rgba(34,211,238,0)');
-  c.fillStyle = gi;
-  c.fillRect(0, FLOW_Y - 34, 60, 68);
-  c.strokeStyle = 'rgba(126,231,252,.8)'; c.lineWidth = 2;
-  c.beginPath(); c.moveTo(INLET_X, FLOW_Y - 34); c.lineTo(INLET_X, FLOW_Y + 34); c.stroke();
-  /* 出口吸收球 */
-  var pulse = 1 + Math.sin(t / 700) * 0.06;
-  var go = c.createRadialGradient(OUTLET_X, FLOW_Y, 0, OUTLET_X, FLOW_Y, 46 * pulse);
-  go.addColorStop(0, 'rgba(52,211,153,.75)');
-  go.addColorStop(0.5, 'rgba(52,211,153,.22)');
-  go.addColorStop(1, 'rgba(52,211,153,0)');
-  c.fillStyle = go;
-  c.beginPath(); c.arc(OUTLET_X, FLOW_Y, 46 * pulse, 0, Math.PI * 2); c.fill();
-  c.strokeStyle = 'rgba(52,211,153,.8)'; c.lineWidth = 1.6;
-  c.beginPath(); c.arc(OUTLET_X, FLOW_Y, 18 * pulse, 0, Math.PI * 2); c.stroke();
-
-  /* ── 主流带（发光底线） ── */
-  var gb = c.createLinearGradient(INLET_X, 0, OUTLET_X, 0);
-  gb.addColorStop(0, 'rgba(34,211,238,.4)');
-  gb.addColorStop(1, 'rgba(52,211,153,.35)');
-  c.strokeStyle = gb; c.lineWidth = 1.4;
-  c.setLineDash([2, 7]);
-  c.beginPath(); c.moveTo(INLET_X, FLOW_Y - 22); c.lineTo(OUTLET_X - 20, FLOW_Y - 22); c.stroke();
-  c.beginPath(); c.moveTo(INLET_X, FLOW_Y + 22); c.lineTo(OUTLET_X - 20, FLOW_Y + 22); c.stroke();
+  /* ── 隧道壁：放射汇聚线 + 入口边界环 ── */
+  c.strokeStyle = 'rgba(56,189,248,.05)';
+  c.lineWidth = 1;
+  for (i = 0; i < 24; i++){
+    var wa = i / 24 * Math.PI * 2 + t * 0.00002;
+    c.beginPath();
+    c.moveTo(CH_CX + Math.cos(wa) * 96, CH_CY + Math.sin(wa) * 96);
+    c.lineTo(CH_CX + Math.cos(wa) * (INLET_R + 30), CH_CY + Math.sin(wa) * (INLET_R + 30));
+    c.stroke();
+  }
+  c.strokeStyle = 'rgba(56,189,248,.16)';
+  c.setLineDash([2, 8]);
+  c.beginPath(); c.arc(CH_CX, CH_CY, INLET_R, 0, Math.PI * 2); c.stroke();
   c.setLineDash([]);
+  c.fillStyle = 'rgba(126,231,252,.4)';
+  c.font = '600 11px Consolas, monospace';
+  c.textAlign = 'center';
+  c.fillText('INBOUND GATE · 查询入口', CH_CX, CH_CY - INLET_R - 8);
 
-  /* ── 五座关卡塔 ── */
+  /* ── 五道环闸门 ── */
   for (i = 0; i < 5; i++){
     ly = LAYERS[i];
     var Ld = S.layers[i];
-    var x = TOWER_X[i];
-    /* 水位高度缓动逼近 share 目标 */
-    var targetH = 26 + Ld.share * 230;
-    Ld.h += (targetH - Ld.h) * 0.04;
-    Ld.flash = Math.max(0, Ld.flash - 0.025);
+    var R = RINGS[i];
+    Ld.flash = Math.max(0, Ld.flash - 0.022);
+    S.ringRot[i] += RING_SPD[i] * dt;
     var hue = ly.hue;
     var active = Ld.active;
-    var colT = function(a){ return active ? 'hsla(' + hue + ',90%,62%,' + a + ')' : 'rgba(100,116,139,' + (a * 0.8) + ')'; };
+    var colR = function(a){ return active ? 'hsla(' + hue + ',90%,62%,' + a + ')'
+                                          : 'rgba(100,116,139,' + (a * 0.8) + ')'; };
 
-    /* 塔轨（虚线导轨） */
-    c.strokeStyle = colT(0.22); c.lineWidth = 1;
-    c.setLineDash([3, 6]);
-    c.beginPath(); c.moveTo(x - 40, 190); c.lineTo(x - 40, BASE_Y); c.stroke();
-    c.beginPath(); c.moveTo(x + 40, 190); c.lineTo(x + 40, BASE_Y); c.stroke();
-    c.setLineDash([]);
-
-    /* 基座 */
-    c.fillStyle = colT(0.16);
-    c.beginPath();
-    c.moveTo(x - 52, BASE_Y + 14); c.lineTo(x + 52, BASE_Y + 14);
-    c.lineTo(x + 40, BASE_Y); c.lineTo(x - 40, BASE_Y);
-    c.closePath(); c.fill();
-    c.strokeStyle = colT(0.5); c.lineWidth = 1.2;
-    c.beginPath(); c.moveTo(x - 52, BASE_Y + 14); c.lineTo(x + 52, BASE_Y + 14); c.stroke();
-
-    /* 水位柱 */
-    var colTop = BASE_Y - Ld.h;
-    var gw = c.createLinearGradient(0, colTop, 0, BASE_Y);
-    gw.addColorStop(0, colT(0.55 + Ld.flash * 0.4));
-    gw.addColorStop(1, colT(0.08));
-    c.fillStyle = gw;
-    c.fillRect(x - 28, colTop, 56, Ld.h);
-    /* 柱顶能量盖 */
-    c.fillStyle = colT(Math.min(1, 0.75 + Ld.flash * 0.25));
-    c.shadowColor = colT(1); c.shadowBlur = 12 + Ld.flash * 26;
-    c.fillRect(x - 30, colTop - 3, 60, 4);
+    /* 主环（亮度=该层占比，拦截爆闪增强） */
+    var alpha = active ? (0.22 + Ld.share * 0.45 + Ld.flash * 0.55) : 0.14;
+    c.strokeStyle = colR(Math.min(1, alpha));
+    c.lineWidth = RING_LW[i] + Ld.flash * 2;
+    c.shadowColor = colR(0.9); c.shadowBlur = 10 + Ld.share * 22 + Ld.flash * 30;
+    c.beginPath(); c.arc(CH_CX, CH_CY, R, 0, Math.PI * 2); c.stroke();
     c.shadowBlur = 0;
 
-    /* 捕获闪光环 */
+    /* 旋转刻度弧（三段，同向不同速） */
+    c.strokeStyle = colR(active ? 0.75 : 0.3);
+    c.lineWidth = RING_LW[i] + 1.2;
+    for (var seg = 0; seg < 3; seg++){
+      var a0 = S.ringRot[i] + seg * (Math.PI * 2 / 3);
+      c.beginPath(); c.arc(CH_CX, CH_CY, R + 7, a0, a0 + 0.55); c.stroke();
+    }
+
+    /* 拦截冲击波（自环向外扩散） */
     if (Ld.flash > 0.03){
-      c.strokeStyle = 'hsla(' + hue + ',95%,68%,' + (Ld.flash * 0.9).toFixed(3) + ')';
-      c.lineWidth = 2;
-      c.beginPath(); c.arc(x, FLOW_Y, 30 + (1 - Ld.flash) * 46, 0, Math.PI * 2); c.stroke();
+      c.strokeStyle = 'hsla(' + hue + ',95%,68%,' + (Ld.flash * 0.75).toFixed(3) + ')';
+      c.lineWidth = 1.8;
+      c.beginPath(); c.arc(CH_CX, CH_CY, R + (1 - Ld.flash) * 34, 0, Math.PI * 2); c.stroke();
     }
 
-    /* 层标签 + 计数 */
-    c.textAlign = 'center';
-    c.fillStyle = colT(active ? 0.95 : 0.5);
-    c.font = '700 20px Consolas, monospace';
-    c.fillText(ly.tag, x, 128);
-    c.font = '600 15px "Microsoft YaHei", sans-serif';
-    c.fillText(ly.name, x, 152);
-    c.font = '600 10px Consolas, monospace';
-    c.fillStyle = active ? 'rgba(148,197,255,.55)' : 'rgba(100,116,139,.6)';
-    c.fillText(ly.en, x, 170);
-    /* 计数 */
-    c.font = '700 30px Consolas, monospace';
-    c.fillStyle = colT(active ? 1 : 0.45);
-    c.shadowColor = colT(0.9); c.shadowBlur = 14;
-    c.fillText(fmt(Ld.count), x, 216);
-    c.shadowBlur = 0;
-    /* 占比 */
-    c.font = '600 12px Consolas, monospace';
-    c.fillStyle = colT(0.6);
-    c.fillText((Ld.share * 100).toFixed(1) + '%', x, 238);
-    /* 停用标注 */
+    /* 停用态：虚线灰环 */
     if (!active){
-      c.fillStyle = 'rgba(148,163,184,.75)';
-      c.font = '600 11px "Microsoft YaHei", sans-serif';
-      c.fillText('停 用', x, 262);
+      c.strokeStyle = 'rgba(100,116,139,.25)';
+      c.lineWidth = 1;
+      c.setLineDash([4, 10]);
+      c.beginPath(); c.arc(CH_CX, CH_CY, R + 13, 0, Math.PI * 2); c.stroke();
+      c.setLineDash([]);
     }
+
+    /* 环顶标签（阶梯纵向：L1 最高最远观感最近） */
+    var ty = CH_CY - R - 26;
+    c.textAlign = 'center';
+    c.font = '700 ' + RING_FONT[i] + 'px Consolas, monospace';
+    c.fillStyle = colR(active ? 0.95 : 0.45);
+    c.shadowColor = colR(0.8); c.shadowBlur = 8;
+    c.fillText(ly.tag + ' · ' + ly.name, CH_CX, ty);
+    c.shadowBlur = 0;
+    c.font = '600 ' + (RING_FONT[i] - 2) + 'px Consolas, monospace';
+    c.fillStyle = colR(active ? 0.65 : 0.4);
+    var pctText = fmt(Ld.count) + ' · ' + (Ld.share * 100).toFixed(1) + '%' +
+                  (active ? '' : ' · 停用');
+    c.fillText(pctText, CH_CX, ty + 15);
   }
 
-  /* ── 查询光流粒子 ── */
-  if (Math.random() < 0.13) spawnFlow();
+  /* ── 核心（放行终点 = 被守护的内网） ── */
+  var pulse = 1 + Math.sin(t / 800) * 0.08;
+  var gc = c.createRadialGradient(CH_CX, CH_CY, 0, CH_CX, CH_CY, 52 * pulse);
+  gc.addColorStop(0, 'rgba(52,211,153,.85)');
+  gc.addColorStop(0.4, 'rgba(52,211,153,.25)');
+  gc.addColorStop(1, 'rgba(52,211,153,0)');
+  c.fillStyle = gc;
+  c.beginPath(); c.arc(CH_CX, CH_CY, 52 * pulse, 0, Math.PI * 2); c.fill();
+  c.strokeStyle = 'rgba(110,231,183,.9)'; c.lineWidth = 1.6;
+  c.beginPath(); c.arc(CH_CX, CH_CY, 16 * pulse, 0, Math.PI * 2); c.stroke();
+  c.fillStyle = 'rgba(233,255,246,.95)';
+  c.font = '600 12px "Microsoft YaHei", sans-serif';
+  c.textAlign = 'center';
+  c.fillText('CORE', CH_CX, CH_CY + 4);
+
+  /* ── 查询光流粒子（向心穿越） ── */
+  if (Math.random() < 0.14) spawnFlow();
   for (j = S.flow.length - 1; j >= 0; j--){
     var p = S.flow[j];
-    p.x += p.sp * dt / 1000;
-    /* 到达目标塔：捕获 */
-    if (p.tgt >= 0 && p.x >= TOWER_X[p.tgt] - 4){
+    p.r -= p.sp * dt / 1000;
+    /* 抵达命运之环：被捕获（转环上滑行者） */
+    if (p.tgt >= 0 && p.r <= RINGS[p.tgt]){
       S.layers[p.tgt].flash = 1;
-      S.caps.push({x: TOWER_X[p.tgt], y: FLOW_Y, vy: 0, hue: LAYERS[p.tgt].hue, life: 1});
+      S.sliders.push({ring: p.tgt, ang: p.a, life: 1});
       S.flow.splice(j, 1);
       continue;
     }
-    /* 到达出口：放行吸收 */
-    if (p.x >= OUTLET_X - 20){
-      S.absorbs.push({r: 20, a: 0.7});
+    /* 穿到底：汇入核心（放行） */
+    if (p.r <= 22){
+      S.absorbs.push({r: 18, a: 0.6});
       S.flow.splice(j, 1);
       continue;
     }
-    /* 绘制：光点 + 尾迹 */
-    c.fillStyle = 'rgba(190,242,255,.95)';
-    c.shadowColor = 'rgba(34,211,238,1)'; c.shadowBlur = 8;
-    c.beginPath(); c.arc(p.x, p.y, 2.1, 0, Math.PI * 2); c.fill();
+    var px = CH_CX + Math.cos(p.a) * p.r;
+    var py = CH_CY + Math.sin(p.a) * p.r;
+    var persp = 0.55 + p.r / INLET_R * 0.45;   /* 近大远小 */
+    c.fillStyle = 'rgba(190,242,255,' + (0.95 * persp).toFixed(3) + ')';
+    c.shadowColor = 'rgba(34,211,238,1)'; c.shadowBlur = 7 * persp;
+    c.beginPath(); c.arc(px, py, 2.2 * persp, 0, Math.PI * 2); c.fill();
     c.shadowBlur = 0;
-    c.strokeStyle = 'rgba(34,211,238,.35)'; c.lineWidth = 1.4;
-    c.beginPath(); c.moveTo(p.x - 16, p.y); c.lineTo(p.x, p.y); c.stroke();
+    /* 径向尾迹（朝外） */
+    var tx = CH_CX + Math.cos(p.a) * (p.r + 15 * persp);
+    var ty2 = CH_CY + Math.sin(p.a) * (p.r + 15 * persp);
+    c.strokeStyle = 'rgba(34,211,238,' + (0.3 * persp).toFixed(3) + ')';
+    c.lineWidth = 1.3;
+    c.beginPath(); c.moveTo(tx, ty2); c.lineTo(px, py); c.stroke();
   }
-  /* 捕获下坠粒子（被塔吸收） */
-  for (j = S.caps.length - 1; j >= 0; j--){
-    var cp = S.caps[j];
-    cp.vy += 0.35; cp.y += cp.vy; cp.life -= 0.03;
-    if (cp.life <= 0 || cp.y > BASE_Y - 6){ S.caps.splice(j, 1); continue; }
-    c.fillStyle = 'hsla(' + cp.hue + ',95%,66%,' + Math.min(1, cp.life * 1.6).toFixed(3) + ')';
-    c.shadowColor = 'hsla(' + cp.hue + ',95%,60%,1)'; c.shadowBlur = 10;
-    c.beginPath(); c.arc(cp.x, cp.y, 3, 0, Math.PI * 2); c.fill();
+
+  /* ── 被拦粒子：吸附环上滑动并燃尽 ── */
+  for (j = S.sliders.length - 1; j >= 0; j--){
+    var sl = S.sliders[j];
+    sl.ang += 0.0011;
+    sl.life -= dt / 1400;
+    if (sl.life <= 0){ S.sliders.splice(j, 1); continue; }
+    var sR = RINGS[sl.ring];
+    var sx = CH_CX + Math.cos(sl.ang) * sR;
+    var sy = CH_CY + Math.sin(sl.ang) * sR;
+    var sh = LAYERS[sl.ring].hue;
+    var sa = Math.min(1, sl.life * 2);
+    c.fillStyle = 'hsla(' + sh + ',95%,66%,' + sa.toFixed(3) + ')';
+    c.shadowColor = 'hsla(' + sh + ',95%,60%,1)'; c.shadowBlur = 12;
+    c.beginPath(); c.arc(sx, sy, 3.2, 0, Math.PI * 2); c.fill();
     c.shadowBlur = 0;
+    /* 沿环尾迹 */
+    c.strokeStyle = 'hsla(' + sh + ',95%,64%,' + (sa * 0.35).toFixed(3) + ')';
+    c.lineWidth = 2;
+    c.beginPath(); c.arc(CH_CX, CH_CY, sR, sl.ang - 0.35, sl.ang); c.stroke();
   }
-  /* 出口吸收环 */
+
+  /* ── 放行吸收微光环（核心扩散） ── */
   for (j = S.absorbs.length - 1; j >= 0; j--){
     var ab = S.absorbs[j];
-    ab.r += 1.6; ab.a -= 0.03;
+    ab.r += 0.9; ab.a -= 0.022;
     if (ab.a <= 0){ S.absorbs.splice(j, 1); continue; }
     c.strokeStyle = 'rgba(52,211,153,' + ab.a.toFixed(3) + ')';
-    c.lineWidth = 1.6;
-    c.beginPath(); c.arc(OUTLET_X, FLOW_Y, ab.r, 0, Math.PI * 2); c.stroke();
+    c.lineWidth = 1.4;
+    c.beginPath(); c.arc(CH_CX, CH_CY, ab.r, 0, Math.PI * 2); c.stroke();
   }
+
   c.restore();
   c.textAlign = 'left';
 }
@@ -507,7 +519,7 @@ function renderStream(items){
       /* 联动：对应层塔爆闪 + 捕获粒子 */
       var li = reasonToLayer(it.filter_reason);
       S.layers[li].flash = 1;
-      S.caps.push({x: TOWER_X[li], y: FLOW_Y, vy: 0, hue: LAYERS[li].hue, life: 1});
+      S.sliders.push({ring: li, ang: Math.random() * Math.PI * 2, life: 1});
       spawnMeteor();
     }
     /* 修剪：最老行顶部收缩消散。
