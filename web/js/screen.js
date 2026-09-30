@@ -627,19 +627,26 @@ function renderStream(items){
       coreAddBlip(it.action === 'remove_ip' ? 'remove' : 'intercept');
       spawnMeteor();
     }
-    while (box.children.length > STREAM_SIZE && box.firstChild){
-      var old = box.firstChild;
-      if (old.dataset && old.dataset.eid) delete evNodes[old.dataset.eid];
-      if (old.classList && old.classList.contains('ev')){
-        old.style.height = '0px';
-        old.style.opacity = '0';
-        old.addEventListener('transitionend', function h(e){
-          e.target.removeEventListener('transitionend', h);
-          if (e.target.parentNode) e.target.remove();
-        });
-      } else {
-        old.remove();
-      }
+    /* 修剪：最老行顶部收缩消散。
+       必须用定界 for 循环+快照数组——while(firstChild) 在异步移除下
+       会永远取到同一节点形成主线程死循环（生产冻结根因）。 */
+    var rowsArr = Array.prototype.slice.call(box.children);
+    var excess = rowsArr.length - STREAM_SIZE;
+    var trimmed = 0;
+    for (var k = 0; k < rowsArr.length && trimmed < excess; k++){
+      var old = rowsArr[k];
+      if (!old.classList || !old.classList.contains('ev') ||
+          old.dataset.collapse === '1') continue;
+      old.dataset.collapse = '1';
+      if (old.dataset.eid) delete evNodes[old.dataset.eid];
+      old.style.height = '0px';
+      old.style.opacity = '0';
+      (function(node){
+        setTimeout(function(){
+          if (node.parentNode) node.parentNode.removeChild(node);
+        }, 480);
+      })(old);
+      trimmed++;
     }
   }
   if (newest) S.lastStreamId = Math.max(S.lastStreamId, newest.id);
@@ -839,10 +846,12 @@ function bootData(){
   timers.push(setInterval(pollDefense, 15000));
 }
 
-/* 主渲染循环 */
+/* 主渲染循环（单帧异常不中断调度） */
 function loop(t){
-  drawBg(t || 0);
-  drawCore(t || 0);
+  try {
+    drawBg(t || 0);
+    drawCore(t || 0);
+  } catch (e){ /* 单帧异常不致命，下一帧继续 */ }
   requestAnimationFrame(loop);
 }
 
