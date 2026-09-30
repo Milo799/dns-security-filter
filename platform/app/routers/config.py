@@ -460,6 +460,70 @@ def status_hourly(hours: int = 24, _: str = Depends(get_current_user)):
             "data": {"hours": hours, "items": items}}
 
 
+@router.get("/status/layers")
+def status_layers(scope: str | None = None, _: str = Depends(get_current_user)):
+    """五层检测链路逐层拦截计数 + 服务端真实启用状态（迭代 47，大屏链路视角用）。
+
+    层序与 detectors.process_query 实际检测顺序一致：
+      L1 local_blacklist 本地名单（结构性常开）
+      L2 threat_list     离线大名单（任一行启用即在线）
+      L3 nrd             NRD 新注册域名（nrd_enabled 或 nrd_offline_enabled 任一开）
+      L4 threatintel     在线情报（threatintel_api 任一启用）
+      L5 ip_filter       IP 后置过滤（结构性常开）
+
+    count 只计拦截/剔除（observe 观察行排除）；active 为服务端配置真值——
+    "0 拦截 ≠ 停用"（如 NRD 在线但当日无命中），前端据此区分"静默"与"停用"。
+    scope=today → 今日自然日；默认 7 日滚动窗。
+    """
+    if scope == "today":
+        where = "date(timestamp) = date('now','localtime')"
+        wparams: tuple = ()
+    else:
+        where = "timestamp >= datetime('now','localtime', ?)"
+        wparams = ("-7 days",)
+    with db_cursor() as cur:
+        cur.execute(
+            f"""SELECT
+                 SUM(CASE WHEN filter_reason='local_blacklist'
+                       AND action IN ('intercept','remove_ip') THEN 1 ELSE 0 END) AS l1,
+                 SUM(CASE WHEN filter_reason LIKE 'threat_list%'
+                       AND action IN ('intercept','remove_ip') THEN 1 ELSE 0 END) AS l2,
+                 SUM(CASE WHEN filter_reason IN ('nrd','nrd_offline')
+                       AND action IN ('intercept','remove_ip') THEN 1 ELSE 0 END) AS l3,
+                 SUM(CASE WHEN filter_reason LIKE 'threatintel:%'
+                       AND action IN ('intercept','remove_ip') THEN 1 ELSE 0 END) AS l4,
+                 SUM(CASE WHEN filter_reason='ip_filter'
+                       AND action IN ('intercept','remove_ip') THEN 1 ELSE 0 END) AS l5,
+                 EXISTS(SELECT 1 FROM threat_list WHERE enabled=1) AS tl_on,
+                 (SELECT COUNT(*) FROM threatintel_api WHERE enabled=1) AS ti_on
+               FROM filter_log
+               WHERE {where}""",
+            wparams,
+        )
+        row = cur.fetchone()
+        cur.execute(
+            "SELECT key, value FROM system_config "
+            "WHERE key IN ('nrd_enabled','nrd_offline_enabled')"
+        )
+        nrd_cfg = {r["key"]: r["value"] for r in cur.fetchall()}
+    nrd_on = nrd_cfg.get("nrd_enabled") == "1" or \
+             nrd_cfg.get("nrd_offline_enabled") == "1"
+    layers = [
+        {"key": "local_blacklist", "label": "本地名单",
+         "count": row["l1"] or 0, "active": True},
+        {"key": "threat_list", "label": "离线大名单",
+         "count": row["l2"] or 0, "active": bool(row["tl_on"])},
+        {"key": "nrd", "label": "NRD 检测",
+         "count": row["l3"] or 0, "active": nrd_on},
+        {"key": "threatintel", "label": "在线情报",
+         "count": row["l4"] or 0, "active": (row["ti_on"] or 0) > 0},
+        {"key": "ip_filter", "label": "IP 后置",
+         "count": row["l5"] or 0, "active": True},
+    ]
+    return {"code": 0, "message": "ok",
+            "data": {"scope": scope or "rolling", "layers": layers}}
+
+
 @router.get("/status/breakdown")
 def status_breakdown(days: int = 7, top: int = 10, scope: str | None = None,
                      _: str = Depends(get_current_user)):

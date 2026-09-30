@@ -443,6 +443,62 @@ def test_status_breakdown(client, token):
     assert d2["days"] == 90
 
 
+def test_status_layers(client, token):
+    """迭代 47：五层链路逐层计数 + 服务端真实启用状态。
+
+    - 五层计数只计拦截/剔除，observe 观察行排除；
+    - active 为配置真值：L1/L5 结构性常开；L3 随 nrd_enabled 开关；
+      L4 随在线情报源启用数——0 拦截不得等于停用。
+    注意：本测试插入的当日行会在结束清理，避免污染后续 today 口径断言
+    （bd-today.test 的 top_domains 限 10 条，并列计数次序不定）。
+    """
+    from app.db import db_cursor
+    with db_cursor() as cur:
+        cur.execute(
+            """INSERT INTO filter_log
+               (client_ip, domain, query_type, filter_reason, action,
+                malicious_ips, final_result, source_api)
+               VALUES ('10.1.0.1', 'ly-1.test', 'A', 'local_blacklist', 'intercept',
+                       '', 'alert_ip:1.2.3.4', ''),
+                      ('10.1.0.1', 'ly-2.test', 'A', 'threat_list:hagezi_ti',
+                       'intercept', '', 'alert_ip:1.2.3.4', 'hagezi_ti'),
+                      ('10.1.0.1', 'ly-3.test', 'A', 'nrd', 'intercept',
+                       '', 'alert_ip:1.2.3.4', 'rdap_nrd'),
+                      ('10.1.0.1', 'ly-4.test', 'A', 'threatintel:zen:spamhaus',
+                       'intercept', '', 'alert_ip:1.2.3.4', 'zen'),
+                      ('10.1.0.1', 'ly-5.test', 'A', 'ip_filter', 'remove_ip',
+                       '6.6.6.6', 'remaining_ips:', ''),
+                      ('10.1.0.1', 'ly-obs.test', 'A', 'nrd_observe', 'observe',
+                       '', 'observe', 'rdap_nrd')"""
+        )
+    try:
+        r = client.get("/api/status/layers?scope=today", headers=_h(token))
+        assert r.status_code == 200
+        data = r.json()["data"]
+        assert data["scope"] == "today"
+        by = {ly["key"]: ly for ly in data["layers"]}
+        assert list(by.keys()) == ["local_blacklist", "threat_list", "nrd",
+                                   "threatintel", "ip_filter"]
+        assert by["local_blacklist"]["count"] >= 1
+        assert by["threat_list"]["count"] >= 1
+        assert by["nrd"]["count"] >= 1          # observe 行不计入
+        assert by["threatintel"]["count"] >= 1
+        assert by["ip_filter"]["count"] >= 1
+        # active 配置真值（测试环境默认：NRD 关 / 在线源有默认启用行）
+        assert by["local_blacklist"]["active"] is True
+        assert by["ip_filter"]["active"] is True
+        assert isinstance(by["nrd"]["active"], bool)
+        assert isinstance(by["threat_list"]["active"], bool)
+        assert isinstance(by["threatintel"]["active"], bool)
+        # 默认滚动窗
+        r2 = client.get("/api/status/layers", headers=_h(token))
+        assert r2.status_code == 200
+        assert r2.json()["data"]["scope"] == "rolling"
+    finally:
+        with db_cursor() as cur:
+            cur.execute("DELETE FROM filter_log WHERE domain LIKE 'ly-%.test'")
+
+
 def test_status_breakdown_today_scope(client, token):
     """迭代 38：scope=today 自然日窗口（与威胁总览大数字带同口径）。
 

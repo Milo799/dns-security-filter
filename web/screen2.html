@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>检测链路透视 · DNS 安全态势感知平台</title>
+<link rel="stylesheet" href="/css/screen2.css">
+</head>
+<body>
+<!-- 1920x1080 基准舞台，JS 按视口等比缩放 -->
+<div id="viewport">
+  <div id="stage" data-level="steady">
+
+    <!-- 背景层 -->
+    <canvas id="bgCanvas"></canvas>
+    <div class="grid-floor"></div>
+    <div class="aurora a1"></div>
+    <div class="aurora a2"></div>
+    <div class="scanlines"></div>
+    <div class="vignette"></div>
+
+    <!-- ══════════ 顶部标题栏 ══════════ -->
+    <header class="scr-header">
+      <div class="hd-left">
+        <div class="hd-logo">DNSF</div>
+        <div class="hd-sys">
+          <b>CHAIN PERSPECTIVE</b>
+          <span>检测链路透视 · 五层防御纵深</span>
+        </div>
+      </div>
+      <div class="hd-center">
+        <div class="hd-wing left"></div>
+        <h1 class="hd-title">五层检测链路透视</h1>
+        <div class="hd-wing right"></div>
+      </div>
+      <div class="hd-right">
+        <div class="hd-light" id="hdDetect"><i></i><span>检测引擎</span><b>--</b></div>
+        <div class="hd-light" id="hdUpstream"><i></i><span>上游链路</span><b>--</b></div>
+        <div class="hd-clock">
+          <b id="scrClock">--:--:--</b>
+          <span id="scrDate">----年--月--日 星期-</span>
+        </div>
+        <a class="hd-switch" href="/screen.html" title="切换到威胁态势视角">⇄ 态势视角</a>
+        <button class="hd-fs" id="btnFs" title="全屏 (F)">⛶</button>
+      </div>
+    </header>
+
+    <!-- ══════════ 左翼：链路总览 ══════════ -->
+    <section class="wing left-wing">
+      <div class="sect">
+        <div class="sect-head">
+          <span class="sect-diamond"></span>
+          <div class="sect-titles"><b>链路总览</b><small>CHAIN OVERVIEW · TODAY</small></div>
+        </div>
+        <div class="sect-body ov-body">
+          <div class="ov-main">
+            <small>今日查询总量</small>
+            <b id="ovTotal">--</b>
+            <span>QUERIES INBOUND</span>
+          </div>
+          <div class="ov-duo">
+            <div class="ov-cell red">
+              <small>五层拦截</small>
+              <b id="ovBlocked">--</b>
+              <span id="ovRate">拦截率 --</span>
+            </div>
+            <div class="ov-cell green">
+              <small>穿越放行</small>
+              <b id="ovAllow">--</b>
+              <span id="ovPass">通过率 --</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sect">
+        <div class="sect-head">
+          <span class="sect-diamond"></span>
+          <div class="sect-titles"><b>五层读数</b><small>LAYER READOUTS · TODAY</small></div>
+        </div>
+        <div class="sect-body" id="layerRows"></div>
+      </div>
+    </section>
+
+    <!-- ══════════ 中央：五层防线流水线 ══════════ -->
+    <section class="chain-stage">
+      <canvas id="chainCanvas"></canvas>
+      <div class="chain-caption">
+        <span class="cap-in">◀ 查询入口 INBOUND</span>
+        <b>五层防线 · 查询逐层穿透实时透视</b>
+        <span class="cap-out">放行出口 CLEAN ▶</span>
+      </div>
+    </section>
+
+    <!-- ══════════ 右翼：事件与状态 ══════════ -->
+    <section class="wing right-wing">
+      <div class="sect stream-sect">
+        <div class="sect-head">
+          <span class="sect-diamond"></span>
+          <div class="sect-titles"><b>实时拦截事件流</b><small>LIVE CAPTURES · 3S</small></div>
+          <div class="sect-extra live"><i></i>LIVE</div>
+        </div>
+        <div class="sect-body stream-body" id="eventStream"></div>
+      </div>
+
+      <div class="sect">
+        <div class="sect-head">
+          <span class="sect-diamond"></span>
+          <div class="sect-titles"><b>链路状态</b><small>CHAIN STATUS</small></div>
+        </div>
+        <div class="sect-body" id="defMatrix"></div>
+      </div>
+    </section>
+
+    <!-- ══════════ 底部：通过剖面流带 ══════════ -->
+    <footer class="scr-footer">
+      <div class="ft-profile-wrap">
+        <div class="ft-label"><b>通过剖面</b><small>FLOW PROFILE · TODAY</small></div>
+        <canvas id="profileCanvas"></canvas>
+      </div>
+    </footer>
+
+  </div>
+</div>
+
+<!-- 登录遮罩（401 时出现） -->
+<div class="login-overlay" id="loginOverlay" style="display:none">
+  <form class="login-box" id="loginForm">
+    <div class="login-logo">DNSF</div>
+    <h2>链路透视终端 · 身份核验</h2>
+    <input type="text" id="loginUser" placeholder="账号" autocomplete="username" required>
+    <input type="password" id="loginPass" placeholder="密码" autocomplete="current-password" required>
+    <div class="login-err" id="loginErr"></div>
+    <button type="submit">接 入 终 端</button>
+  </form>
+</div>
+
+<script src="/js/screen2.js"></script>
+</body>
+</html>
