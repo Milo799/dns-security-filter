@@ -400,25 +400,25 @@ function sizeDomCanvases(){
 /* 趋势图（24H）：小时区（前段）+ 分钟区（后段 30 分钟，细颗粒流动）
    每帧渲染——扫描光带/曲线流光/当前柱呼吸/数据生长过渡 */
 var trendAnim = {hi: [], hr: []};   // 柱高动画当前值（lerp 逼近目标）
-var MIN_SPLIT = 18;                 // 前 18 格=小时，后 12 格=分钟（30 分钟窗）
+var MIN_SPLIT = 18;                 // 前 18 格=小时，后 10 格=分钟（10 分钟窗）
 function drawTrend(t){
   if (!tr.cx || !S.trend || !S.trend.length) return;
   var c = tr.cx, W = tr.w, H = tr.h;
   var hourly = S.trend;             // 24 小时
-  /* 分钟段：事件流按分钟聚合最近 30 分钟（12 格） */
+  /* 分钟段：事件流按分钟聚合最近 10 分钟（10 格） */
   var mins = [];
   if (S.evMinute && S.evMinute.length){
     mins = S.evMinute;
   }
   /* 组合序列：小时[0..17] + 分钟[0..11] */
-  var n = MIN_SPLIT + 12;
+  var n = MIN_SPLIT + 10;
   var items = [];
   var i, j;
   for (i = 0; i < Math.min(MIN_SPLIT, hourly.length); i++)
     items.push({label: hourly[i].hour.slice(11, 13) + '时',
                 intercepts: hourly[i].intercepts, removes: hourly[i].removes,
                 kind: 'hour'});
-  for (i = 0; i < 12; i++){
+  for (i = 0; i < 10; i++){
     var m = mins.length > i ? mins[i] : {label: '', intercepts: 0, removes: 0};
     items.push({label: m.label || '', intercepts: m.intercepts || 0,
                 removes: m.removes || 0, kind: 'min'});
@@ -526,22 +526,22 @@ function drawTrend(t){
   }
   c.fillStyle = 'rgba(148,197,255,.65)';
   c.font = '600 19px Consolas, monospace';
-  for (i = MIN_SPLIT; i < n; i += 6){
+  for (i = MIN_SPLIT; i < n; i += 5){
     c.fillText(items[i].label, padL + i * bw + bw / 2, H - 10);
   }
   /* 分钟区标识 */
   c.textAlign = 'right';
   c.fillStyle = 'rgba(126,231,252,.5)';
   c.font = '600 16px Consolas, monospace';
-  c.fillText('近 30 分钟（分钟级）', W - padR - 4, padT + 14);
+  c.fillText('近 10 分钟（分钟级）', W - padR - 4, padT + 14);
   c.textAlign = 'left';
 }
-/* 分钟聚合：事件流时间戳按分钟归入最近 30 分钟窗（12 格） */
+/* 分钟聚合：事件流时间戳按分钟归入最近 10 分钟窗（10 格） */
 function buildMinuteBins(items){
   var now = Date.now();
   var bins = [];
   var i;
-  for (i = 11; i >= 0; i--){
+  for (i = 9; i >= 0; i--){
     var mStart = new Date(now - i * 60000);
     bins.push({label: pad2(mStart.getMinutes()) + '分',
                key: mStart.getFullYear() + '-' + mStart.getMonth() + '-' + mStart.getDate() + '-' +
