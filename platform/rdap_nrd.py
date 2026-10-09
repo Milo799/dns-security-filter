@@ -27,6 +27,13 @@
     本地缓存文件（data/rdap_bootstrap.json，24h 内有效），过期或
     不存在则从 data.iana.org 拉取并落盘，之后每 24h 后台刷新一次。
 
+代理（迭代 48 / 代码审查 P0-2）：
+  生产出站直连外网全被拦（仅放行内网代理 172.16.5.7:3128）。whoisit
+  的 bootstrap 与每次 RDAP 查询共用同一 HTTP 通路（whoisit.utils
+  的 _proxy 全局 + http_request 的 session.request(proxies=...)），
+  启动时把 CONFIG.http_proxy 注入 whoisit 即可——NRD 在线层自此
+  从"空转"变为真实工作。CONFIG.http_proxy 为空（未配置）则保持直连。
+
 观测（queue_stats 同款口径）：
   - 内存计数器（锁内纳秒级读写）：查询/命中新注册/缓存命中/TLD 跳过/
     不支持跳过/失败跳过各计数，GET /api/nrd/stats 快照；
@@ -252,8 +259,33 @@ def _bootstrap_refresher() -> None:
             logger.warning("RDAP bootstrap 刷新失败（下轮重试）：%s", e)
 
 
+def _apply_proxy() -> None:
+    """把 CONFIG.http_proxy 注入 whoisit 全局代理（迭代 48 / P0-2）。
+
+    whoisit 的 bootstrap（IANA 路由表）与每次 RDAP 查询走同一 HTTP
+    通路（whoisit.utils.http_request → session.request(proxies=...)），
+    一次 set_proxy 全管。生产出站直连被拦，不设代理时 NRD 在线层
+    空转（每个高危 TLD 域名白查一次，全部 skipped_error）。
+    幂等可重复调用；CONFIG.http_proxy 为空则清空代理保持直连。
+    """
+    if not _HAS_WHOISIT:
+        return
+    proxy = (getattr(CONFIG, "http_proxy", "") or "").strip()
+    try:
+        cur = wi_utils.get_proxy()
+        if proxy and cur != proxy:
+            wi_utils.set_proxy(proxy)
+            logger.info("NRD RDAP 出站代理已启用：%s", proxy)
+        elif not proxy and cur:
+            wi_utils.clear_proxy()
+            logger.info("NRD RDAP 出站代理已移除（直连）")
+    except Exception as e:
+        logger.warning("NRD RDAP 代理配置失败（保持直连）：%s", e)
+
+
 def start() -> None:
     """启动后台预热 + 周期刷新线程（dns_server.run_dns_server 调用）。"""
+    _apply_proxy()
     threading.Thread(target=warm_bootstrap, name="nrd-warmup",
                      daemon=True).start()
     threading.Thread(target=_bootstrap_refresher, name="nrd-bootstrap-refresh",

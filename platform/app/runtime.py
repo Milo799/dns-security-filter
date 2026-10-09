@@ -53,6 +53,13 @@ def _apply(key: str, value: str) -> None:
         if key == "http_proxy":
             from app import http_client
             http_client.apply_proxy_change()
+            # 联动 NRD RDAP 出站代理（迭代 48 / P0-2）：DNS 进程经
+            # cross_sync 热生效；Web 进程 rdap_nrd 未初始化时安全跳过
+            try:
+                import rdap_nrd
+                rdap_nrd._apply_proxy()
+            except Exception:
+                pass
     except (ValueError, TypeError) as e:
         logger.warning("配置 %s=%s 应用失败: %s", key, value, e)
 

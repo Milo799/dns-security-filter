@@ -437,3 +437,66 @@ def test_migrate_adds_table_to_legacy_db(tmp_path, monkeypatch):
         # 还原线程连接（后续测试用回测试库）
         monkeypatch.setattr(db_mod._local, "conn", None)
         db_mod.get_conn()
+
+
+# ---------------------------------------------------------------------------
+# 迭代 48 / 代码审查 P0-2：RDAP 出站代理（生产直连被拦 → NRD 在线层空转）
+# ---------------------------------------------------------------------------
+
+class TestRdapProxy:
+    """_apply_proxy：CONFIG.http_proxy → whoisit 全局代理（幂等/可清空/可更新）。
+
+    whoisit 的 bootstrap 与每次 RDAP 查询共用全局 _proxy（http_request
+    的 session.request(proxies=...)），设置一次两处生效。测试直接读
+    whoisit.utils.get_proxy() 断言，结束后还原初始值避免污染。
+    """
+
+    @pytest.fixture
+    def wu(self, monkeypatch):
+        wi = pytest.importorskip("whoisit.utils")
+        original = wi.get_proxy()
+        yield wi
+        # 还原全局状态（_proxy 是模块级全局，必须复位）
+        if original:
+            wi.set_proxy(original)
+        else:
+            wi.clear_proxy()
+
+    def test_sets_proxy_from_config(self, wu, monkeypatch):
+        monkeypatch.setattr(CONFIG, "http_proxy", "http://172.16.5.7:3128")
+        rdap_nrd._apply_proxy()
+        assert wu.get_proxy() == "http://172.16.5.7:3128"
+
+    def test_empty_config_clears_proxy(self, wu, monkeypatch):
+        wu.set_proxy("http://stale:1")
+        monkeypatch.setattr(CONFIG, "http_proxy", "")
+        rdap_nrd._apply_proxy()
+        assert not wu.get_proxy()
+
+    def test_whitespace_config_clears_proxy(self, wu, monkeypatch):
+        wu.set_proxy("http://stale:1")
+        monkeypatch.setattr(CONFIG, "http_proxy", "   ")
+        rdap_nrd._apply_proxy()
+        assert not wu.get_proxy()
+
+    def test_proxy_change_updates(self, wu, monkeypatch):
+        monkeypatch.setattr(CONFIG, "http_proxy", "http://a:1")
+        rdap_nrd._apply_proxy()
+        assert wu.get_proxy() == "http://a:1"
+        monkeypatch.setattr(CONFIG, "http_proxy", "http://b:2")
+        rdap_nrd._apply_proxy()
+        assert wu.get_proxy() == "http://b:2"
+
+    def test_idempotent(self, wu, monkeypatch):
+        monkeypatch.setattr(CONFIG, "http_proxy", "http://c:3")
+        rdap_nrd._apply_proxy()
+        rdap_nrd._apply_proxy()
+        rdap_nrd._apply_proxy()
+        assert wu.get_proxy() == "http://c:3"
+
+    def test_runtime_apply_hook_triggers_proxy(self, wu, monkeypatch):
+        """config 热更新钩子（runtime._apply）联动 rdap_nrd 代理。"""
+        from app.runtime import _apply
+        monkeypatch.setattr(CONFIG, "http_proxy", "")
+        _apply("http_proxy", "http://172.16.5.9:3128")
+        assert wu.get_proxy() == "http://172.16.5.9:3128"
