@@ -93,6 +93,10 @@ _BOOTSTRAP_REFRESH_S = 24 * 3600
 # RDAP 查询超时（秒；whoisit 默认 10s，检测链路单源预算收紧到 5s）
 _QUERY_TIMEOUT_S = 5
 
+# bootstrap 拉取超时（秒；bootstrap 是低频操作且 IANA 经内网代理握手
+# 较慢，单文件拉取实测可达 10s+——比查询超时需要更大预算）
+_BOOTSTRAP_TIMEOUT_S = 30
+
 # 观测计数（queue_stats 同款口径：锁内读写、dict 快照）
 _STATS = {
     "total_checked": 0,      # 进入检测的域名数（TLD 过滤后）
@@ -226,11 +230,22 @@ def warm_bootstrap() -> None:
                     logger.warning("RDAP bootstrap 本地缓存加载失败：%s", e)
         # 2) 过期/不存在 → 网络拉取（IANA 官方）并落盘
         if not loaded:
-            whoisit.bootstrap()
-            _save_bootstrap()
+            _bootstrap_fetch_and_save()
         _BOOTSTRAP_READY = True
     except Exception as e:
         logger.warning("RDAP bootstrap 预热失败（首条查询将同步引导）：%s", e)
+
+
+def _bootstrap_fetch_and_save() -> None:
+    """经代理拉取 IANA bootstrap 并落盘（临时放宽超时——查询用 5s，
+    bootstrap 拉取用 30s，互不干扰）。"""
+    old_timeout = wi_utils.http_timeout
+    wi_utils.http_timeout = _BOOTSTRAP_TIMEOUT_S
+    try:
+        whoisit.bootstrap()
+    finally:
+        wi_utils.http_timeout = old_timeout
+    _save_bootstrap()
 
 
 def _save_bootstrap() -> None:
@@ -245,17 +260,33 @@ def _save_bootstrap() -> None:
 
 
 def _bootstrap_refresher() -> None:
-    """后台 24h 刷新 bootstrap（路由表偶尔增删 RDAP 服务商）。"""
+    """后台 24h 刷新 bootstrap（路由表偶尔增删 RDAP 服务商）。
+
+    失败保护（迭代 48）：clear_bootstrapping 会清空内存数据，若随后
+    网络拉取失败，bootstrap 将处于空状态导致后续查询全部
+    skipped_error——刷新前先备份现有数据，失败即恢复，宁可不刷新
+    也不破坏可用状态。
+    """
     while True:
         time.sleep(_BOOTSTRAP_REFRESH_S)
         if not _HAS_WHOISIT:
             return
+        backup = None
+        try:
+            backup = whoisit.save_bootstrap_data(as_json=True)
+        except Exception:
+            pass                       # 从未 bootstrap 过则无备份（首次走预热）
         try:
             whoisit.clear_bootstrapping()
-            whoisit.bootstrap()
-            _save_bootstrap()
+            _bootstrap_fetch_and_save()
             logger.info("RDAP bootstrap 已刷新（24h 周期）")
         except Exception as e:
+            if backup is not None:
+                try:
+                    whoisit.load_bootstrap_data(backup)
+                    logger.info("RDAP bootstrap 刷新失败已恢复旧数据")
+                except Exception:
+                    pass
             logger.warning("RDAP bootstrap 刷新失败（下轮重试）：%s", e)
 
 

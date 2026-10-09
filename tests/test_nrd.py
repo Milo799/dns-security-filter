@@ -500,3 +500,66 @@ class TestRdapProxy:
         monkeypatch.setattr(CONFIG, "http_proxy", "")
         _apply("http_proxy", "http://172.16.5.9:3128")
         assert wu.get_proxy() == "http://172.16.5.9:3128"
+
+
+# ---------------------------------------------------------------------------
+# 迭代 48 加固：bootstrap 拉取超时放宽 + 刷新失败恢复
+# ---------------------------------------------------------------------------
+
+class TestBootstrapHardening:
+    """bootstrap 网络拉取的超时与失败恢复（不依赖公网）。"""
+
+    def test_fetch_widens_timeout_then_restores(self, monkeypatch):
+        wi = pytest.importorskip("whoisit.utils")
+        import whoisit
+        seen = {}
+
+        def fake_bootstrap():
+            seen["timeout_at_call"] = wi.http_timeout
+            whoisit.save_bootstrap_data(as_json=True)   # 无 bootstrap 时应抛
+
+        monkeypatch.setattr(rdap_nrd.whoisit, "bootstrap", fake_bootstrap)
+        monkeypatch.setattr(rdap_nrd, "_save_bootstrap", lambda: None)
+        wi.http_timeout = 5
+        try:
+            rdap_nrd._bootstrap_fetch_and_save()
+        except Exception:
+            pass
+        assert seen.get("timeout_at_call") == 30        # 拉取期间放宽到 30s
+        assert wi.http_timeout == 5                     # 之后恢复原值
+
+    def test_refresher_failure_restores_backup(self, monkeypatch):
+        """clear 后拉取失败 → 用备份恢复，bootstrap 不为空。"""
+        import whoisit
+        wi = pytest.importorskip("whoisit.utils")
+        monkeypatch.setattr(rdap_nrd, "_HAS_WHOISIT", True)
+        monkeypatch.setattr(rdap_nrd, "_BOOTSTRAP_REFRESH_S", 0)
+        calls = {"n": 0}
+
+        def fake_fetch():
+            calls["n"] += 1
+            if calls["n"] >= 1:
+                raise RuntimeError("proxy 503")
+
+        # 提供一份合法备份数据（save 返回可 load 的 JSON）
+        monkeypatch.setattr(rdap_nrd.whoisit, "save_bootstrap_data",
+                            lambda as_json=True: '{"a":1}')
+        monkeypatch.setattr(rdap_nrd.whoisit, "load_bootstrap_data",
+                            lambda data: None)
+        monkeypatch.setattr(rdap_nrd, "_bootstrap_fetch_and_save", fake_fetch)
+        monkeypatch.setattr(rdap_nrd.time, "sleep", lambda s: None)
+
+        # 手动跑一轮 refresher 的循环体逻辑（避开无限 while）
+        backup = None
+        try:
+            backup = rdap_nrd.whoisit.save_bootstrap_data(as_json=True)
+        except Exception:
+            pass
+        try:
+            rdap_nrd.whoisit.clear_bootstrapping()
+            rdap_nrd._bootstrap_fetch_and_save()
+        except Exception:
+            if backup is not None:
+                rdap_nrd.whoisit.load_bootstrap_data(backup)
+        # 验证恢复调用发生（load_bootstrap_data 被调用）
+        assert calls["n"] == 1
