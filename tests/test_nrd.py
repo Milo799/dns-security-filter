@@ -563,3 +563,37 @@ class TestBootstrapHardening:
                 rdap_nrd.whoisit.load_bootstrap_data(backup)
         # 验证恢复调用发生（load_bootstrap_data 被调用）
         assert calls["n"] == 1
+
+    def test_query_disables_retry_and_restores(self, monkeypatch, nrd_env):
+        """RDAP 查询期间禁用 429 重试（http_max_retries=0）、结束恢复默认。
+
+        whoisit 默认对 429 重试 3 次（遇限流最坏 30s+ 占用检测线程），
+        生产假期积压告警根因之一；NRD 辅助信号失败即跳过，不应重试。
+        """
+        seen = {}
+        u = pytest.importorskip("whoisit.utils")
+
+        def spy(domain_name, **kw):
+            seen["retries_at_call"] = u.http_max_retries
+            seen["timeout_at_call"] = u.http_timeout
+            return {"registration_date": datetime.now(timezone.utc) -
+                    timedelta(days=400)}
+        monkeypatch.setattr(rdap_nrd.whoisit, "domain", spy)
+        monkeypatch.setattr(rdap_nrd, "warm_bootstrap", lambda: None)
+        monkeypatch.setattr(rdap_nrd, "_BOOTSTRAP_READY", True)
+        monkeypatch.setattr(rdap_nrd, "_apply_proxy", lambda: None)
+
+        old_rt, old_to = u.http_max_retries, u.http_timeout
+        u.http_max_retries = 3
+        u.http_timeout = 10
+        monkeypatch.setattr(CONFIG, "nrd_tlds", "xyz")
+        monkeypatch.setattr(CONFIG, "nrd_max_age_days", 30)
+        rdap_nrd.reset()
+        try:
+            assert rdap_nrd.is_new_registration("old-stable.xyz") is False
+            assert seen["retries_at_call"] == 0        # 查询期间禁用重试
+            assert seen["timeout_at_call"] == 5        # 查询期间超时收紧 5s
+            assert u.http_max_retries == 3             # 之后恢复默认
+            assert u.http_timeout == 10
+        finally:
+            u.http_max_retries, u.http_timeout = old_rt, old_to

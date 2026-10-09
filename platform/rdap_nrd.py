@@ -367,11 +367,21 @@ def is_new_registration(domain: str) -> bool | None:
     try:
         if not _BOOTSTRAP_READY:
             warm_bootstrap()
-        # 超时收紧到 5s（默认 10s；检测链路单源预算有限）
+        # 查询期间收紧超时到 5s 且禁用 whoisit 的 429 重试（默认重试
+        # 3 次 → 遇注册局限流最坏 30s+ 占用检测线程，是假期线程池积压
+        # 告警的元凶之一；NRD 是辅助信号，失败即跳过放行，不值得等待）。
+        # 结束后恢复原值——bootstrap 拉取仍用默认重试。
+        _old_to = wi_utils.http_timeout
+        _old_rt = wi_utils.http_max_retries
         wi_utils.http_timeout = _QUERY_TIMEOUT_S
-        with _LOCK:
-            _STATS["rdap_queries"] += 1
-        result = whoisit.domain(d, follow_related=False)
+        wi_utils.http_max_retries = 0
+        try:
+            with _LOCK:
+                _STATS["rdap_queries"] += 1
+            result = whoisit.domain(d, follow_related=False)
+        finally:
+            wi_utils.http_timeout = _old_to
+            wi_utils.http_max_retries = _old_rt
         reg = result.get("registration_date")
         if not isinstance(reg, datetime):
             # 解析结果无注册时间（少见）：视为无结论
