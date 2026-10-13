@@ -335,3 +335,48 @@ def false_positive_score(clients: int, hits: int, hour_ratio: float,
         "threshold": FP_THRESHOLD,
     }
     return round(score, 4), evidence
+
+
+# ---------------------------------------------------------------------------
+# 客户端行为异常（P2）：失陷主机识别
+# ---------------------------------------------------------------------------
+
+ANOMALY_THRESHOLD = 0.58  # 异常综合分 >= 此值 → 疑似失陷/异常主机
+
+
+def client_anomaly_score(new_domains: int, intercepts: int, parents: int,
+                         baseline_new: float = 0.0) -> tuple[float, dict]:
+    """客户端行为异常评分（0~1）+ 证据。
+
+    参数（由 ai_batch 从首现表/拦截日志按客户端聚合）：
+      new_domains   窗口内该客户端首现域名数
+      intercepts    窗口内该客户端拦截命中数
+      parents       涉及的独立父域数
+      baseline_new  同窗口全体客户端新域名数的中位数（横截面基线）
+
+    失陷特征：突发大量新域名（相对全网基线）、拦截命中高、
+    父域分散。三项特征均已可测（不做无法测量的"新域名占比"推测）。
+    """
+    # 1) 新域名规模相对全网基线的偏离（横截面，冷启动即可用）
+    if baseline_new > 0:
+        f_scale = min(1.0, max(0.0, (new_domains / baseline_new - 3) / 17.0))
+    else:
+        f_scale = min(1.0, max(0.0, new_domains / 300.0))
+    # 2) 拦截命中数：命中越多越可疑（真实业务很少被大量拦截）
+    f_int = min(1.0, max(0.0, intercepts / 40.0))
+    # 3) 父域分散度：正常客户端集中在少数常用父域
+    f_parents = min(1.0, max(0.0, (parents - 25) / 175.0))
+
+    w = {"scale": 0.38, "intercept": 0.34, "parents": 0.28}
+    feats = {"scale": f_scale, "intercept": f_int, "parents": f_parents}
+    score = sum(w[k] * v for k, v in feats.items())
+
+    evidence = {
+        "new_domains": new_domains,
+        "intercepts": intercepts,
+        "parents": parents,
+        "baseline_new_median": round(baseline_new, 1),
+        "contributions": {k: round(w[k] * v, 4) for k, v in feats.items()},
+        "threshold": ANOMALY_THRESHOLD,
+    }
+    return round(score, 4), evidence

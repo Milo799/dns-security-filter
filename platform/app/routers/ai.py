@@ -21,7 +21,7 @@ import ai_collector
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
 _VALID_TYPES = ("dga_suspect", "tunnel_suspect", "false_positive",
-                "threat_cluster", "client_anomaly")
+                "threat_cluster", "client_anomaly", "intel_quality")
 _VALID_STATUS = ("pending", "confirmed", "dismissed")
 
 
@@ -207,6 +207,40 @@ def threat_clusters(limit: int = Query(50, ge=1, le=500),
                AND status='pending' AND score>=?
                ORDER BY score DESC, created_at DESC LIMIT ?""",
             (min_score, limit))
+        items = _finding_rows(cur, cur.fetchall())
+    return {"code": 0, "message": "ok", "data": {"items": items}}
+
+
+@router.get("/client-anomalies")
+def client_anomalies(limit: int = Query(50, ge=1, le=500),
+                     min_score: float = Query(0.0, ge=0.0, le=1.0),
+                     _: str = Depends(get_current_user)):
+    """客户端行为异常榜（失陷主机嫌疑）。
+
+    evidence 含新域名规模/拦截命中/父域分散度及各特征贡献——判读"这台
+    机器是否失陷"的依据。仅输出嫌疑，不自动处置。
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT * FROM ai_findings WHERE type='client_anomaly'
+               AND status='pending' AND score>=?
+               ORDER BY score DESC, created_at DESC LIMIT ?""",
+            (min_score, limit))
+        items = _finding_rows(cur, cur.fetchall())
+    return {"code": 0, "message": "ok", "data": {"items": items}}
+
+
+@router.get("/intel-quality")
+def intel_quality(_: str = Depends(get_current_user)):
+    """情报源质量评分（按命中贡献）。
+
+    evidence 含命中数/条目数/命中密度（每万条命中）——条目多但从不命中
+    的源可据此评估停用。按 score 降序。
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT * FROM ai_findings WHERE type='intel_quality'
+               ORDER BY score DESC""")
         items = _finding_rows(cur, cur.fetchall())
     return {"code": 0, "message": "ok", "data": {"items": items}}
 

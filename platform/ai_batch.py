@@ -214,6 +214,91 @@ def analyze_threat_clusters(window_hours: int = _DEFAULT_WINDOW_HOURS,
     return out
 
 
+def analyze_client_anomaly(window_hours: int = _DEFAULT_WINDOW_HOURS,
+                           min_new_domains: int = 30) -> list[tuple]:
+    """客户端行为异常检测（P2）：失陷主机嫌疑。
+
+    用**横截面基线**（客户端之间比较新域名规模），冷启动即可用——
+    不依赖 14 天时间序列积累。失陷三大特征：新域名规模突增（相对
+    全网中位数）、拦截命中多、涉及父域高度分散。
+
+    返回 [(client_ip, score, evidence)]。
+    """
+    from collections import defaultdict
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT first_client AS client, domain FROM domain_first_seen
+               WHERE first_seen >= datetime('now','localtime', ?)
+                 AND first_client <> ''""",
+            (f"-{int(window_hours)} hours",))
+        fs_rows = cur.fetchall()
+        cur.execute(
+            """SELECT client_ip AS client, COUNT(*) AS n FROM filter_log
+               WHERE action IN ('intercept', 'remove_ip')
+                 AND timestamp >= datetime('now','localtime', ?)
+                 AND client_ip <> '' GROUP BY client_ip""",
+            (f"-{int(window_hours)} hours",))
+        ints = {r["client"]: r["n"] for r in cur.fetchall()}
+    if not fs_rows:
+        return []
+
+    agg = defaultdict(lambda: {"n": 0, "parents": set()})
+    for r in fs_rows:
+        c = r["client"]
+        agg[c]["n"] += 1
+        p = ai_analysis.registrable_parent(r["domain"])
+        if p:
+            agg[c]["parents"].add(p)
+    counts = sorted(a["n"] for a in agg.values())
+    median = float(counts[len(counts) // 2]) if counts else 0.0
+
+    out = []
+    for c, a in agg.items():
+        if a["n"] < min_new_domains:
+            continue                      # 域名量太少不评（降噪）
+        score, ev = ai_analysis.client_anomaly_score(
+            new_domains=a["n"], intercepts=ints.get(c, 0),
+            parents=len(a["parents"]), baseline_new=median)
+        if score >= ai_analysis.ANOMALY_THRESHOLD:
+            out.append((c, score, ev))
+    out.sort(key=lambda x: -x[1])
+    return out
+
+
+def analyze_intel_quality(window_hours: int = 168) -> list[tuple]:
+    """情报源质量评分（P2）：按命中贡献评估各源价值。
+
+    score = 命中数归一（0.3~1.0）；evidence 含命中数/条目数/命中密度
+    （每万条命中数）——用于识别"条目多但从不命中"的失效源。
+
+    返回 [(source, score, evidence)]。
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT COALESCE(NULLIF(source_api, ''), 'unknown') AS src,
+                      COUNT(*) AS hits FROM filter_log
+               WHERE action IN ('intercept', 'remove_ip')
+                 AND timestamp >= datetime('now','localtime', ?)
+               GROUP BY src""",
+            (f"-{int(window_hours)} hours",))
+        hit_map = {r["src"]: r["hits"] for r in cur.fetchall()}
+        cur.execute("SELECT source, COUNT(*) AS n FROM threat_list "
+                    "GROUP BY source")
+        size_map = {r["source"]: r["n"] for r in cur.fetchall()}
+    if not hit_map:
+        return []
+    max_hits = max(hit_map.values())
+    out = []
+    for src, hits in sorted(hit_map.items(), key=lambda x: -x[1]):
+        size = size_map.get(src, 0)
+        score = round(min(1.0, 0.3 + 0.7 * (hits / max_hits)), 4)
+        ev = {"source": src, "hits": hits, "entries": size,
+              "hits_per_10k": (round(hits / size * 10000, 2) if size else None),
+              "window_hours": window_hours}
+        out.append((src, score, ev))
+    return out
+
+
 def run_analysis(window_hours: int = _DEFAULT_WINDOW_HOURS,
                  dga_threshold: float | None = None,
                  tunnel_threshold: float | None = None) -> dict:
@@ -224,7 +309,9 @@ def run_analysis(window_hours: int = _DEFAULT_WINDOW_HOURS,
     stats = {"dga_scanned": 0, "dga_found": 0, "dga_new": 0,
              "tunnel_groups": 0, "tunnel_found": 0, "tunnel_new": 0,
              "fp_found": 0, "fp_new": 0,
-             "clusters_found": 0, "clusters_new": 0}
+             "clusters_found": 0, "clusters_new": 0,
+             "anomaly_found": 0, "anomaly_new": 0,
+             "quality_found": 0, "quality_new": 0}
 
     rows = _scan_new_domains(window_hours)
 
@@ -265,7 +352,13 @@ def run_analysis(window_hours: int = _DEFAULT_WINDOW_HOURS,
     # ---- 4) 告警聚类（威胁族群） ----
     cluster_hits = analyze_threat_clusters(window_hours=window_hours)
 
-    # ---- 5) 入库（同一事务，幂等） ----
+    # ---- 5) 客户端行为异常（失陷主机嫌疑） ----
+    anomaly_hits = analyze_client_anomaly(window_hours=window_hours)
+
+    # ---- 6) 情报源质量评分（7 天窗口） ----
+    quality_hits = analyze_intel_quality()
+
+    # ---- 7) 入库（同一事务，幂等） ----
     with db_cursor() as cur:
         for domain, score, ev in dga_hits:
             if _upsert_finding(cur, "dga_suspect", domain, score, ev):
@@ -283,6 +376,14 @@ def run_analysis(window_hours: int = _DEFAULT_WINDOW_HOURS,
             if _upsert_finding(cur, "threat_cluster", parent, score, ev):
                 stats["clusters_new"] += 1
         stats["clusters_found"] = len(cluster_hits)
+        for client, score, ev in anomaly_hits:
+            if _upsert_finding(cur, "client_anomaly", client, score, ev):
+                stats["anomaly_new"] += 1
+        stats["anomaly_found"] = len(anomaly_hits)
+        for src, score, ev in quality_hits:
+            if _upsert_finding(cur, "intel_quality", src, score, ev):
+                stats["quality_new"] += 1
+        stats["quality_found"] = len(quality_hits)
 
     return stats
 

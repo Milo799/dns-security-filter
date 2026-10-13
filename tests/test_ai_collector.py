@@ -110,8 +110,10 @@ class TestProcessQueryIntegration:
             reply.add_answer(RR(qname, QTYPE.A, rdata=A("93.184.216.34"), ttl=60))
             return reply
         monkeypatch.setattr(detectors, "query_upstream_reply", fake_upstream)
-        # 关检测依赖（防残留名单/情报误拦）
+        # 关检测依赖（防残留名单/情报误拦）；快照 enabled 状态以便恢复
         with db_cursor() as cur:
+            cur.execute("SELECT id, enabled FROM threatintel_api")
+            saved_src = [(r["id"], r["enabled"]) for r in cur.fetchall()]
             cur.execute("UPDATE threatintel_api SET enabled=0")
             # 记录基线：teardown 清理本 fixture 期间新增的 filter_log 行，
             # 防污染后续测试的日志断言（全量套件顺序污染）
@@ -133,6 +135,9 @@ class TestProcessQueryIntegration:
             pass
         with db_cursor() as cur:
             cur.execute("DELETE FROM filter_log WHERE id > ?", (base_id,))
+            for sid, en in saved_src:          # 恢复源启用状态（防顺序污染）
+                cur.execute("UPDATE threatintel_api SET enabled=? WHERE id=?",
+                            (en, sid))
 
     def test_allowed_domain_recorded(self, pq_env):
         q = DNSRecord.question("fresh-allowed-xyz.com", "A")
