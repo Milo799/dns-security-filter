@@ -593,3 +593,56 @@ class TestPlatformAuditEndpoint:
         assert row, "应有 MCP 审计行"
         from app.audit import humanize
         assert humanize("mcp_whitelist_add", {}) == "MCP 加白名单"
+
+
+# ---------------------------------------------------------------------------
+# 6. HTTP 传输构造（生产事故回归：构造参数写错会导致服务启动即崩）
+# ---------------------------------------------------------------------------
+
+
+class TestHttpTransport:
+    def test_build_http_app_constructs(self):
+        """能构造出 streamable-http 应用（含 Bearer 中间件）。
+
+        回归：生产曾给 streamable_http_app() 传了它不接受的 port 参数，
+        服务启动即 TypeError 反复重启——构造路径必须有测试看着。
+        """
+        from starlette.applications import Starlette
+
+        s = mcp_server.Settings(api_base="http://127.0.0.1:8080",
+                                api_password="x", host="0.0.0.0", port=8090,
+                                token="tok")
+        app = mcp_server.build_http_app(s)
+        assert isinstance(app, Starlette)
+        assert any(m.cls is mcp_server.BearerAuthMiddleware
+                   for m in app.user_middleware)
+
+    def test_transport_security_allows_loopback_and_local_ips(self):
+        """Host 白名单须含回环与本机网卡 IP（否则远端按 IP 访问被 SDK 拒）。"""
+        s = mcp_server.Settings(api_base="http://127.0.0.1:8080",
+                                api_password="x", host="0.0.0.0", port=8090)
+        ts = mcp_server._transport_security(s)
+        assert ts.enable_dns_rebinding_protection is True
+        assert "127.0.0.1:*" in ts.allowed_hosts
+        assert "localhost:*" in ts.allowed_hosts
+        local = mcp_server._local_ipv4()
+        for ip in local:
+            assert f"{ip}:*" in ts.allowed_hosts, ip
+        assert ts.allowed_origins, "Origin 白名单不应为空"
+
+    def test_transport_security_includes_explicit_bind_host(self):
+        s = mcp_server.Settings(api_base="http://127.0.0.1:8080",
+                                api_password="x", host="10.1.2.3", port=8090)
+        ts = mcp_server._transport_security(s)
+        assert "10.1.2.3:*" in ts.allowed_hosts
+
+    def test_content_length_validation_uses_dict_params(self, mcp_env):
+        """回归：HTTP 层参数过滤只丢 None，空串原样传给平台。
+
+        status='' 在平台侧表示"不限状态"——若被过滤掉，
+        "查全部结论"会静默变成"查待确认"（曾实测踩到）。
+        """
+        _add_finding("dga_suspect", "mcp-test-empty.icu", 0.7,
+                     status="dismissed")
+        d = mcp_server.ai_findings(finding_type="dga_suspect", status="")
+        assert any(i["target"] == "mcp-test-empty.icu" for i in d["items"])

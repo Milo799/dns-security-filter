@@ -52,6 +52,7 @@ import functools
 import json
 import logging
 import os
+import socket
 import sys
 import time
 from dataclasses import dataclass, field
@@ -803,6 +804,64 @@ class BearerAuthMiddleware:
         return await self.app(scope, receive, send)
 
 
+def _local_ipv4() -> list[str]:
+    """本机 IPv4（用于 Host 校验白名单）。取不到就返回空列表。"""
+    ips = set()
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None):
+            ip = info[4][0]
+            if ":" not in ip:
+                ips.add(ip)
+    except OSError:
+        pass
+    try:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            probe.connect(("223.5.5.5", 80))
+            ips.add(probe.getsockname()[0])
+        finally:
+            probe.close()
+    except OSError:
+        pass
+    return sorted(ips)
+
+
+def _transport_security(settings: "Settings"):
+    """Host/Origin 白名单（SDK 的 DNS rebinding 防护）。
+
+    生产实测教训：用 0.0.0.0 绑定但不放行本机网卡 IP 时，远端 Agent 按
+    `http://<内网IP>:8090/mcp` 访问会被 SDK 直接拒（Host 校验不过）。
+    这里把回环 + 各网卡 IP 都放行；Bearer Token 仍是主防线，本项为纵深防御。
+    """
+    from mcp.server.transport_security import TransportSecuritySettings
+
+    hosts = {"127.0.0.1:*", "localhost:*", "[::1]:*"}
+    if settings.host and settings.host not in ("0.0.0.0", "::"):
+        hosts.add(f"{settings.host}:*")
+    for ip in _local_ipv4():
+        hosts.add(f"{ip}:*")
+    allowed = sorted(hosts)
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=allowed,
+        allowed_origins=[f"http://{h}" for h in allowed]
+                        + [f"https://{h}" for h in allowed],
+    )
+
+
+def build_http_app(settings: "Settings"):
+    """构造 streamable-http 应用（含 Bearer 鉴权中间件）。
+
+    单独抽出来是为了**可测**：生产曾因给 streamable_http_app() 传了它
+    不接受的 port 参数而启动即崩（服务反复重启），构造路径必须有测试覆盖。
+    """
+    app = server.streamable_http_app(
+        streamable_http_path="/mcp",
+        transport_security=_transport_security(settings))
+    app.add_middleware(BearerAuthMiddleware, token=settings.token)
+    return app
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="DNS 安全过滤中间件 MCP 服务")
@@ -843,9 +902,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     import uvicorn
 
-    app = server.streamable_http_app(host=s.host, port=s.port,
-                                     streamable_http_path="/mcp")
-    app.add_middleware(BearerAuthMiddleware, token=s.token)
+    app = build_http_app(s)
     logger.info("MCP streamable-http 启动：http://%s:%s/mcp（写能力 %s）",
                 s.host, s.port, "开" if s.allow_write else "只读")
     uvicorn.run(app, host=s.host, port=s.port, log_level="warning")
