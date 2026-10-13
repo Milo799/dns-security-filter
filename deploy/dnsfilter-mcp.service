@@ -1,0 +1,25 @@
+[Unit]
+Description=DNS 安全过滤平台 - MCP 服务（AI Agent 操作接口）
+Documentation=https://github.com/Milo799/dns-security-filter
+After=network-online.target platform-web.service
+Wants=network-online.target
+# MCP 全部经 Web API 操作平台，Web 必须先起
+Requires=platform-web.service
+
+[Service]
+Type=simple
+# 以 root 运行（与 platform-web 一致：内网专用设备形态）
+WorkingDirectory=/opt/dns-security-filter/platform
+# 连接凭据与 Bearer Token 放在独立环境文件（600 权限，不进仓库）
+EnvironmentFile=/etc/dnsfilter/mcp.env
+ExecStart=/opt/dns-security-filter/platform/venv/bin/python /opt/dns-security-filter/platform/mcp_server.py --transport http --host 0.0.0.0 --port 8090
+Restart=on-failure
+RestartSec=5
+
+# ---- 安全加固 ----
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

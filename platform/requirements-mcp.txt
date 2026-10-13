@@ -1,0 +1,14 @@
+# MCP 服务附加依赖（迭代 50）——仅 platform/mcp_server.py 需要
+#
+# 设计取舍：MCP 是本系统的**可选出口**，DNS 解析链路完全不依赖它，
+# 因此不并入 requirements.txt 主清单（避免给检测层引入无关依赖、
+# 拉长生产部署链路）。安装方式：
+#
+#   /opt/dns-security-filter/platform/venv/bin/pip install \
+#       -r platform/requirements-mcp.txt
+#
+# 内网环境需经代理：加 --proxy http://<代理>:<端口>
+#
+# 说明：uvicorn / httpx / requests 已由主 requirements 及其传递依赖提供，
+# 此处只声明 MCP SDK 本体与它要求的 JSON Schema 实现。
+mcp==2.3.0

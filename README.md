@@ -20,6 +20,8 @@ DNS 安全过滤平台（Python，监听 53）
    ├─ 离线大名单自动更新（按源周期 + jsDelivr 镜像降级）
    ├─ 高并发支撑（日志异步削峰 + 放行采样 + 限流熔断；1000QPS P95=1.86ms）
    ├─ 跨进程同步（cross_sync 60s 轮询，Web 改配置/名单 DNS 进程自动生效）
+   ├─ AI 旁路分析（域名首现采集 → DGA/隧道/误报/族群/行为基线 → 结论表；LLM 只做归纳）
+   ├─ MCP 服务（把系统变成 AI Agent 可操作对象：查处置/查结论/误伤加白，stdio + http）
    └─ Web 管理（FastAPI :8080，多文件 SPA，SOC 深浅双主题大屏）
 ```
 
@@ -30,12 +32,12 @@ DNS 安全过滤平台（Python，监听 53）
 | 目录 | 内容 | 状态 |
 |------|------|------|
 | `proxy/` | Go 代理中间件（main/config/forward/ecs + 配置模板；转发前注入客户端 ECS，已有 ECS 透传） | ✅ 已实现并编译验证（端到端含 ECS 注入链路） |
-| `platform/` | 平台：dns_server（ECS/PTR）、detectors 五层检测、adapters（16 适配器）、threat_list（离线大名单）、rdap_nrd（NRD 新注册域名检测：RDAP 注册时间查询+永久缓存）、domain_cache/ip_cache（结论缓存）、circuit_breaker（熔断：源级+路径级+上游熔断 fast-fail）、log_writer（日志削峰）、log_retention（保留期清理）、cross_sync（跨进程同步）、queue_stats（线程池队列观测）、query_stats（今日请求全量统计）、app(FastAPI+SQLite+crypto)、seed | ✅ 已实现 |
+| `platform/` | 平台：dns_server（ECS/PTR）、**mcp_server（MCP 服务：AI Agent 操作接口，16 工具）**、**ai_analysis/ai_collector/ai_batch/ai_llm（AI 旁路分析）**、detectors 五层检测、adapters（16 适配器）、threat_list（离线大名单）、rdap_nrd（NRD 新注册域名检测：RDAP 注册时间查询+永久缓存）、domain_cache/ip_cache（结论缓存）、circuit_breaker（熔断：源级+路径级+上游熔断 fast-fail）、log_writer（日志削峰）、log_retention（保留期清理）、cross_sync（跨进程同步）、queue_stats（线程池队列观测）、query_stats（今日请求全量统计）、app(FastAPI+SQLite+crypto)、seed | ✅ 已实现 |
 | `web/` | 管理前端（多文件 SPA：css/{theme,base,pages} + js/{app,charts,boot} + js/pages/×9；SOC 深浅双主题、安全态势大屏、人工情报源双 Tab） | ✅ 已实现 |
-| `deploy/` | systemd unit ×3 + backup timer + **一键安装脚本 install-proxy.sh / install-platform.sh**；**`deploy/docker/`** 镜像编排 + 网络白名单 | ✅ 已实现 |
+| `deploy/` | systemd unit ×4（proxy / platform-dns / platform-web / **dnsfilter-mcp**）+ backup timer + **一键安装脚本 install-proxy.sh / install-platform.sh / install-mcp.sh**；**`deploy/docker/`** 镜像编排 + 网络白名单 | ✅ 已实现 |
 | `tools/` | loadtest.py（DNS 压测：QPS/延迟分位）、backup_db.sh（DB 每日热备+轮转） | ✅ 已实现 |
 | `scripts/` | dev.sh（一键启动）、verify.sh（dig 验证）、fake_upstream.py | ✅ 已实现 |
-| `tests/` | pytest 440 项（融合/拦截/ECS/PTR/大名单/情报源/调度/性能/缓存/并行/跨进程同步/线程池复用/上游熔断/队列观测/查询统计/认证安全/域名聚合分析/原因筛选下拉/NRD 新注册域名检测） | ✅ 全绿 |
+| `tests/` | pytest 667 项（融合/拦截/ECS/PTR/大名单/情报源/调度/性能/缓存/并行/跨进程同步/线程池复用/上游熔断/队列观测/查询统计/认证安全/域名聚合分析/原因筛选下拉/NRD 新注册域名检测/AI 算法与结论/LLM 降级/**MCP 服务与写守卫**） | ✅ 全绿 |
 | `docs/` | 需求说明书 V2.2（需求基线）、开发 PRD V2.1（实现基线）、生产部署方案（Linux 双机） | ✅ |
 
 ## 快速开始
@@ -60,6 +62,31 @@ sudo ./deploy/install-proxy.sh --upstream <机B内网IP>
 
 # 参数与脚本行为详见 docs/生产环境部署方案（Linux 双机）.md 第五节
 ```
+
+### 方式二·附：AI Agent 接入（MCP 服务，可选）
+
+把系统开放给 AI Agent 操作（不是给大屏，而是给 Agent）：装完平台后可叠加
+MCP 服务——16 个工具（10 只读 + 6 写），写操作需 `confirm=true` 且全程审计。
+
+```bash
+# 机 B（检测平台）：装 MCP SDK + 生成 Token + 装 systemd 服务 + 自检
+sudo ./deploy/install-mcp.sh                 # 读写模式，端口 8090
+sudo ./deploy/install-mcp.sh --read-only     # 只读模式（拒绝一切写操作）
+```
+
+接入方式（二者选一，详见 docs/…MCP 服务方案）：
+
+| 客户端位置 | 传输 | 配置 |
+|---|---|---|
+| 与平台同机 / 本机 Agent | stdio | `command=…/venv/bin/python`，`args=['…/platform/mcp_server.py']`，env 里给 `DNSF_API_BASE` 与 `DNSF_API_PASSWORD` |
+| 跨网段 / 远端 Agent | streamable-http | URL `http://<机B>:8090/mcp` + 请求头 `Authorization: Bearer <install-mcp.sh 生成的 Token>` |
+
+典型用法（Agent 视角）：`domain_verdict('github.com')` 看是否被拦及命中层级 →
+`domain_investigate('某域名')` 拿首现/注册/AI 结论/拦截史 → 误伤则
+`false_positive_whitelist(confirm=true)` 加白（需先取得人工同意）。
+
+> 红线：MCP 不直连数据库，全部经平台 Web API（复用鉴权/校验/审计）；
+> AI 只给建议与证据，**落策略必须人工确认**；MCP 故障不影响 DNS 解析。
 
 ### 方式三：裸机 / 开发调试（Linux）
 

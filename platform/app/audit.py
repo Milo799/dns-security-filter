@@ -38,6 +38,13 @@ _ACTION_LABELS = {
     "password_change": "修改密码",
     "login_lockout": "登录失败锁定",
     "login_ip_block": "登录失败封禁IP",
+    # MCP 服务（迭代 50）：Agent 经 MCP 执行的操作
+    "mcp_whitelist_add": "MCP 加白名单",
+    "mcp_blacklist_add": "MCP 加黑名单",
+    "mcp_list_entry_set_enabled": "MCP 启停名单条目",
+    "mcp_list_entry_delete": "MCP 删除名单条目",
+    "mcp_finding_decide": "MCP 决断 AI 结论",
+    "mcp_false_positive_whitelist": "MCP 误伤加白",
 }
 
 _LIST_TYPE_LABELS = {"blacklist": "黑名单", "whitelist": "白名单"}
