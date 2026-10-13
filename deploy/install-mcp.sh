@@ -185,24 +185,27 @@ fi
 "$PY" - "$PORT" "$TOKEN" <<'PYHANDSHAKE'
 import asyncio, sys
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import (create_mcp_http_client,
+                                        streamable_http_client)
 
 port, token = sys.argv[1], sys.argv[2]
 
 
 async def main():
-    async with streamablehttp_client(
-            f"http://127.0.0.1:{port}/mcp",
-            headers={"Authorization": "Bearer " + token}) as (r, w, _):
-        async with ClientSession(r, w) as s:
-            info = await s.initialize()
-            tools = (await s.list_tools()).tools
-            writes = [t.name for t in tools
-                      if "confirm" in (t.input_schema or {}).get(
-                          "properties", {})]
-            print(f"   服务 {info.server_info.name} "
-                  f"v{info.server_info.version}｜工具 {len(tools)} 个"
-                  f"（只读 {len(tools) - len(writes)} / 写 {len(writes)}）")
+    headers = {"Authorization": "Bearer " + token}
+    async with create_mcp_http_client(headers=headers) as http_client:
+        async with streamable_http_client(
+                f"http://127.0.0.1:{port}/mcp",
+                http_client=http_client) as (r, w):
+            async with ClientSession(r, w) as s:
+                info = await s.initialize()
+                tools = (await s.list_tools()).tools
+                writes = [t.name for t in tools
+                          if "confirm" in (t.input_schema or {}).get(
+                              "properties", {})]
+                print(f"   服务 {info.server_info.name} "
+                      f"v{info.server_info.version}｜工具 {len(tools)} 个"
+                      f"（只读 {len(tools) - len(writes)} / 写 {len(writes)}）")
 
 
 asyncio.run(main())
