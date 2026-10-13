@@ -195,3 +195,29 @@ ai_findings(finding_type='threat_cluster')   # 族群 = 攻击基础设施聚类
 3. **独立只读账号**：平台侧加 `mcp_viewer` 角色（只读 API 白名单），让只读模式在**权限层**也成立，而非仅靠工具层开关。
 4. **工具粒度细化**：`tunnel_session_detail`、`client_timeline`（单主机时间线）等。
 5. **与告警联动**：MCP 服务在发现高危族群时主动推 Agent（MCP 订阅 / Webhook）。
+
+---
+
+## 10. 生产部署实测记录（2026-10-13）
+
+**部署**：`bash deploy/install-mcp.sh --api-password '<口令>' --pip-proxy http://172.16.5.7:3128`
+→ MCP SDK 2.3.0 装入平台 venv → 口令校验通过 → `/etc/dnsfilter/mcp.env`（600 root）→ `dnsfilter-mcp.service` 启用（`0.0.0.0:8090/mcp`）。
+
+| 验证项 | 结果 |
+|---|---|
+| 服务状态 | `active`（`MCP streamable-http 启动：http://0.0.0.0:8090/mcp`） |
+| 跨网段无 Token | `HTTP 401` ✓ |
+| 跨网段错 Token | `HTTP 401` ✓ |
+| 跨网段正确 Token | 握手成功：`dns-security-filter v1.0.0`｜工具 **16 个（只读 10 / 写 6）** ✓ |
+| 真实工具调用 | `system_status` → 今日 381 万查询 / 7.51% 拦截率；首现表 2.7 万；`domain_verdict('github.com')` → allow（白名单命中）✓ |
+| 写守卫 | 未带 confirm 的 `whitelist_add` → `needs_confirmation`，库中命中条数 **0**（零改动）✓ |
+| 审计留痕 | `audit_log` 双留痕（`list_create` + `mcp_whitelist_add`，operator=`mcp:<agent>`）✓ |
+| 解析不受影响 | platform-dns / platform-web 全程 active，DNS 解析正常 ✓ |
+
+### 10.1 部署中暴露并修掉的三处问题（都已回归测试覆盖）
+
+1. **`streamable_http_app()` 不接受 `port` 参数** → 服务启动即 `TypeError`、systemd 反复重启。`port` 属于 `run_streamable_http_async`。修正后抽 `build_http_app()` 使构造路径可测（4 项回归测试）。
+2. **SDK 的 DNS rebinding 防护会拒掉按内网 IP 的访问**：`0.0.0.0` 绑定但 `allowed_hosts` 不含本机网卡 IP 时，远端 `http://<IP>:8090/mcp` 直接被拒。新增 `_transport_security()`：放行回环 + localhost + 各网卡 IPv4（socket 探测）；Bearer Token 仍是主防线。
+3. **`install-mcp.sh` 曾取 `platform.yaml` 的初始口令**：生产管理员改过口令，yaml 里是**首次初始化**的值——直接采用会写入过期凭据（MCP 装好但调不通平台）。改为 `--api-password` > 已有 mcp.env > yaml，且**连接前试登录校验**，不一致立即报错。另修：脚本自检的 SDK 客户端 API 需用 2.x 写法（`create_mcp_http_client` + `streamable_http_client`）。
+
+> 附带教训：**部署脚本的自检必须真的能跑通**——这次三处问题里有两处正是靠自检与实测抓出来的；把构造逻辑抽成可测函数，比"部署时试试看"可靠得多。
