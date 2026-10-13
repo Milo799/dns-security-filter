@@ -40,7 +40,9 @@ _INT_KEYS = {"alert_ttl", "log_retention_days", "api_timeout_ms",
              # 银狐情报共享站离线源（迭代 43）
              "silverfox_window_days",
              # AI 旁路分析（迭代 49）
-             "ai_analysis_interval_minutes"}
+             "ai_analysis_interval_minutes",
+             # 客户端基线冷启动（方案决策点 6）
+             "ai_baseline_days"}
 
 
 def _apply(key: str, value: str) -> None:

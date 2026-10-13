@@ -233,6 +233,23 @@ def analyze_threat_clusters(window_hours: int = _DEFAULT_WINDOW_HOURS,
     return out
 
 
+def baseline_observed_days() -> float:
+    """首现表已积累的观察时长（天）。用于客户端基线冷启动判定。
+
+    从 domain_first_seen 的最早一条时间算起——等于"AI 数据地基已观察
+    多久"。空表返回 0.0。
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT julianday('now','localtime') - julianday(MIN(first_seen))
+                      AS d FROM domain_first_seen""")
+        r = cur.fetchone()
+    try:
+        return float(r["d"]) if r and r["d"] is not None else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def analyze_client_anomaly(window_hours: int = _DEFAULT_WINDOW_HOURS,
                            min_new_domains: int = 30) -> list[tuple]:
     """客户端行为异常检测（P2）：失陷主机嫌疑。
@@ -241,9 +258,19 @@ def analyze_client_anomaly(window_hours: int = _DEFAULT_WINDOW_HOURS,
     不依赖 14 天时间序列积累。失陷三大特征：新域名规模突增（相对
     全网中位数）、拦截命中多、涉及父域高度分散。
 
+    **冷启动保护（方案决策点 6）**：首现表积累不足 ai_baseline_days
+    （默认 14 天）时**只积累不告警**——避免数据地基尚薄时用不足的
+    基线发出大量噪音嫌疑，污染研判台。
+
     返回 [(client_ip, score, evidence)]。
     """
     from collections import defaultdict
+    need_days = float(getattr(CONFIG, "ai_baseline_days", 14))
+    observed = baseline_observed_days()
+    if observed < need_days:
+        logger.info("客户端基线冷启动中（已观察 %.1f 天 / 需 %.0f 天）："
+                    "本轮只积累不告警", observed, need_days)
+        return []
     with db_cursor() as cur:
         cur.execute(
             """SELECT first_client AS client, domain FROM domain_first_seen

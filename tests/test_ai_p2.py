@@ -102,7 +102,9 @@ def _seed_hosts():
 
 
 class TestAnalyzeClients:
-    def test_anomalous_host_detected(self, p2_env):
+    def test_anomalous_host_detected(self, p2_env, monkeypatch):
+        # 关闭冷启动保护（测试数据是"刚采集"的当天数据）
+        monkeypatch.setattr(CONFIG, "ai_baseline_days", 0)
         _seed_hosts()
         hits = ai_batch.analyze_client_anomaly()
         ips = [h[0] for h in hits]
@@ -110,11 +112,41 @@ class TestAnalyzeClients:
         score = [h[1] for h in hits if h[0] == "10.6.6.6"][0]
         assert score >= ai_analysis.ANOMALY_THRESHOLD
 
-    def test_normal_hosts_not_flagged(self, p2_env):
+    def test_normal_hosts_not_flagged(self, p2_env, monkeypatch):
+        monkeypatch.setattr(CONFIG, "ai_baseline_days", 0)
         _seed_hosts()
         hits = ai_batch.analyze_client_anomaly()
         for ip, _, _ in hits:
             assert ip == "10.6.6.6", f"正常主机 {ip} 被误判"
+
+
+class TestBaselineColdStart:
+    """方案决策点 6：首现表积累不足时只积累不告警。"""
+
+    def test_observed_days_empty_table(self, p2_env):
+        assert ai_batch.baseline_observed_days() == 0.0
+
+    def test_observed_days_with_data(self, p2_env):
+        with db_cursor() as cur:
+            cur.execute(
+                """INSERT OR IGNORE INTO domain_first_seen
+                   (domain, first_client, qtype, first_seen)
+                   VALUES ('coldstart.example.com', '10.0.0.1', 'A',
+                           datetime('now','localtime','-3 days'))""")
+        d = ai_batch.baseline_observed_days()
+        assert 2.9 < d < 3.1
+
+    def test_anomaly_suppressed_during_cold_start(self, p2_env, monkeypatch):
+        """默认 14 天：刚采集的数据即使命中特征也不出告警。"""
+        monkeypatch.setattr(CONFIG, "ai_baseline_days", 14)
+        _seed_hosts()
+        assert ai_batch.analyze_client_anomaly() == []
+
+    def test_anomaly_enabled_after_baseline(self, p2_env, monkeypatch):
+        """基线积累达标（把阈值设为 0 等价于已达标）→ 恢复告警。"""
+        monkeypatch.setattr(CONFIG, "ai_baseline_days", 0)
+        _seed_hosts()
+        assert ai_batch.analyze_client_anomaly()
 
 
 class TestIntelQuality:
@@ -146,7 +178,8 @@ class TestIntelQuality:
 
 
 class TestRunAnalysisP2:
-    def test_results_included(self, p2_env):
+    def test_results_included(self, p2_env, monkeypatch):
+        monkeypatch.setattr(CONFIG, "ai_baseline_days", 0)   # 关冷启动保护
         _seed_hosts()
         stats = ai_batch.run_analysis()
         assert stats["anomaly_found"] >= 1
@@ -180,7 +213,8 @@ def _h(token):
 
 
 class TestApi:
-    def test_client_anomalies_view(self, client, token, p2_env):
+    def test_client_anomalies_view(self, client, token, p2_env, monkeypatch):
+        monkeypatch.setattr(CONFIG, "ai_baseline_days", 0)   # 关冷启动保护
         _seed_hosts()
         ai_batch.run_analysis()
         r = client.get("/api/ai/client-anomalies", headers=_h(token))
