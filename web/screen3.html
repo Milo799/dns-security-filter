@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>AI 智能洞察 · DNS 安全态势感知平台</title>
+<link rel="stylesheet" href="/css/screen2.css">
+<link rel="stylesheet" href="/css/screen3.css">
+</head>
+<body>
+<div id="viewport">
+  <div id="stage" data-level="steady">
+
+    <canvas id="bgCanvas"></canvas>
+    <div class="grid-floor"></div>
+    <div class="aurora a1"></div>
+    <div class="aurora a2"></div>
+    <div class="scanlines"></div>
+    <div class="vignette"></div>
+
+    <!-- ══════════ 顶部标题栏 ══════════ -->
+    <header class="scr-header">
+      <div class="hd-left">
+        <div class="hd-logo">AI</div>
+        <div class="hd-sys">
+          <b>AI INSIGHT</b>
+          <span>智能旁路分析 · 自主威胁发现</span>
+        </div>
+      </div>
+      <div class="hd-center">
+        <div class="hd-wing"></div>
+        <div class="hd-title">AI 智能洞察</div>
+        <div class="hd-wing right"></div>
+      </div>
+      <div class="hd-right">
+        <div class="hd-light ok" id="hdCollector"><i></i><span>采集</span><b>ON</b></div>
+        <div class="hd-light ok" id="hdBatch"><i></i><span>分析</span><b>ON</b></div>
+        <div class="hd-clock">
+          <b id="scrClock">--:--:--</b>
+          <span id="scrDate">----年--月--日 星期-</span>
+        </div>
+        <a class="hd-switch" href="/screen.html" title="切换到威胁态势视角">⇄ 态势</a>
+        <a class="hd-switch" href="/screen2.html" title="切换到检测链路视角">⇄ 链路</a>
+        <button class="hd-fs" id="btnFs" title="全屏 (F)">⛶</button>
+      </div>
+    </header>
+
+    <!-- ══════════ 左翼：AI 能力概览 ══════════ -->
+    <aside class="wing left-wing">
+      <section class="sect">
+        <div class="sect-head">
+          <span class="sect-diamond"></span>
+          <div class="sect-titles"><b>AI 发现概览</b><small>AI FINDINGS</small></div>
+        </div>
+        <div class="sect-body">
+          <div class="ai-metrics" id="aiMetrics">
+            <div class="ai-cell"><small>疑似 DGA</small><b id="mDga">--</b><span>自动生成型域名</span></div>
+            <div class="ai-cell"><small>疑似隧道</small><b id="mTunnel">--</b><span>数据外泄信道</span></div>
+            <div class="ai-cell warn"><small>误报待办</small><b id="mFp">--</b><span>建议加白待确认</span></div>
+            <div class="ai-cell"><small>威胁族群</small><b id="mCluster">--</b><span>今日攻击基础设施</span></div>
+          </div>
+        </div>
+      </section>
+      <section class="sect">
+        <div class="sect-head">
+          <span class="sect-diamond"></span>
+          <div class="sect-titles"><b>数据地基状态</b><small>DATA FOUNDATION</small></div>
+        </div>
+        <div class="sect-body">
+          <div class="ds-rows" id="dsRows">
+            <div class="ds-row"><span class="dock"></span><span class="dn">域名首现表（累计）</span><b id="dTotal">--</b></div>
+            <div class="ds-row"><span class="dock"></span><span class="dn">近 24h 新增首现</span><b id="d24h">--</b></div>
+            <div class="ds-row"><span class="dock"></span><span class="dn">采集队列 / 已落库</span><b id="dQueue">--</b></div>
+            <div class="ds-row"><span class="dock"></span><span class="dn">分析运行周期</span><b id="dInterval">--</b></div>
+          </div>
+          <div class="ds-note">AI 全程旁路只读 · 不干预解析主链路</div>
+        </div>
+      </section>
+    </aside>
+
+    <!-- ══════════ 中央：威胁族群气泡图 ══════════ -->
+    <div class="chain-stage">
+      <canvas id="clusterCanvas"></canvas>
+      <div class="chain-caption">
+        <span class="cap-in">◀ 气泡越大 = 拦截量越高</span>
+        <b>今日威胁族群全景 · 攻击基础设施聚类</b>
+        <span class="cap-out">颜色 = 命中源 ▶</span>
+      </div>
+    </div>
+
+    <!-- ══════════ 右翼：待办与清单 ══════════ -->
+    <aside class="wing right-wing">
+      <section class="sect">
+        <div class="sect-head">
+          <span class="sect-diamond"></span>
+          <div class="sect-titles"><b>误报加白待办</b><small>FALSE POSITIVE</small></div>
+          <span class="sect-extra live"><i></i>待确认</span>
+        </div>
+        <div class="sect-body">
+          <div class="ai-list" id="fpList"><div class="ai-empty">暂无待办</div></div>
+        </div>
+      </section>
+      <section class="sect">
+        <div class="sect-head">
+          <span class="sect-diamond"></span>
+          <div class="sect-titles"><b>疑似威胁（AI 发现）</b><small>AI SUSPECTS</small></div>
+        </div>
+        <div class="sect-body">
+          <div class="ai-list" id="suspectList"><div class="ai-empty">暂无发现</div></div>
+        </div>
+      </section>
+    </aside>
+
+    <!-- ══════════ 底部：隧道会话 ══════════ -->
+    <footer class="scr-footer">
+      <div class="ft-profile-wrap">
+        <div class="ft-label"><b>隧道/外泄会话</b><small>TUNNEL SESSIONS</small></div>
+        <div class="tunnel-list" id="tunnelList"><div class="ai-empty">未发现隧道会话</div></div>
+      </div>
+    </footer>
+
+  </div>
+</div>
+
+<div class="login-overlay" id="loginOverlay" style="display:none">
+  <form class="login-box" id="loginForm">
+    <div class="login-logo">AI</div>
+    <h2>AI 洞察大屏</h2>
+    <input type="text" id="loginUser" placeholder="用户名" autocomplete="username">
+    <input type="password" id="loginPass" placeholder="密码" autocomplete="current-password">
+    <div class="login-err" id="loginErr"></div>
+    <button type="submit">登 录</button>
+  </form>
+</div>
+
+<script src="/js/screen3.js"></script>
+</body>
+</html>

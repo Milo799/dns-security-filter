@@ -23,14 +23,16 @@ from app.db import db_cursor
 
 @pytest.fixture
 def ab_env():
-    """清空首现表与结论表，还原配置。"""
+    """清空首现表、结论表与拦截日志（误报/聚类分析会读 filter_log）。"""
     with db_cursor() as cur:
         cur.execute("DELETE FROM domain_first_seen")
         cur.execute("DELETE FROM ai_findings")
+        cur.execute("DELETE FROM filter_log")
     yield
     with db_cursor() as cur:
         cur.execute("DELETE FROM domain_first_seen")
         cur.execute("DELETE FROM ai_findings")
+        cur.execute("DELETE FROM filter_log")
 
 
 def _add_first_seen(rows):
@@ -125,3 +127,84 @@ class TestRunAnalysis:
         ai_batch.run_analysis()
         s = ai_batch.findings_summary()
         assert s.get("dga_suspect") == 1
+
+
+# ---------------------------------------------------------------------------
+# P1-2 告警聚类（威胁族群）
+# ---------------------------------------------------------------------------
+
+
+def _add_cluster_logs():
+    """构造两个族群：evil-a.com（大规模）+ evil-b.top（小规模）。"""
+    with db_cursor() as cur:
+        for i in range(30):
+            cur.execute(
+                """INSERT INTO filter_log
+                   (client_ip, domain, query_type, filter_reason, action,
+                    malicious_ips, final_result, source_api)
+                   VALUES (?, ?, 'A', 'threat_list:silverfox', 'intercept',
+                           '', 'alert_ip:127.0.0.1', 'silverfox')""",
+                (f"10.1.0.{i % 8 + 1}", f"node{i}.evil-a.com"))
+        for i in range(4):
+            cur.execute(
+                """INSERT INTO filter_log
+                   (client_ip, domain, query_type, filter_reason, action,
+                    malicious_ips, final_result, source_api)
+                   VALUES (?, ?, 'A', 'local_blacklist', 'intercept',
+                           '', 'alert_ip:127.0.0.1', '')""",
+                (f"10.2.0.{i + 1}", f"bad{i}.evil-b.top"))
+
+
+class TestThreatClusters:
+    def test_clustering_by_parent(self, ab_env):
+        with db_cursor() as cur:
+            cur.execute("DELETE FROM filter_log")
+        _add_cluster_logs()
+        try:
+            clusters = ai_batch.analyze_threat_clusters()
+            by_parent = {c[0]: (c[1], c[2]) for c in clusters}
+            assert "evil-a.com" in by_parent
+            assert "evil-b.top" in by_parent
+            # 大规模族群分数应高于小规模（规模归一）
+            assert by_parent["evil-a.com"][0] >= by_parent["evil-b.top"][0]
+            ev = by_parent["evil-a.com"][1]
+            assert ev["hits"] == 30
+            assert ev["domain_count"] == 30
+            assert ev["client_count"] == 8
+            assert "silverfox" in ev["sources"]
+        finally:
+            with db_cursor() as cur:
+                cur.execute("DELETE FROM filter_log")
+
+    def test_min_hits_filter(self, ab_env):
+        """低于 min_hits 的族群不产出（降噪）。"""
+        with db_cursor() as cur:
+            cur.execute("DELETE FROM filter_log")
+            cur.execute(
+                """INSERT INTO filter_log
+                   (client_ip, domain, query_type, filter_reason, action,
+                    malicious_ips, final_result, source_api)
+                   VALUES ('10.3.0.1', 'x.single.top', 'A', 'local_blacklist',
+                           'intercept', '', 'alert_ip:127.0.0.1', '')""")
+        try:
+            clusters = ai_batch.analyze_threat_clusters(min_hits=3)
+            assert not any(c[0] == "single.top" for c in clusters)
+        finally:
+            with db_cursor() as cur:
+                cur.execute("DELETE FROM filter_log")
+
+    def test_run_analysis_includes_clusters(self, ab_env):
+        with db_cursor() as cur:
+            cur.execute("DELETE FROM filter_log")
+        _add_cluster_logs()
+        try:
+            stats = ai_batch.run_analysis()
+            assert stats["clusters_found"] >= 2
+            with db_cursor() as cur:
+                cur.execute("SELECT COUNT(*) AS n FROM ai_findings "
+                            "WHERE type='threat_cluster'")
+                assert cur.fetchone()["n"] >= 2
+        finally:
+            with db_cursor() as cur:
+                cur.execute("DELETE FROM filter_log")
+                cur.execute("DELETE FROM ai_findings")

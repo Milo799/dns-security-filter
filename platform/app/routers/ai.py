@@ -129,6 +129,88 @@ def update_finding_status(finding_id: int, status: str = Query(...),
                                                  "status": status}}
 
 
+@router.get("/false-positive")
+def false_positive_list(limit: int = Query(50, ge=1, le=500),
+                        min_score: float = Query(0.0, ge=0.0, le=1.0),
+                        _: str = Depends(get_current_user)):
+    """疑似误伤清单（多客户端共访等业务特征；加白需人工确认）。
+
+    附带的 evidence 含各特征贡献分，便于快速判断"该不该加白"。
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT * FROM ai_findings WHERE type='false_positive'
+               AND status='pending' AND score>=?
+               ORDER BY score DESC, created_at DESC LIMIT ?""",
+            (min_score, limit))
+        items = _finding_rows(cur, cur.fetchall())
+        # 标注哪些已在白名单（防重复加白）
+        if items:
+            vals = [i["target"] for i in items]
+            marks = ",".join("?" * len(vals))
+            cur.execute(
+                f"""SELECT value FROM filter_list WHERE list_type='whitelist'
+                    AND target='domain' AND value IN ({marks})""", vals)
+            already = {r["value"] for r in cur.fetchall()}
+            for i in items:
+                i["already_whitelisted"] = i["target"] in already
+    return {"code": 0, "message": "ok", "data": {"items": items}}
+
+
+@router.post("/false-positive/{domain}/whitelist")
+def confirm_whitelist(domain: str, remark: str = Query(""),
+                      user: str = Depends(get_current_user)):
+    """一键加白（**人工确认后**执行）——AI 只出建议，此接口由人点击触发。
+
+    写白名单 + 失效名单缓存（DNS 进程经 cross_sync 60s 内同步）
+    + 标记对应误报结论为 confirmed + 审计留痕。
+    """
+    d = (domain or "").strip().lower().rstrip(".")
+    if not d or "." not in d:
+        raise HTTPException(400, "域名格式非法")
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT id FROM filter_list WHERE list_type='whitelist'
+               AND target='domain' AND value=? LIMIT 1""", (d,))
+        if cur.fetchone():
+            raise HTTPException(409, "该域名已在白名单中")
+        cur.execute(
+            """INSERT INTO filter_list (list_type, target, value, enabled,
+                                        remark, created_by)
+               VALUES ('whitelist', 'domain', ?, 1, ?, ?)""",
+            (d, remark or "AI 误报识别建议 · 人工确认加白", user))
+        cur.execute(
+            """UPDATE ai_findings SET status='confirmed',
+                   updated_at=datetime('now','localtime')
+               WHERE type='false_positive' AND target=?
+                 AND status='pending'""", (d,))
+    from app.db import invalidate_list_cache
+    invalidate_list_cache()
+    write_audit(user, "ai_false_positive_whitelist",
+                {"domain": d, "remark": remark})
+    return {"code": 0, "message": "ok", "data": {"domain": d,
+                                                 "whitelisted": True}}
+
+
+@router.get("/threat-clusters")
+def threat_clusters(limit: int = Query(50, ge=1, le=500),
+                    min_score: float = Query(0.0, ge=0.0, le=1.0),
+                    _: str = Depends(get_current_user)):
+    """威胁族群榜单（target = 可注册父域；按规模归一评分排序）。
+
+    evidence 含族群画像：拦截次数、独立域名数、客户端数、命中源分布、
+    样例域名——用于快速了解"今天被攻击的基础设施有哪些"。
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """SELECT * FROM ai_findings WHERE type='threat_cluster'
+               AND status='pending' AND score>=?
+               ORDER BY score DESC, created_at DESC LIMIT ?""",
+            (min_score, limit))
+        items = _finding_rows(cur, cur.fetchall())
+    return {"code": 0, "message": "ok", "data": {"items": items}}
+
+
 @router.get("/stats")
 def ai_stats(_: str = Depends(get_current_user)):
     """AI 模块状态概览（首现表规模、结论统计、采集/批处理运行状态）。"""

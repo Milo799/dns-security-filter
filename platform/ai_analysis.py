@@ -252,3 +252,86 @@ def tunnel_score(subdomains: list[str], qtypes: list[str]) -> tuple[float, dict]
         "threshold": TUNNEL_THRESHOLD,
     }
     return round(score, 4), evidence
+
+
+# ---------------------------------------------------------------------------
+# 误报识别（P1-1）：被拦域名中识别"疑似误伤"（多客户端共访等业务特征）
+# ---------------------------------------------------------------------------
+
+# 业务/通用词——出现在主标签里说明更像正常业务域名（与 DGA 特征相反）
+_BIZ_WORDS = frozenset("""
+mail email shop store news blog cloud app web data api cdn static image img
+video music game games play test dev demo login signin account user admin
+service server support help docs wiki portal secure auth token sso vpn
+proxy gateway edge online site website page home index main mobile media
+group network systems solutions digital global central analytics report
+dashboard monitor status health payment billing invoice order cart checkout
+search maps travel hotel flight booking ticket event events sport career
+jobs recruit hr finance legal marketing sales partner channel learn
+education course training academy school university library healthcare
+hospital clinic doctor medical pharmacy food recipe restaurant kitchen menu
+coffee cafe resort office update download upload sync backup restore
+""".split())
+
+FP_THRESHOLD = 0.55       # 误报综合分 >= 此值 → 疑似误伤，建议加白
+
+
+def false_positive_score(clients: int, hits: int, hour_ratio: float,
+                         domain_age_days: int | None = None,
+                         in_first_seen: bool = False,
+                         label: str = "") -> tuple[float, dict]:
+    """误伤嫌疑评分（0~1）+ 可解释证据。
+
+    参数（由 ai_batch 从 filter_log / nrd_cache / domain_first_seen 聚合）：
+      clients          独立客户端数（多客户端共访 = 业务常用，最强误伤信号）
+      hits             拦截总次数
+      hour_ratio       09-18 点拦截占比（业务流量时间规律）
+      domain_age_days  已知注册年龄（None = 未知，中性）
+      in_first_seen    该域名曾在首现表（历史解析成功过）
+      label            主标签（业务词匹配）
+
+    证据含各特征原值与贡献分，供人工研判。
+    """
+    # 1) 多客户端共访：3 个起评、10+ 满分（最强信号，权重最高）
+    f_clients = min(1.0, max(0.0, (clients - 2) / 8.0))
+    # 2) 人均重试：被拦后仍反复访问 → 用户依赖该域
+    per = hits / max(1, clients)
+    f_retry = min(1.0, max(0.0, (per - 1.2) / 3.0))
+    # 3) 工作时间集中度：业务流量多在 09-18
+    f_hours = min(1.0, max(0.0, hour_ratio))
+    # 4) 域名年龄：老域名基本排除"新注册恶意"（未知取中性 0.5）
+    if domain_age_days is None:
+        f_age = 0.5
+    elif domain_age_days > 730:
+        f_age = 1.0
+    elif domain_age_days > 180:
+        f_age = 0.7
+    elif domain_age_days > 30:
+        f_age = 0.4
+    else:
+        f_age = 0.0
+    # 5) 曾被正常放行（首现表）——历史业务使用证据
+    f_seen = 1.0 if in_first_seen else 0.0
+    # 6) 业务词命中
+    lab = (label or "").lower()
+    biz_hit = any(w in lab for w in _BIZ_WORDS) if lab else False
+    f_biz = 1.0 if biz_hit else 0.0
+
+    w = {"clients": 0.32, "retry": 0.18, "hours": 0.15,
+         "age": 0.15, "seen": 0.12, "biz": 0.08}
+    feats = {"clients": f_clients, "retry": f_retry, "hours": f_hours,
+             "age": f_age, "seen": f_seen, "biz": f_biz}
+    score = sum(w[k] * v for k, v in feats.items())
+
+    evidence = {
+        "clients": clients,
+        "hits": hits,
+        "hits_per_client": round(per, 2),
+        "work_hour_ratio": round(hour_ratio, 3),
+        "domain_age_days": domain_age_days,
+        "in_first_seen": in_first_seen,
+        "biz_label_hit": biz_hit,
+        "contributions": {k: round(w[k] * v, 4) for k, v in feats.items()},
+        "threshold": FP_THRESHOLD,
+    }
+    return round(score, 4), evidence
