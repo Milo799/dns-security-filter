@@ -17,7 +17,9 @@ _BOOL_KEYS = {"allow_log_enabled", "detection_enabled",
               "threatlist_auto_update", "log_async_enabled",
               "nrd_enabled", "nrd_offline_enabled",
               # AI 旁路分析（迭代 49）
-              "ai_first_seen_enabled", "ai_analysis_enabled"}
+              "ai_first_seen_enabled", "ai_analysis_enabled",
+              # LLM 智能中枢（P3，分析侧）
+              "llm_enabled"}
 _INT_KEYS = {"alert_ttl", "log_retention_days", "api_timeout_ms",
              "threatlist_auto_interval_hours", "domain_cache_ttl_s",
              "domain_cache_size", "ip_cache_ttl_s", "ip_cache_size",

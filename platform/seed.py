@@ -45,6 +45,11 @@ DEFAULT_SYSTEM_CONFIG = {
     "ai_first_seen_enabled": str(int(CONFIG.ai_first_seen_enabled)),
     "ai_analysis_enabled": str(int(CONFIG.ai_analysis_enabled)),
     "ai_analysis_interval_minutes": str(CONFIG.ai_analysis_interval_minutes),
+    # LLM 智能中枢（P3，分析侧）
+    "llm_enabled": str(int(CONFIG.llm_enabled)),
+    "llm_base_url": CONFIG.llm_base_url,
+    "llm_api_key": CONFIG.llm_api_key,
+    "llm_model": CONFIG.llm_model,
 }
 
 # ---------------------------------------------------------------------------

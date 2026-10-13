@@ -47,6 +47,11 @@ class PlatformConfig:
     ai_first_seen_enabled: bool = True     # 域名首现采集开关（旁路地基，排障可关）
     ai_analysis_enabled: bool = True       # AI 批处理分析开关（DGA/隧道检测）
     ai_analysis_interval_minutes: int = 30  # 分析运行间隔（分钟，最小 5）
+    # LLM 智能中枢（P3，分析侧；不参与检测判定）
+    llm_enabled: bool = False              # 总开关（未配置 key 时保持关闭）
+    llm_base_url: str = ""                 # OpenAI 兼容端点（如 https://api.example.com/v1）
+    llm_api_key: str = ""                  # API Key（空 = 走结构化降级）
+    llm_model: str = ""                    # 模型名（按服务商填写）
     detection_enabled: bool = True         # 检测总开关
     api_timeout_ms: int = 2000             # 威胁情报源单次调用超时（毫秒）
     domain_cache_ttl_s: int = 300          # 域名检测结论缓存 TTL（秒，1~86400）

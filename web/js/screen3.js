@@ -308,6 +308,79 @@ function pollSuspects(){
   });
 }
 
+/* ── P3：AI 研判面板（LLM 只做归纳翻译，不参与任何检测判定） ── */
+function apiPost(path){
+  var opt = {method: 'POST', headers: {}};
+  if (S.token) opt.headers.Authorization = 'Bearer ' + S.token;
+  return fetch(path, opt).then(function(r){
+    if (r.status === 401){ onUnauthorized(); throw new Error('401'); }
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }).then(function(j){
+    if (j.code !== 0) throw new Error(j.message || 'api error');
+    return j.data;
+  });
+}
+var aip = {open: false, busy: false};
+var AIP_FOOT = '事实来源：AI 算法层结论（DGA / 隧道 / 误报 / 族群 / 行为基线）';
+function aipShow(mode, text, foot){
+  var m = $('aipMode');
+  m.textContent = (mode === 'llm') ? 'LLM 生成' : '结构化降级';
+  m.className = 'aip-mode' + (mode === 'llm' ? '' : ' structured');
+  $('aipBody').textContent = text || '';
+  $('aipFoot').textContent = foot || AIP_FOOT;
+}
+function aipBusy(on){
+  aip.busy = on;
+  $('aipRefresh').disabled = on;
+  $('aipAsk').disabled = on;
+}
+function aipOpenPanel(){
+  $('aiPanelMask').style.display = 'flex';
+  aip.open = true;
+  aipGenerate();
+}
+function aipClosePanel(){
+  $('aiPanelMask').style.display = 'none';
+  aip.open = false;
+}
+function aipGenerate(){
+  if (aip.busy) return;
+  aipBusy(true);
+  $('aipBody').innerHTML = '<div class="aip-hint">正在生成研判报告…</div>';
+  apiPost('/api/ai/llm/report').then(function(d){
+    aipShow(d.source, d.content);
+  }).catch(function(e){
+    aipShow('structured', '生成失败：' + e.message + '\n\n请稍后重试。');
+  }).then(function(){ aipBusy(false); });
+}
+function aipAsk(){
+  var q = $('aipQuestion').value.trim();
+  if (!q || aip.busy) return;
+  aipBusy(true);
+  $('aipBody').innerHTML = '<div class="aip-hint">正在研判…</div>';
+  apiPost('/api/ai/llm/ask?question=' + encodeURIComponent(q))
+    .then(function(d){ aipShow(d.source, d.content, '问题：' + q); })
+    .catch(function(e){ aipShow('structured', '提问失败：' + e.message); })
+    .then(function(){ aipBusy(false); });
+}
+$('btnAiReport').addEventListener('click', aipOpenPanel);
+$('aipRefresh').addEventListener('click', aipGenerate);
+$('aipClose').addEventListener('click', aipClosePanel);
+$('aipAsk').addEventListener('click', aipAsk);
+$('aipQuestion').addEventListener('keydown', function(e){
+  if (e.key === 'Enter'){ e.preventDefault(); aipAsk(); }
+});
+$('aiPanelMask').addEventListener('click', function(e){
+  if (e.target === $('aiPanelMask')) aipClosePanel();
+});
+document.addEventListener('keydown', function(e){
+  var tag = (e.target && e.target.tagName) || '';
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return;   /* 输入中不触发快捷键 */
+  if (e.key === 'Escape' && aip.open) aipClosePanel();
+  else if ((e.key === 'l' || e.key === 'L') && !aip.open) aipOpenPanel();
+});
+
 function bootData(){
   if (S.booted) return;
   S.booted = true;

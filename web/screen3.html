@@ -40,6 +40,7 @@
         </div>
         <a class="hd-switch" href="/screen.html" title="切换到威胁态势视角">⇄ 态势</a>
         <a class="hd-switch" href="/screen2.html" title="切换到检测链路视角">⇄ 链路</a>
+        <button class="hd-ai" id="btnAiReport" title="生成 AI 研判日报（L）">✦ AI 研判</button>
         <button class="hd-fs" id="btnFs" title="全屏 (F)">⛶</button>
       </div>
     </header>
@@ -118,6 +119,29 @@
       </div>
     </footer>
 
+  </div>
+</div>
+
+<div class="ai-panel-mask" id="aiPanelMask" style="display:none">
+  <div class="ai-panel" id="aiPanel">
+    <div class="aip-head">
+      <div class="aip-title"><span class="aip-diamond"></span>
+        <b>AI 研判</b><small>LLM INSIGHT · 只做归纳，不参与检测判定</small></div>
+      <div class="aip-meta">
+        <span class="aip-mode" id="aipMode">--</span>
+        <button class="aip-btn" id="aipRefresh" title="重新生成">⟳ 重新生成</button>
+        <button class="aip-close" id="aipClose" title="关闭 (Esc)">✕</button>
+      </div>
+    </div>
+    <div class="aip-body" id="aipBody"><div class="aip-hint">正在生成…</div></div>
+    <div class="aip-ask">
+      <input type="text" id="aipQuestion" maxlength="500"
+             placeholder="就当前 AI 结论提问（如：哪些域名建议加白？）">
+      <button id="aipAsk">提 问</button>
+    </div>
+    <div class="aip-foot">
+      <span id="aipFoot">事实来源：AI 算法层结论（DGA / 隧道 / 误报 / 族群 / 行为基线）</span>
+    </div>
   </div>
 </div>
 

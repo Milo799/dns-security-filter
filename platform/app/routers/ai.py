@@ -14,9 +14,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.auth import get_current_user
 from app.audit import write_audit
 from app.db import db_cursor
+from config import CONFIG
 
 import ai_batch
 import ai_collector
+import ai_llm
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
@@ -266,3 +268,48 @@ def ai_stats(_: str = Depends(get_current_user)):
         "collector": ai_collector.stats(),
         "batch": ai_batch.last_run(),
     }}
+
+
+# ---------------------------------------------------------------------------
+# P3：LLM 智能中枢（分析侧；LLM 只做归纳翻译，不参与检测判定）
+# ---------------------------------------------------------------------------
+
+
+@router.get("/llm/status")
+def llm_status(_: str = Depends(get_current_user)):
+    """LLM 配置状态（**不回传 key 明文**，只报是否已配置）。"""
+    base = (getattr(CONFIG, "llm_base_url", "") or "").strip()
+    model = (getattr(CONFIG, "llm_model", "") or "").strip()
+    has_key = bool((getattr(CONFIG, "llm_api_key", "") or "").strip())
+    return {"code": 0, "message": "ok", "data": {
+        "enabled": ai_llm.is_llm_enabled(),
+        "switch_on": bool(getattr(CONFIG, "llm_enabled", False)),
+        "base_url": base,
+        "model": model,
+        "api_key_configured": has_key,
+        # 未配置时功能仍可用（结构化降级）
+        "mode": "llm" if ai_llm.is_llm_enabled() else "structured",
+    }}
+
+
+@router.post("/llm/report")
+def llm_report(user: str = Depends(get_current_user)):
+    """生成 AI 研判日报（LLM 可用则自然语言，否则结构化降级）。"""
+    r = ai_llm.generate_daily_report()
+    write_audit(user, "ai_llm_report", {"source": r["source"]})
+    return {"code": 0, "message": "ok", "data": r}
+
+
+@router.post("/llm/summarize")
+def llm_summarize(domain: str = Query(..., min_length=1, max_length=253),
+                  _: str = Depends(get_current_user)):
+    """域名研判摘要（汇总该域名的首现/注册/拦截史/AI 结论）。"""
+    return {"code": 0, "message": "ok",
+            "data": ai_llm.summarize_domain(domain)}
+
+
+@router.post("/llm/ask")
+def llm_ask(question: str = Query(..., min_length=1, max_length=500),
+            _: str = Depends(get_current_user)):
+    """自然语言问答（以当前 AI 结论为事实上下文，不编造）。"""
+    return {"code": 0, "message": "ok", "data": ai_llm.ask(question)}
