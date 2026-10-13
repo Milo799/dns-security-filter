@@ -249,24 +249,48 @@ def intel_quality(_: str = Depends(get_current_user)):
 
 @router.get("/stats")
 def ai_stats(_: str = Depends(get_current_user)):
-    """AI 模块状态概览（首现表规模、结论统计、采集/批处理运行状态）。"""
+    """AI 模块状态概览（首现表规模、结论统计、采集/批处理运行状态）。
+
+    **计数口径说明（重要）**：ai_collector / ai_batch 的计数器是**进程内
+    内存态**——双进程部署下 Web 进程恒为 0（与 log_writer、domain_cache
+    同源问题）。因此本接口的规模与时间类数字一律以 DB 为准
+    （first_seen_1h / last_analysis_at），开关状态以 CONFIG 为准；
+    进程内计数仅作附注（process_local=True）供排障参考。
+    """
     with db_cursor() as cur:
         cur.execute("SELECT COUNT(*) AS n FROM domain_first_seen")
         fs_total = cur.fetchone()["n"]
         cur.execute("SELECT COUNT(*) AS n FROM domain_first_seen "
                     "WHERE first_seen >= datetime('now','localtime','-24 hours')")
         fs_24h = cur.fetchone()["n"]
+        cur.execute("SELECT COUNT(*) AS n FROM domain_first_seen "
+                    "WHERE first_seen >= datetime('now','localtime','-1 hours')")
+        fs_1h = cur.fetchone()["n"]
+        cur.execute("SELECT MAX(updated_at) AS t FROM ai_findings")
+        last_analysis = cur.fetchone()["t"]
         cur.execute("SELECT type, status, COUNT(*) AS n FROM ai_findings "
                     "GROUP BY type, status")
         findings = {}
         for r in cur.fetchall():
             findings.setdefault(r["type"], {})[r["status"]] = r["n"]
+
+    collector = dict(ai_collector.stats())
+    collector["enabled"] = bool(getattr(CONFIG, "ai_first_seen_enabled", False))
+    collector["process_local"] = True     # 计数器仅对本进程有效
+    batch = dict(ai_batch.last_run())
+    batch["enabled"] = bool(getattr(CONFIG, "ai_analysis_enabled", False))
+    batch["interval_minutes"] = int(
+        getattr(CONFIG, "ai_analysis_interval_minutes", 30))
+    batch["last_analysis_at"] = last_analysis    # DB 口径（跨进程真实）
+    batch["process_local"] = True
+
     return {"code": 0, "message": "ok", "data": {
         "first_seen_total": fs_total,
         "first_seen_24h": fs_24h,
+        "first_seen_1h": fs_1h,
         "findings": findings,
-        "collector": ai_collector.stats(),
-        "batch": ai_batch.last_run(),
+        "collector": collector,
+        "batch": batch,
     }}
 
 

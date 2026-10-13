@@ -215,14 +215,18 @@ function renderStats(d){
 
   $('dTotal').textContent = fmt(d.first_seen_total);
   $('d24h').textContent = fmt(d.first_seen_24h);
-  var col = d.collector || {};
-  $('dQueue').textContent = fmt(col.queue_size) + ' / ' + fmt(col.flushed);
+  /* 计数口径：规模与时间用 DB 值（跨进程真实），开关用配置值 */
+  $('dQueue').textContent = fmt(d.first_seen_1h);
   var b = d.batch || {};
-  var hasRun = b.at > 0;
-  $('dInterval').textContent = hasRun ? '已运行' : '等待首轮';
+  var iv = b.interval_minutes ? (b.interval_minutes + 'min') : '--';
+  var last = (b.last_analysis_at || '').slice(11, 16);
+  $('dInterval').textContent = last ? (iv + ' · ' + last) : iv;
 
-  $('hdCollector').className = 'hd-light ' + (col.enabled !== false ? 'ok' : 'bad');
-  $('hdCollector').querySelector('b').textContent = col.enabled !== false ? 'ON' : 'OFF';
+  var col = d.collector || {};
+  $('hdCollector').className = 'hd-light ' + (col.enabled ? 'ok' : 'bad');
+  $('hdCollector').querySelector('b').textContent = col.enabled ? 'ON' : 'OFF';
+  $('hdBatch').className = 'hd-light ' + (b.enabled ? 'ok' : 'bad');
+  $('hdBatch').querySelector('b').textContent = b.enabled ? 'ON' : 'OFF';
 }
 
 /* ══════════ 右翼：列表渲染 ══════════ */

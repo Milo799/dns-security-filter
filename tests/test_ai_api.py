@@ -159,6 +159,32 @@ class TestStats:
         assert "collector" in d and "batch" in d
         assert "enqueued" in d["collector"]
 
+    def test_stats_uses_db_scope_and_config_switches(self, client, token,
+                                                     monkeypatch):
+        """计数口径修正（迭代 49）：规模/时间用 DB 值，开关用配置值。
+
+        背景：ai_collector/ai_batch 计数器是进程内内存态，双进程部署下
+        Web 进程恒为 0——界面若直接展示会呈现"采集停了"的假象。故接口
+        额外提供 DB 口径字段，并把 enabled 判定改为读 CONFIG。
+        """
+        from config import CONFIG
+        monkeypatch.setattr(CONFIG, "ai_first_seen_enabled", False)
+        monkeypatch.setattr(CONFIG, "ai_analysis_enabled", False)
+        monkeypatch.setattr(CONFIG, "ai_analysis_interval_minutes", 17)
+        d = client.get("/api/ai/stats", headers=_h(token)).json()["data"]
+        assert d["first_seen_1h"] >= 0                     # DB 口径字段
+        assert d["collector"]["enabled"] is False          # 配置真值
+        assert d["collector"]["process_local"] is True     # 明确标注
+        assert d["batch"]["enabled"] is False
+        assert d["batch"]["interval_minutes"] == 17
+        assert "last_analysis_at" in d["batch"]
+
+    def test_stats_last_analysis_at_tracks_findings(self, client, token):
+        """last_analysis_at 取自 ai_findings.updated_at（跨进程可见）。"""
+        _seed_finding()
+        d = client.get("/api/ai/stats", headers=_h(token)).json()["data"]
+        assert d["batch"]["last_analysis_at"]
+
 
 class TestAuth:
     def test_unauthorized(self, client):
