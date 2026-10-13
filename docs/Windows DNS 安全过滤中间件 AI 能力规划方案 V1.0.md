@@ -280,3 +280,51 @@ GET  /api/ai/findings            # 统一结论查询
 ## 11. 一句话总结
 
 > **现有系统是"盾"（拦截已知威胁），本方案给它装上"眼"（自主发现未知威胁与失陷主机）和"嘴"（LLM 自然语言运维）——全部旁路、零主链路风险、建议需人工确认，让系统从"被动防御"进化为"自主感知"。**
+
+---
+
+## 12. 交付状态（2026-10-13 全部落地）
+
+> 本方案 P0~P3 四个阶段已于 2026-10-13 一次性实施完毕并部署生产（迭代 49，HEAD=f389ca5），测试 503 → **619 项全绿**（新增 116 项）。
+
+### 12.1 六大方向落地对照
+
+| 方向 | 方案描述 | 实现 | 生产实测 |
+|---|---|---|---|
+| **A 域名智能识别** | DGA + 隧道检测 | `ai_analysis.dga_score`（bigram 语言模型 + 5 维统计特征）、`tunnel_score`（子域量/长度/熵/唯一性/异常类型） | DGA 日扫 2.3 万条、命中约 100；隧道 11 组会话；区分度：正常域 ≤0.16 / 隧道 1.0 |
+| **B 情报增强** | 情报源质量评分 | `analyze_intel_quality`（命中贡献归一 + 命中密度） | 6 个源评分落库，"条目多却从不命中"可识别 |
+| **C 误报治理** | 误伤评分 + 加白推荐 | `false_positive_score`（多客户端共访 0.32 权重最高）+ 一键加白接口 | 业务域误伤 0.58~0.89 建议加白 / 可疑域 0.20~0.27 保持拦截 |
+| **D 告警聚类** | 威胁族群 | `analyze_threat_clusters`（按可注册父域聚类 + 规模归一） | 单轮 50 个族群（截断上限），把数万条拦截压成几十个攻击基础设施 |
+| **E 客户端行为基线** | 失陷主机识别 | `client_anomaly_score`（新域名规模 vs 全网中位数 / 拦截数 / 父域分散度）+ **14 天冷启动保护** | 冷启动中（已观察 0.1/14 天），约 10-27 自动转告警 |
+| **F LLM 智能中枢** | 日报 / 摘要 / 问答 | `ai_llm.py`（OpenAI 兼容，出站走内网代理）+ screen3「✦ AI 研判」面板 | 未配 key 时结构化降级（955 字日报正常生成） |
+
+### 12.2 数据缺口（§4）已补齐
+
+- `domain_first_seen` 首现表：采集点在 `process_query` **第 6 步全正常放行出口**（天然排除拦截域与 NXDOMAIN）
+- `ai_collector.py`：检测线程只做进程内 set 判重 + 队列 put（微秒级），后台单线程批量 `INSERT OR IGNORE`（复刻 log_writer 削峰模式），队列满丢弃计数、atexit 优雅 flush
+- 生产实测：上线第 1 分钟入库 2522 行，21 分钟后 1.9 万行，24h 累计 2.2 万行
+
+### 12.3 关键决策点（§10）执行结果
+
+| # | 决策项 | 建议 | 采用值 |
+|---|---|---|---|
+| 1 | 首现表采集范围 | 仅首现域名入库 | ✅ 按建议（`domain` 主键去重） |
+| 2 | 先做方向 | P0 DGA + 隧道 | ✅ 按建议 |
+| 3 | LLM 形态 | 分析侧外部 API | ✅ OpenAI 兼容 + 代理出站 + 结构化降级 |
+| 4 | 加白自动化 | AI 建议 + 人工确认 | ✅ 红线保持（加白需人工点击，全程审计） |
+| 5 | 第三块 AI 大屏 | 做（与双屏并存） | ✅ screen3（气泡图主角 + 双屏/管理端互切） |
+| 6 | 基线冷启动 | 14 天只积累不告警 | ✅ `ai_baseline_days=14`，不足即静默 |
+
+### 12.4 实施中发现并修正的四个问题（生产数据驱动）
+
+1. **CDN 随机子域误报**：`hcdnw101.vip.ipv6.cdnhwcbzj102.com` 等国产 CDN 长随机子域天然具备 DGA 形态（长标签 + 含数字 + bigram 异常）。修正：`infra_like()` 豁免（标签命中业务词/CDN 前缀，或注册域含厂商标识）→ 分数 ×0.30。**效果：0.70 → 0.21（阈值下），真 DGA 不受影响**
+2. **结论表只增不减**：DGA/族群是"当前快照"，旧的误报会永久污染研判台。修正：`_prune_pending`（本轮未再命中的 pending 清理，**人工 confirmed/dismissed 一律保留**）。生产实跑清理 108 条
+3. **双进程计数口径**：采集/批处理计数器是进程内内存态，Web 进程恒 0（与 log_writer/domain_cache 同源）。修正：接口改用 DB 口径（`first_seen_1h` / `last_analysis_at`），开关读 CONFIG 真值，进程内计数标 `process_local`
+4. **扫描上限与快照清理的相互作用**：上限（2 万）小于生产 24h 首现量（2.2 万）时，窗外较老的真实命中不参与重算却被当"未再命中"删除。修正：上限提到 20 万覆盖全窗
+
+### 12.5 运维入口
+
+- **AI 洞察大屏**：`/screen3.html`（与 `/screen.html`、`/screen2.html` 顶栏互切）
+- **AI API**：`/api/ai/stats|findings|dga-suspects|tunnel-suspects|false-positive|threat-clusters|client-anomalies|intel-quality|llm/*`
+- **关键配置（均热生效）**：`ai_first_seen_enabled`、`ai_analysis_enabled`、`ai_analysis_interval_minutes=30`、`ai_baseline_days=14`、`llm_enabled`、`llm_base_url`、`llm_api_key`、`llm_model`
+- **启用 LLM**：填入 `llm_base_url` + `llm_api_key` + `llm_model` 并置 `llm_enabled=1` 即切换为 LLM 研判（无需重启，配置经 cross_sync 热生效；screen3 面板的模式徽章会显示「LLM 生成」）
