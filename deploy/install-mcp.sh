@@ -8,7 +8,9 @@
 #   参数（均有默认值）：
 #     --port          NUM    MCP 监听端口            默认 8090
 #     --host          IP     绑定地址                默认 0.0.0.0（内网）
-#     --token         STR    Bearer Token            默认自动生成
+#     --token         STR    Bearer Token            默认复用已有 mcp.env，无则自动生成
+#                            （**重跑不轮换**：轮换会让已接入的客户端全部失效，
+#                             需要换 Token 请显式传 --token 或先改 env 文件）
 #     --api-base      URL    平台 Web 地址           默认 http://127.0.0.1:8080
 #     --api-password  STR    平台管理员密码          默认复用已有 mcp.env，其次读
 #                            platform.yaml 的初始密码。**管理员改过口令时必须
@@ -121,6 +123,10 @@ case "$LOGIN_CHECK" in
   *)    die "平台口令校验失败：若管理员改过口令，请用 --api-password 传入当前口令" ;;
 esac
 
+if [[ -z "$TOKEN" && -f "$ENV_FILE" ]]; then
+  TOKEN="$(grep -E '^DNSF_MCP_TOKEN=' "$ENV_FILE" | cut -d= -f2- || true)"
+  [[ -n "$TOKEN" ]] && log "复用已有 Bearer Token（不轮换）"
+fi
 if [[ -z "$TOKEN" ]]; then
   TOKEN="$("$PY" -c 'import secrets; print(secrets.token_urlsafe(32))')"
   log "已生成随机 Bearer Token"
