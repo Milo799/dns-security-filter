@@ -273,3 +273,36 @@ class TestSnapshotPrune:
             cur.execute("SELECT COUNT(*) AS n FROM ai_findings "
                         "WHERE type='dga_suspect'")
             assert cur.fetchone()["n"] == 0
+
+
+class TestScanWindowCoverage:
+    """扫描窗必须覆盖整个分析窗口——否则窗外真实命中会被快照清理误删。"""
+
+    def test_scan_limit_exceeds_daily_volume(self):
+        # 生产日首现量约 2.2 万；上限需留足余量（当前 20 万）
+        assert ai_batch._DGA_SCAN_LIMIT >= 100000
+
+    def test_old_but_in_window_dga_survives_prune(self, ab_env):
+        """20 小时前出现、仍在 24h 窗内的真 DGA 不被清理。"""
+        with db_cursor() as cur:
+            cur.execute("DELETE FROM domain_first_seen")
+            cur.execute("DELETE FROM ai_findings")
+            cur.execute(
+                """INSERT INTO domain_first_seen
+                   (domain, first_client, qtype, first_seen)
+                   VALUES ('xj3k9d2mz7qp.icu', '10.0.0.9', 'A',
+                           datetime('now','localtime','-20 hours'))""")
+            # 更老的一批正常域（把真 DGA 挤到"较老"位置）
+            for i in range(50):
+                cur.execute(
+                    """INSERT INTO domain_first_seen
+                       (domain, first_client, qtype, first_seen)
+                       VALUES (?, '10.0.0.9', 'A',
+                               datetime('now','localtime','-1 hours'))""",
+                    (f"news{i}.portal-site.com",))
+        ai_batch.run_analysis()
+        with db_cursor() as cur:
+            cur.execute("SELECT target FROM ai_findings "
+                        "WHERE type='dga_suspect' AND status='pending'")
+            targets = {r["target"] for r in cur.fetchall()}
+        assert "xj3k9d2mz7qp.icu" in targets

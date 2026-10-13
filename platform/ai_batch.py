@@ -32,7 +32,11 @@ import ai_analysis
 logger = logging.getLogger("platform.ai_batch")
 
 _DEFAULT_WINDOW_HOURS = 24
-_DGA_SCAN_LIMIT = 20000          # 单轮 DGA 扫描上限（防极端情况长跑）
+# 单轮 DGA 扫描上限：**必须覆盖整个 24h 窗口**——生产日首现量约 2.2 万，
+# 取 20 万留足余量。若上限小于窗口内域名数，排在窗外（较老）的真实命中
+# 本轮不会被重算，却会被快照清理误删（_prune_pending）。纯字符串打分，
+# 20 万条约 1~2 秒，成本可忽略。
+_DGA_SCAN_LIMIT = 200000
 _TUNNEL_MIN_SUBDOMAINS = 20      # 隧道评分门槛（子域数不足不评，降噪）
 _FP_WINDOW_HOURS = 72            # 误报识别窗口（3 天，覆盖重试与多客户端）
 _FP_MIN_CLIENTS = 3              # 误报识别门槛：至少 3 个客户端共访
