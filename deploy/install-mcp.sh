@@ -165,7 +165,12 @@ fi
 systemctl daemon-reload
 systemctl enable dnsfilter-mcp >/dev/null 2>&1 || true
 systemctl restart dnsfilter-mcp
-sleep 3
+# 等端口就绪：uvicorn 启动耗时受机器负载影响（生产实测约 6s），
+# 固定 sleep 3 会误判"端口未监听"——改为最多等 30s 的重试。
+for _ in $(seq 1 15); do
+  ss -tln 2>/dev/null | grep -q ":${PORT} " && break
+  sleep 2
+done
 log "服务状态：$(systemctl is-active dnsfilter-mcp)"
 
 # ── 5 自检 ────────────────────────────────────────────────────────────────
