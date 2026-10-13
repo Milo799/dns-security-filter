@@ -43,6 +43,8 @@ DEFAULT_SYSTEM_CONFIG = {
     "login_ip_block_minutes": str(CONFIG.login_ip_block_minutes),
     # AI 旁路分析（迭代 49）
     "ai_first_seen_enabled": str(int(CONFIG.ai_first_seen_enabled)),
+    "ai_analysis_enabled": str(int(CONFIG.ai_analysis_enabled)),
+    "ai_analysis_interval_minutes": str(CONFIG.ai_analysis_interval_minutes),
 }
 
 # ---------------------------------------------------------------------------

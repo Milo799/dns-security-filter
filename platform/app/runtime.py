@@ -17,7 +17,7 @@ _BOOL_KEYS = {"allow_log_enabled", "detection_enabled",
               "threatlist_auto_update", "log_async_enabled",
               "nrd_enabled", "nrd_offline_enabled",
               # AI 旁路分析（迭代 49）
-              "ai_first_seen_enabled"}
+              "ai_first_seen_enabled", "ai_analysis_enabled"}
 _INT_KEYS = {"alert_ttl", "log_retention_days", "api_timeout_ms",
              "threatlist_auto_interval_hours", "domain_cache_ttl_s",
              "domain_cache_size", "ip_cache_ttl_s", "ip_cache_size",
@@ -36,7 +36,9 @@ _INT_KEYS = {"alert_ttl", "log_retention_days", "api_timeout_ms",
              # 生产稳定性加固（迭代 42）
              "dnsbl_max_timeout_ms", "max_queue_depth",
              # 银狐情报共享站离线源（迭代 43）
-             "silverfox_window_days"}
+             "silverfox_window_days",
+             # AI 旁路分析（迭代 49）
+             "ai_analysis_interval_minutes"}
 
 
 def _apply(key: str, value: str) -> None:

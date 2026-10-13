@@ -220,6 +220,9 @@ async def run_dns_server():
     # AI 域名首现采集（迭代 49）：放行域名首现记录（异步批量落库）
     import ai_collector
     ai_collector.start()
+    # AI 旁路批处理（迭代 49）：定时跑 DGA/隧道分析，产出结论入 ai_findings
+    import ai_batch
+    ai_batch.start()
     # 日志保留期自动清理（P1-1）：双进程部署时与 Web 进程各起一个
     # 清理线程无害（DELETE 幂等，SQLite 单写者串行），保证单进程
     # 形态（仅 platform-dns）也有清理能力

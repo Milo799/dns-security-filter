@@ -45,6 +45,8 @@ class PlatformConfig:
     log_batch_size: int = 500              # 异步日志单批上限（条，100~50000）
     # --- AI 旁路分析（迭代 49，AI 能力规划） ---
     ai_first_seen_enabled: bool = True     # 域名首现采集开关（旁路地基，排障可关）
+    ai_analysis_enabled: bool = True       # AI 批处理分析开关（DGA/隧道检测）
+    ai_analysis_interval_minutes: int = 30  # 分析运行间隔（分钟，最小 5）
     detection_enabled: bool = True         # 检测总开关
     api_timeout_ms: int = 2000             # 威胁情报源单次调用超时（毫秒）
     domain_cache_ttl_s: int = 300          # 域名检测结论缓存 TTL（秒，1~86400）
