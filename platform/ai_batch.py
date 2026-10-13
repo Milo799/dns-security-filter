@@ -64,6 +64,25 @@ def _upsert_finding(cur, ftype: str, target: str, score: float,
     return True
 
 
+def _prune_pending(cur, ftype: str, keep_targets) -> int:
+    """清理某类型下"本轮未再命中"的 pending 结论（快照语义）。
+
+    用于 DGA / 威胁族群这类**当前状态**清单：评分模型与阈值会演进，
+    旧的误报（如 CDN 随机子域）若只增不减会长期污染研判台。仅清理
+    pending——人工已 confirmed / dismissed 的一律保留（那是人的判断）。
+    分块删除，避免一次绑定过多参数。
+    """
+    keep = set(keep_targets)
+    cur.execute("SELECT id, target FROM ai_findings "
+                "WHERE type=? AND status='pending'", (ftype,))
+    stale = [r["id"] for r in cur.fetchall() if r["target"] not in keep]
+    for i in range(0, len(stale), 500):
+        chunk = stale[i:i + 500]
+        cur.execute("DELETE FROM ai_findings WHERE id IN (%s)"
+                    % ",".join("?" * len(chunk)), chunk)
+    return len(stale)
+
+
 def _scan_new_domains(window_hours: int) -> list:
     """取窗口内的首现域名（domain, first_client, qtype）。"""
     with db_cursor() as cur:
@@ -307,9 +326,10 @@ def run_analysis(window_hours: int = _DEFAULT_WINDOW_HOURS,
     th = ai_analysis.TUNNEL_THRESHOLD if tunnel_threshold is None else tunnel_threshold
 
     stats = {"dga_scanned": 0, "dga_found": 0, "dga_new": 0,
+             "dga_pruned": 0,
              "tunnel_groups": 0, "tunnel_found": 0, "tunnel_new": 0,
              "fp_found": 0, "fp_new": 0,
-             "clusters_found": 0, "clusters_new": 0,
+             "clusters_found": 0, "clusters_new": 0, "clusters_pruned": 0,
              "anomaly_found": 0, "anomaly_new": 0,
              "quality_found": 0, "quality_new": 0}
 
@@ -384,6 +404,11 @@ def run_analysis(window_hours: int = _DEFAULT_WINDOW_HOURS,
             if _upsert_finding(cur, "intel_quality", src, score, ev):
                 stats["quality_new"] += 1
         stats["quality_found"] = len(quality_hits)
+        # 快照语义：DGA / 威胁族群为本轮"当前清单"，未再命中的 pending 清理
+        stats["dga_pruned"] = _prune_pending(
+            cur, "dga_suspect", [d for d, _, _ in dga_hits])
+        stats["clusters_pruned"] = _prune_pending(
+            cur, "threat_cluster", [p for p, _, _ in cluster_hits])
 
     return stats
 
@@ -422,10 +447,13 @@ def _loop() -> None:
             if (stats.get("dga_found") or stats.get("tunnel_found")
                     or stats.get("fp_found") or stats.get("clusters_found")):
                 logger.info(
-                    "AI 分析完成：DGA %s/%s、隧道 %s/%s 组、误报 %s、族群 %s",
+                    "AI 分析完成：DGA %s/%s（清理 %s）、隧道 %s/%s 组、误报 %s、"
+                    "族群 %s（清理 %s）",
                     stats["dga_found"], stats["dga_scanned"],
+                    stats.get("dga_pruned", 0),
                     stats["tunnel_found"], stats["tunnel_groups"],
-                    stats["fp_found"], stats["clusters_found"])
+                    stats["fp_found"], stats["clusters_found"],
+                    stats.get("clusters_pruned", 0))
         except Exception:
             logger.exception("AI 批处理失败（下轮重试）")
 

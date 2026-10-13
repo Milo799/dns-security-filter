@@ -208,3 +208,68 @@ class TestThreatClusters:
             with db_cursor() as cur:
                 cur.execute("DELETE FROM filter_log")
                 cur.execute("DELETE FROM ai_findings")
+
+
+# ---------------------------------------------------------------------------
+# 快照语义：DGA / 威胁族群 pending 结论随本轮结果刷新（迭代 49 修正）
+#   背景：评分模型演进后，旧的误报（如 CDN 随机子域）若只增不减会长期
+#   污染研判台。仅清理 pending——人工 confirmed/dismissed 一律保留。
+# ---------------------------------------------------------------------------
+
+
+class TestSnapshotPrune:
+    def test_stale_pending_dga_removed(self, ab_env):
+        with db_cursor() as cur:
+            cur.execute("DELETE FROM domain_first_seen")
+            cur.execute(
+                """INSERT INTO ai_findings (type, target, score, evidence)
+                   VALUES ('dga_suspect', 'stale-cdn-noise.example.com',
+                           0.70, '{}')""")
+            # 本轮会命中的真 DGA
+            cur.execute(
+                """INSERT INTO domain_first_seen (domain, first_client, qtype)
+                   VALUES ('xj3k9d2mz7qp.icu', '10.0.0.1', 'A')""")
+        stats = ai_batch.run_analysis()
+        with db_cursor() as cur:
+            cur.execute("SELECT target FROM ai_findings "
+                        "WHERE type='dga_suspect' AND status='pending'")
+            targets = {r["target"] for r in cur.fetchall()}
+        assert "xj3k9d2mz7qp.icu" in targets
+        assert "stale-cdn-noise.example.com" not in targets
+        assert stats["dga_pruned"] >= 1
+
+    def test_human_decision_survives_prune(self, ab_env):
+        """人工已确认/忽略的结论不因快照清理而消失（红线：人的判断优先）。"""
+        with db_cursor() as cur:
+            cur.execute("DELETE FROM domain_first_seen")
+            cur.execute("DELETE FROM ai_findings")
+            for st in ("confirmed", "dismissed"):
+                cur.execute(
+                    """INSERT INTO ai_findings (type, target, score, evidence,
+                                               status)
+                       VALUES ('dga_suspect', ?, 0.9, '{}', ?)""",
+                    (f"kept-{st}.icu", st))
+        ai_batch.run_analysis()
+        with db_cursor() as cur:
+            cur.execute("SELECT target, status FROM ai_findings "
+                        "WHERE type='dga_suspect'")
+            got = {r["target"]: r["status"] for r in cur.fetchall()}
+        assert got.get("kept-confirmed.icu") == "confirmed"
+        assert got.get("kept-dismissed.icu") == "dismissed"
+
+    def test_cdn_domains_do_not_enter_dga_list(self, ab_env):
+        """端到端：CDN 形态域即使首现也不进 DGA 清单。"""
+        with db_cursor() as cur:
+            cur.execute("DELETE FROM domain_first_seen")
+            cur.execute("DELETE FROM ai_findings")
+            for d in ("hcdnw101.vip.ipv6.cdnhwcbzj102.com",
+                      "hcdnl.push.h26.gslb.cdnhwcljk104.com"):
+                cur.execute(
+                    """INSERT INTO domain_first_seen (domain, first_client,
+                                                      qtype)
+                       VALUES (?, '10.0.0.2', 'A')""", (d,))
+        ai_batch.run_analysis()
+        with db_cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS n FROM ai_findings "
+                        "WHERE type='dga_suspect'")
+            assert cur.fetchone()["n"] == 0

@@ -148,3 +148,69 @@ class TestTunnel:
         score, ev = A.tunnel_score([], [])
         assert score == 0.0
         assert ev["queries"] == 0
+
+
+# ---------------------------------------------------------------------------
+# 生产实测回归：CDN/基础设施域不得被判为 DGA（迭代 49 修正）
+#   生产日报暴露误报：hcdnw101.vip.ipv6.cdnhwcbzj102.com 等 CDN 随机子域
+#   天然具备 DGA 形态（长、含数字、bigram 异常），必须强降权。
+# ---------------------------------------------------------------------------
+
+
+class TestInfraExemption:
+    """CDN/云服务形态域名的 DGA 豁免。"""
+
+    PROD_FALSE_POSITIVES = [
+        "hcdnw101.vip.ipv6.cdnhwcbzj102.com",
+        "hcdnw101.vip.cdnhwcbzj102.com",
+        "hcdnw102.vip.cdnhwcbzj102.com",
+        "hcdnl.push.h26.gslb.cdnhwcljk104.com",
+        "hcdnl.pulldyin.f26-v6.gslb.cdnhwcljk104.com",
+        "hcdnl.pulldyin.hls.gslb.cdnhwcljk104.com",
+    ]
+
+    def test_production_cdn_samples_below_threshold(self):
+        """生产实测的 6 个 CDN 误报样本必须全部落到阈值下。"""
+        for d in self.PROD_FALSE_POSITIVES:
+            score, ev = A.dga_score(d)
+            assert score < A.DGA_THRESHOLD, (d, score)
+            assert ev["infra_like"] is True, d
+            # 原始分仍在证据里留痕（人工可看到"为什么原本可疑"）
+            assert ev["score_before_infra_penalty"] >= A.DGA_THRESHOLD
+
+    def test_infra_detection_cases(self):
+        for d, why in [
+            ("hcdnw101.vip.ipv6.cdnhwcbzj102.com", "label"),   # hcdn 前缀
+            ("x.cdn.example.com", "label"),                    # 业务词 cdn
+            ("node1.gslb.evil-cdn.com", "label"),              # gslb
+            ("a.b.c.akamai-edge.net", "label"),
+            ("myhost-alicdn.cn", "domain"),                    # 注册域含厂商串
+        ]:
+            ok, reason = A.infra_like(d)
+            assert ok is True, d
+            assert reason.startswith(why), (d, reason)
+
+    def test_true_dga_not_exempt(self):
+        """真 DGA 不含任何基础设施特征 → 不受豁免影响。"""
+        for d in ["xj3k9d2mz7qp.icu", "fwjvbqkzxmnrpl.shop",
+                  "p9k3m7x2v5q8z4.icu", "dfghjklzxcvbnm.site"]:
+            ok, reason = A.infra_like(d)
+            assert ok is False, (d, reason)
+            score, ev = A.dga_score(d)
+            assert score >= A.DGA_THRESHOLD, (d, score)
+            assert "infra_like" not in ev
+
+    def test_non_infra_score_unchanged(self):
+        """豁免只影响命中域——未命中时分数恰等于各特征贡献分之和。"""
+        score, ev = A.dga_score("xj3k9d2mz7qp.icu")
+        contrib_sum = sum(ev["contributions"].values())
+        assert abs(contrib_sum - score) < 0.002
+
+    def test_infra_penalty_effect_size(self):
+        """命中豁免的降权幅度符合设计（×0.30）。"""
+        assert A._INFRA_PENALTY == 0.30
+        score, ev = A.dga_score(
+            "hcdnl.push.h26.gslb.cdnhwcljk104.com")
+        # 降权后 = 原始分 × 0.30（四舍五入到 4 位）
+        assert abs(score - round(ev["score_before_infra_penalty"]
+                                 * A._INFRA_PENALTY, 4)) < 1e-6

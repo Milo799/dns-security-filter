@@ -149,11 +149,48 @@ _W = {"len": 0.14, "digit": 0.16, "entropy": 0.18,
 
 DGA_THRESHOLD = 0.55      # 综合分 >= 此值判"疑似 DGA"（校准：正常域 ≤0.2）
 
+# 基础设施/服务标签前缀——CDN、云存储、负载均衡的**随机子域**天然具备
+# DGA 形态（长、含数字、bigram 异常），生产实测会大量误报（如
+# hcdnw101.vip.ipv6.cdnhwcbzj102.com / hcdnl.push.h26.gslb.cdnhwcljk104.com）。
+# 判据：任一非 TLD 标签命中业务词或以下前缀，或注册域含厂商标识 → 强降权。
+_INFRA_LABEL_PREFIXES = (
+    "hcdn", "cdn", "gslb", "akamai", "cloudfront", "fastly", "edge",
+    "static", "img", "image", "oss", "hls", "push", "pull", "vip",
+    "cache", "ns", "dns", "gw", "lb", "wscdns", "kscdn", "wsdns",
+)
+_INFRA_DOMAIN_TOKENS = (
+    "alicdn", "byteimg", "wscdns", "akamai", "cloudfront", "fastly",
+    "gslb", "hcdn", "cdn", "ksyun", "myqcloud", "aliyuncs", "volces",
+)
+_INFRA_PENALTY = 0.30     # 命中豁免 → 分数×0.30（0.7 → 0.21，落在阈值下）
+
+
+def infra_like(domain: str) -> tuple[bool, str]:
+    """域名是否具备 CDN/云服务基础设施形态。返回 (是否, 命中原因)。"""
+    d = (domain or "").lower().rstrip(".")
+    if not d:
+        return False, ""
+    labels = d.split(".")
+    for lab in labels[:-1]:                      # 排除 TLD
+        if lab and (lab in _BIZ_WORDS
+                    or lab.startswith(_INFRA_LABEL_PREFIXES)):
+            return True, "label:" + lab
+    core = ".".join(labels[-2:]) if len(labels) >= 2 else d
+    for tok in _INFRA_DOMAIN_TOKENS:
+        if tok in core:
+            return True, "domain:" + tok
+    return False, ""
+
 
 def dga_score(domain: str) -> tuple[float, dict]:
     """DGA 嫌疑评分（0~1，越高越可疑）+ 可解释证据。
 
     证据 dict 含每个特征的原始值与贡献分，供 ai_findings.evidence 落库。
+    基础设施形态域名（CDN/云服务）命中豁免则强降权——只在证据里留痕，
+    不直接丢弃，人工仍可看到原始分。
+
+    参数（由 ai_batch 从 首现表 聚合）：
+      domain  完整域名（评估其最左标签）
     """
     label = label_of(domain)
     if not label:
@@ -175,7 +212,10 @@ def dga_score(domain: str) -> tuple[float, dict]:
 
     feats = {"len": f_len, "digit": f_digit, "entropy": f_ent,
              "consonant": f_con, "vowel": f_vow, "bigram": f_big}
-    score = sum(_W[k] * v for k, v in feats.items())
+    raw = sum(_W[k] * v for k, v in feats.items())
+
+    infra, why = infra_like(domain)
+    score = raw * _INFRA_PENALTY if infra else raw
 
     evidence = {
         "label": label,
@@ -188,6 +228,11 @@ def dga_score(domain: str) -> tuple[float, dict]:
         "contributions": {k: round(_W[k] * v, 4) for k, v in feats.items()},
         "threshold": DGA_THRESHOLD,
     }
+    if infra:
+        evidence["infra_like"] = True
+        evidence["infra_reason"] = why
+        evidence["score_before_infra_penalty"] = round(raw, 4)
+        evidence["infra_penalty"] = _INFRA_PENALTY
     return round(score, 4), evidence
 
 
