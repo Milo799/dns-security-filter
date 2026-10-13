@@ -41,6 +41,8 @@ DEFAULT_SYSTEM_CONFIG = {
     "login_ip_threshold": str(CONFIG.login_ip_threshold),
     "login_ip_window_minutes": str(CONFIG.login_ip_window_minutes),
     "login_ip_block_minutes": str(CONFIG.login_ip_block_minutes),
+    # AI 旁路分析（迭代 49）
+    "ai_first_seen_enabled": str(int(CONFIG.ai_first_seen_enabled)),
 }
 
 # ---------------------------------------------------------------------------

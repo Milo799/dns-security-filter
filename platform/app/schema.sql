@@ -120,3 +120,29 @@ CREATE TABLE IF NOT EXISTS nrd_cache (
     registered_at VARCHAR NOT NULL,            -- 注册时间（UTC ISO8601）
     queried_at   DATETIME NOT NULL DEFAULT (datetime('now','localtime'))
 );
+
+-- AI 能力规划 §4/§7.1：域名首现表（迭代 49，旁路分析地基）。
+-- 每域名仅一行（首现时刻+首客户端+类型）；INSERT OR IGNORE 幂等。
+-- 采集只发生在 process_query 全正常放行出口（ai_collector 异步批量写）。
+CREATE TABLE IF NOT EXISTS domain_first_seen (
+    domain       VARCHAR PRIMARY KEY,          -- 域名（小写无尾点）
+    first_seen   DATETIME NOT NULL DEFAULT (datetime('now','localtime')),
+    first_client VARCHAR DEFAULT '',           -- 首个查询客户端 IP
+    qtype        VARCHAR DEFAULT ''            -- 查询类型名
+);
+CREATE INDEX IF NOT EXISTS idx_first_seen_time ON domain_first_seen (first_seen);
+
+-- AI 能力规划 §7.1：AI 结构化结论表（旁路分析产出，待人工确认）。
+-- type: dga_suspect/tunnel_suspect/false_positive/threat_cluster/client_anomaly...
+-- status: pending（待确认）/confirmed（已确认）/dismissed（已忽略）
+CREATE TABLE IF NOT EXISTS ai_findings (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    type        VARCHAR NOT NULL,              -- 结论类型
+    target      VARCHAR NOT NULL,              -- 对象（域名/客户端IP/父域）
+    score       REAL NOT NULL DEFAULT 0,       -- 评分（0~1）
+    evidence    TEXT DEFAULT '',               -- 证据（JSON）
+    status      VARCHAR NOT NULL DEFAULT 'pending',
+    created_at  DATETIME NOT NULL DEFAULT (datetime('now','localtime')),
+    updated_at  DATETIME NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_ai_findings_type ON ai_findings (type, status, created_at);

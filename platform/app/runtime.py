@@ -15,7 +15,9 @@ logger = logging.getLogger("platform.runtime")
 # 类型转换规则：system_config 值均为字符串，落内存时需还原类型
 _BOOL_KEYS = {"allow_log_enabled", "detection_enabled",
               "threatlist_auto_update", "log_async_enabled",
-              "nrd_enabled", "nrd_offline_enabled"}
+              "nrd_enabled", "nrd_offline_enabled",
+              # AI 旁路分析（迭代 49）
+              "ai_first_seen_enabled"}
 _INT_KEYS = {"alert_ttl", "log_retention_days", "api_timeout_ms",
              "threatlist_auto_interval_hours", "domain_cache_ttl_s",
              "domain_cache_size", "ip_cache_ttl_s", "ip_cache_size",

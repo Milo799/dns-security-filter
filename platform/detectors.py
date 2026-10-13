@@ -31,6 +31,7 @@ import circuit_breaker
 import log_writer
 import query_stats
 import rdap_nrd
+import ai_collector
 from config import CONFIG
 from app.db import db_cursor, get_enabled_list
 from app import threat_list
@@ -804,6 +805,10 @@ def process_query(request: DNSRecord, client_ip: str | None = None) -> DNSRecord
 
     # 6) 全部正常 → 返回上游原始应答（已在第 5 步取得，不再重复解析）
     query_stats.record("allow")
+    # AI 首现采集（迭代 49，旁路地基）：放行域名首现记录。
+    # 进程内 set 判重 + 队列 put_nowait（微秒级），DB 写由后台线程批量完成，
+    # 检测线程零阻塞；开关 ai_first_seen_enabled 关闭时直接返回。
+    ai_collector.record_domain_seen(domain, _qtype_name(qtype), client_ip or "")
     return upstream_reply
 
 

@@ -85,6 +85,32 @@ def _migrate(conn: sqlite3.Connection) -> None:
         )
     """)
 
+    # 迭代 49：AI 旁路分析两张表（存量库自动补齐；幂等）
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS domain_first_seen (
+            domain       VARCHAR PRIMARY KEY,
+            first_seen   DATETIME NOT NULL DEFAULT (datetime('now','localtime')),
+            first_client VARCHAR DEFAULT '',
+            qtype        VARCHAR DEFAULT ''
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_first_seen_time "
+                 "ON domain_first_seen (first_seen)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ai_findings (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            type        VARCHAR NOT NULL,
+            target      VARCHAR NOT NULL,
+            score       REAL NOT NULL DEFAULT 0,
+            evidence    TEXT DEFAULT '',
+            status      VARCHAR NOT NULL DEFAULT 'pending',
+            created_at  DATETIME NOT NULL DEFAULT (datetime('now','localtime')),
+            updated_at  DATETIME NOT NULL DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_findings_type "
+                 "ON ai_findings (type, status, created_at)")
+
 
 @contextmanager
 def db_cursor():

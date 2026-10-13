@@ -43,6 +43,8 @@ class PlatformConfig:
     log_async_enabled: bool = True         # 日志异步批量写入开关（前置项5，排障可关）
     log_flush_interval_s: int = 2          # 异步日志 flush 间隔（秒，1~60）
     log_batch_size: int = 500              # 异步日志单批上限（条，100~50000）
+    # --- AI 旁路分析（迭代 49，AI 能力规划） ---
+    ai_first_seen_enabled: bool = True     # 域名首现采集开关（旁路地基，排障可关）
     detection_enabled: bool = True         # 检测总开关
     api_timeout_ms: int = 2000             # 威胁情报源单次调用超时（毫秒）
     domain_cache_ttl_s: int = 300          # 域名检测结论缓存 TTL（秒，1~86400）
