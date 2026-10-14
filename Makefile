@@ -10,10 +10,11 @@ GO     ?= go
 dev:
 	@bash scripts/dev.sh
 
-## 仅构建并运行代理（需 Go 1.21+）
+## 仅构建代理（需 Go 1.21+）；带版本戳，二进制可用 -version 自证来源
+## ⚠️ 改完源码必须重新构建：deploy/install-proxy.sh 会拒绝"比源码旧"的产物
 proxy:
-	cd proxy && $(GO) build -o ../bin/dns-proxy . && cd ..
-	@echo "代理已构建：bin/dns-proxy"
+	@cd proxy && $(GO) build -ldflags "-X main.buildRev=$$(git rev-parse --short HEAD 2>/dev/null || echo unknown) -X main.buildTime=$$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o ../bin/dns-proxy .
+	@echo "代理已构建：bin/dns-proxy（用 ../bin/dns-proxy -version 自证版本）"
 
 ## 仅启动平台（DNS + Web，需 Python 3.10+）
 platform:

@@ -66,11 +66,20 @@ Agent ── stdio / streamable-http ──▶ mcp_server.py
                        SQLite（策略/日志/结论）＋ DNS 进程（15353）
 ```
 
+**🚨 第 0 条红线（用户 2026-10-13 明确要求）：名单只能由人改**
+
+> **白名单/黑名单是直接影响业务访问的策略——改错会导致业务系统访问中断。**
+> 因此：① 服务**默认只读**（`DNSF_MCP_ALLOW_WRITE` 默认 0），新部署一律不能写；
+> ② 即便显式开启写能力，也**必须用户在当前对话中逐条点名要求**才可执行，
+> 禁止任何"AI 自己判断该加白/加黑"的动作；③ AI 侧只输出**建议 + 证据 + 影响面**，
+> 由人在管理端页面操作；④ 所有写操作双重审计留痕。
+
 **四条硬约束（写进代码，不是口号）：**
 
 1. **不直连数据库**：所有读写都经平台 Web API——复用既有鉴权、参数校验、`invalidate_list_cache()` 缓存失效、审计留痕。新增旁路写入口是安全大忌。
 2. **写操作三重闸门**：
-   - 进程开关 `DNSF_MCP_ALLOW_WRITE`（0 = 只读模式，写工具一律返回 `write_disabled`）
+   - 进程开关 `DNSF_MCP_ALLOW_WRITE`（**默认 0 = 只读**，写工具一律返回 `write_disabled`；
+     要开启须显式传 `--allow-write` 或改环境变量后重启，用完立刻改回）
    - 调用方 `confirm=true`（缺省返回 `needs_confirmation` + `pending_action`，供 Agent 向用户复述）
    - 平台侧审计（`audit_log` 同时留两条：API 业务审计 + `mcp_<工具>` 归属审计）
 3. **AI 只出建议**：MCP 不提供「自动加白」「自动拦截」——`false_positive_whitelist` 也必须带 `confirm=true`，语义是「人已确认，Agent 代按」。
@@ -82,8 +91,8 @@ Agent ── stdio / streamable-http ──▶ mcp_server.py
 
 ```bash
 # 机 B（检测平台）部署完平台之后
-sudo ./deploy/install-mcp.sh                      # 读写模式，端口 8090
-sudo ./deploy/install-mcp.sh --read-only          # 只读模式（推荐先这样试）
+sudo ./deploy/install-mcp.sh                      # **默认只读**（名单变更请在管理端操作）
+sudo ./deploy/install-mcp.sh --allow-write        # 显式开启写能力（仍需用户逐条确认）
 sudo ./deploy/install-mcp.sh --pip-proxy http://172.16.5.7:3128   # 内网出站
 ```
 
@@ -98,7 +107,7 @@ sudo ./deploy/install-mcp.sh --pip-proxy http://172.16.5.7:3128   # 内网出站
 | `DNSF_MCP_TRANSPORT` | stdio | `stdio` 或 `http` |
 | `DNSF_MCP_HOST` / `DNSF_MCP_PORT` | 0.0.0.0 / 8090 | http 模式绑定 |
 | `DNSF_MCP_TOKEN` | — | **http 模式必填**（缺失则拒绝启动，不裸奔） |
-| `DNSF_MCP_ALLOW_WRITE` | 1 | 0 = 只读模式 |
+| `DNSF_MCP_ALLOW_WRITE` | **0（只读）** | 1 才开启写能力；名单变更属高危，默认关闭 |
 | `DNSF_MCP_AGENT` | mcp-agent | 写入审计归属名 |
 
 ---
@@ -165,8 +174,9 @@ HTTP 传输用纯 ASGI 中间件做 Bearer 校验（不用 `BaseHTTPMiddleware`�
 - 同机：按 §5.1 的 stdio 配置填 `command` / `args` / `env`（env 里给平台地址与口令即可，无需 Token）；
 - 跨网段：按 §5.2 连 `http://<机B>:8090/mcp`，请求头带 `Authorization: Bearer <DNSF_MCP_TOKEN>`
   （Token 在 `/etc/dnsfilter/mcp.env`，600 权限）；
-- 只想让它看、不让它改：`DNSF_MCP_ALLOW_WRITE=0`（或安装时 `--read-only`），
-  此时所有写工具返回 `write_disabled`。
+- 默认就是只读（`DNSF_MCP_ALLOW_WRITE=0`），所有写工具返回 `write_disabled`——
+  **这是预期行为**：名单变更请你在管理端页面操作。确需让 Agent 代改时，管理员显式
+  开启写能力（`--allow-write` 或改环境变量后重启），并在对话中**逐条点名**要改哪一条。
 
 **三条使用注意**
 
@@ -182,7 +192,8 @@ HTTP 传输用纯 ASGI 中间件做 Bearer 校验（不用 `BaseHTTPMiddleware`�
 | 面 | 措施 |
 |---|---|
 | 传输 | http 强制 Bearer Token；Token 随机 32 字节（`token_urlsafe`），存 600 权限文件 |
-| 权限 | 等于平台 admin（能调用的 API 都能调）——**因此建议先以 `--read-only` 上线**，确认场景后再开写 |
+| 权限 | 等于平台 admin（能调用的 API 都能调）——**因此默认只读安装**，确需写入时临时开启 |
+| 名单红线 | 默认只读；开启写能力后仍须用户逐条点名；AI 不得自主决定名单变更（用户 10-13 明确要求） |
 | 写操作 | 三重闸门（见 §3.2）；`list_entry_delete` 提示先展示条目再删 |
 | 审计 | `audit_log` 双留痕，`operator='mcp:<agent名>'`，审计页显示中文标签（如「MCP 误伤加白」） |
 | 暴露面 | 默认 `0.0.0.0:8090`（内网）。如需收敛，改 `DNSF_MCP_HOST=127.0.0.1` 或在上联 ACL 限制来源 |
