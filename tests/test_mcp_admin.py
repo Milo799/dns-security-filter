@@ -62,19 +62,23 @@ def mcp_env(tmp_path, monkeypatch):
     import app.routers.mcp as mcp_mod
     monkeypatch.setattr(mcp_mod, "_ENV_PATH", str(env_file))
     monkeypatch.setattr(mcp_mod, "_SERVICE", "dnsfilter-mcp-test")
-    # _restart_service 用 [_SYSTEMCTL, "restart", ...] 调用；
-    # Windows 无法直接执行 bash，这里指向 sys.executable + 脚本两段式。
-    # 为保持 mcp.py 的调用形态不变，patch 一个包装：改用 python 调起。
+    # Windows/测试机直接执行 fake 脚本（用 python 调起，跨平台）。
+    # _ctl_argv 在 root 直连、非 root 加 sudo——测试环境不适用，
+    # 统一 patch 成 fake 脚本两段式调用。
+    monkeypatch.setattr(mcp_mod, "_SYSTEMCTL", str(fake_ctl))
     real_run = subprocess.run
 
     def _patched_run(args, **kw):
-        if args and args[0] == str(fake_ctl):
+        if args and str(args[0]) == str(fake_ctl):
             return real_run([_sys.executable, str(fake_ctl)] + list(args[1:]),
                             **kw)
         return real_run(args, **kw)
 
     monkeypatch.setattr("app.routers.mcp.subprocess.run", _patched_run)
-    monkeypatch.setattr(mcp_mod, "_SYSTEMCTL", str(fake_ctl))
+
+    # 非 root 环境下 _ctl_argv 会加 sudo 前缀；测试直接返回 fake 路径
+    monkeypatch.setattr(mcp_mod, "_ctl_argv",
+                        lambda *a: [str(fake_ctl)] + list(a))
     yield str(env_file)
     os.environ.pop("DNSF_FAKE_SYSTEMCTL_FAIL", None)
 

@@ -150,15 +150,25 @@ def _write_env_atomic(values: dict[str, str], path: str | None = None) -> None:
         raise
 
 
+def _ctl_argv(*args) -> list[str]:
+    """构造 systemctl 调用：root 直接执行；非 root（生产 platform-web
+    以 dnsfilter 用户运行）走 sudo（配套 sudoers：
+    /etc/sudoers.d/dnsfilter-mcp-restart 允许免密重启本服务）。
+    """
+    if os.geteuid() == 0:
+        return [_SYSTEMCTL] + list(args)
+    return ["sudo", "-n"] + [_SYSTEMCTL] + list(args)
+
+
 def _restart_service() -> tuple[bool, str]:
     """重启 dnsfilter-mcp，返回 (成功与否, 备注)。"""
     try:
-        r = subprocess.run([_SYSTEMCTL, "restart", _SERVICE],
+        r = subprocess.run(_ctl_argv("restart", _SERVICE),
                            capture_output=True, text=True, timeout=60)
         if r.returncode != 0:
             return False, (r.stderr or "restart 返回非零").strip()[:300]
         # 确认 active
-        c = subprocess.run([_SYSTEMCTL, "is-active", _SERVICE],
+        c = subprocess.run(_ctl_argv("is-active", _SERVICE),
                            capture_output=True, text=True, timeout=15)
         if (c.stdout or "").strip() != "active":
             return False, f"重启后状态异常：{(c.stdout or '').strip()}"
@@ -182,13 +192,13 @@ def _service_status() -> dict:
     """查询 systemd 服务状态（best effort）。"""
     out = {"running": None, "since": ""}
     try:
-        c = subprocess.run([_SYSTEMCTL, "is-active", _SERVICE],
+        c = subprocess.run(_ctl_argv("is-active", _SERVICE),
                            capture_output=True, text=True, timeout=15)
         out["running"] = (c.stdout or "").strip() == "active"
         out["state"] = (c.stdout or "").strip()
         s = subprocess.run(
-            [_SYSTEMCTL, "show", _SERVICE, "--property=ActiveEnterTimestamp",
-             "--value"],
+            _ctl_argv("show", _SERVICE, "--property=ActiveEnterTimestamp",
+                      "--value"),
             capture_output=True, text=True, timeout=15)
         out["since"] = (s.stdout or "").strip()
     except Exception:
