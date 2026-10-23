@@ -277,20 +277,30 @@ grep DNSF_MCP_TOKEN /etc/dnsfilter/mcp.env
 **只读模式下**：所有查询类功能完全可用（拦截统计、域名判定、AI 结论、日志检索）。
 任何写操作（加白/加黑/名单变更）会返回 `write_disabled`——这是**预期行为**。
 
-### 需要临时开启写能力时（让 AI 能代你改名单）
+### 写能力开关 & Token 轮换：**全部在 Web 界面操作**（2026-10-23 上线）
 
-在能 SSH 到 .191 的机器上执行：
+登录 `http://172.16.0.191:8080` → 左侧导航「系统」组 → **「MCP 服务」**：
 
-```bash
-ssh root@172.16.0.191
-sed -i 's/^DNSF_MCP_ALLOW_WRITE=0$/DNSF_MCP_ALLOW_WRITE=1/' /etc/dnsfilter/mcp.env
-systemctl restart dnsfilter-mcp
-# 验证：journalctl -u dnsfilter-mcp -n 2 | grep 写能力   → 应显示「开」
-```
+| 卡片 | 能做什么 |
+|---|---|
+| 服务状态 | 运行状态 / 端点 / Agent 标识 |
+| 写能力开关 | **toggle 直接开关**（带二次确认弹窗，自动重启 MCP，约 3 秒） |
+| 授权 Token | 脱敏展示当前 token · **一键轮换**（新 token 只展示一次，带复制按钮） |
+| 接入速查 | 动态生成 mcpServers JSON，可直接复制给 AI 工具 |
 
-**用完立即改回**（同样方式，把 1 改回 0 再重启）。
-开启后 AI 仍不能自主写——每个写操作还需要用户逐条确认（`confirm=true`），
-这是第二道闸门，见 §5。
+**安全机制**：
+- 开关和轮换都需要二次确认；操作会短暂重启 MCP 服务（约 3 秒中断）
+- 每次操作都进审计日志（`mcp_admin_write` / `mcp_admin_token`）
+- 新 Token 只在轮换响应里完整出现**一次**，日常查询只见脱敏形式
+- 开启写能力后，AI 仍不能自主写——每个写操作还需要用户逐条确认
+  （`confirm=true`），这是第二道闸门，见 §5
+- 操作失败自动回滚（env 还原 + 服务重启回旧配置）
+
+底层实现（供运维了解，日常不需要）：写开关改的是
+`/etc/dnsfilter/mcp.env` 的 `DNSF_MCP_ALLOW_WRITE`（原子替换）+
+`systemctl restart dnsfilter-mcp`。systemctl 的权限由 polkit 授权
+（`/etc/polkit-1/rules.d/49-dnsfilter-mcp-admin.rules`，仅限
+dnsfilter 用户管理 dnsfilter-mcp 单个服务）。
 
 ---
 
