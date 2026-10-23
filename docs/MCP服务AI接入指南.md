@@ -486,6 +486,73 @@ ssh root@172.16.0.191 'NEW_FILE=/tmp/mcp_server.py.new bash /tmp/update-prod-mcp
 ⚠️ **生产 git 工作区可能有本地改动**，直接 `git pull` 会冲突。
 脚本刻意只替换 `mcp_server.py` 单个文件，不动 git。
 
+### 8.4 生产 git 同步（离线 bundle 法）
+
+生产机**访问不了 GitHub**（见 §8.5），`git fetch` 会一直挂起。
+用 git bundle 离线同步是可靠做法：
+
+```bash
+# —— 在能访问 GitHub 的开发机 ——
+cd dns-security-filter
+git bundle create /tmp/dnsf-sync.bundle main
+git bundle verify /tmp/dnsf-sync.bundle     # 校验完整性
+scp /tmp/dnsf-sync.bundle root@172.16.0.191:/tmp/
+
+# —— 在生产机 ——
+cd /opt/dns-security-filter
+git fetch /tmp/dnsf-sync.bundle 'refs/heads/main:refs/remotes/bundle/main'
+git merge-base --is-ancestor HEAD refs/remotes/bundle/main && echo '可快进'   # 先确认
+git stash push -m 'sync: pre-ff worktree' platform/mcp_server.py   # 保护工作区
+git merge --ff-only refs/remotes/bundle/main
+git update-ref refs/remotes/origin/main refs/remotes/bundle/main  # 修 origin 引用
+git stash list    # 旧版本保留在 stash，可回滚
+```
+
+⚠️ **两个必踩的坑**：
+
+1. **行尾符导致的"假改动"**
+   生产 `core.autocrlf` 未设置（默认 false），而开发机是 `true`。
+   同一份代码在两边 blob hash 不同 → `git merge` 会拒绝，提示
+   "Your local changes would be overwritten"。看起来是代码冲突，实际只是
+   CRLF vs LF。**解法**：先 `git config core.autocrlf input`（Linux 正确做法：
+   入库转 LF，工作区保持原样），diff 会从 1925 行降到真实差异行数。
+
+   验证语义等价的命令：
+   ```bash
+   git diff --ignore-cr-at-eol --stat refs/remotes/bundle/main -- platform/mcp_server.py
+   # 输出为空 = 除行尾外完全一致
+   ```
+
+2. **`tools/backup_db.sh` 的权限位改动必须保留**
+   生产的这个文件是 `755`（可执行），被 `dnsfilter-backup.service` 实际引用
+   （每天 02:30 执行数据库备份）。仓库里是 `644`，`git merge` 会把它改回
+   644 导致备份任务失败。**同步后务必确认**：
+   ```bash
+   stat -c '%a' tools/backup_db.sh     # 必须是 755
+   chmod 755 tools/backup_db.sh        # 被改回时手动恢复
+   systemctl is-enabled dnsfilter-backup.timer
+   ```
+
+### 8.5 生产为什么访问不了 GitHub（实测结论）
+
+这是**网络策略问题，不是代码问题**，排查时不要往代码方向想：
+
+| 环节 | 实测结果 |
+|---|---|
+| 生产 resolv.conf | 指向域控 `172.16.0.8 / .3` |
+| 域控 DNS 解析 github.com | ✅ NOERROR（20.205.243.166）|
+| Go 代理 .192 解析 github.com | ❌ **SERVFAIL** |
+| 出口代理 `172.16.5.7:3128` CONNECT github.com:443 | ✅ HTTP 200 隧道建立 |
+| 代理 CONNECT 后的 TLS 握手 | ❌ **超时**（隧道建了但转发不出去）|
+| `git fetch` | ❌ **挂起无输出**（等凭据 + 隧道不通）|
+
+结论：出口代理能建立 CONNECT 隧道，但**隧道内转发不出去**。
+git 配置里 `http.proxy=http://172.16.5.7:3128`（`/root/.gitconfig`），
+且生产**没有任何 credential helper / 凭据文件**，
+所以 fetch 卡在等凭据 + 隧道不通的双重问题上。
+
+**这也是为什么本项目的生产同步要用 git bundle 而不是 git pull。**
+
 ---
 
 ## 9. 一句话总结
