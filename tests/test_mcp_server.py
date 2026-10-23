@@ -193,9 +193,10 @@ class TestApiClient:
         assert s.api_base == "http://1.2.3.4:8080"
         assert s.allow_write is False
         assert s.agent_name == "my-agent" and s.port == 9000
-        # 缺省值
+        # 缺省值：写能力**默认关闭**（名单变更属高危，须显式开启）
         d = mcp_server.Settings.from_env({})
-        assert d.api_base.endswith(":8080") and d.allow_write is True
+        assert d.api_base.endswith(":8080")
+        assert d.allow_write is False
         assert d.api_user == "admin" and d.transport == "stdio"
 
 
@@ -349,6 +350,7 @@ class TestWriteGuard:
         assert _whitelist_values() == before
 
     def test_readonly_mode_rejects_all(self, mcp_env, monkeypatch):
+        """只读模式（**服务默认**）下所有写工具一律拒绝。"""
         mcp_env.allow_write = False
         for tool, kwargs in WRITE_CALLS:
             d = getattr(mcp_server, tool)(confirm=True, **kwargs)
@@ -507,6 +509,24 @@ class TestProtocol:
         assert "红线" in mcp_server.server.instructions
         assert "confirm=true" in mcp_server.server.instructions
 
+    def test_server_instructions_include_dns_topology(self):
+        """instructions 必须携带内网 DNS 解析链路拓扑。
+
+        背景（2026-10-23 F5 排查）：Agent 只看 domain_verdict / logs_query
+        只能看到本平台这一层的判定，而客户端实际链路有 5 跳。缺了拓扑，
+        Agent 会把 .7.1 的 CNAME 缺陷误判成本平台拦截，在错误的产品上
+        反复加白。拓扑缺失会导致排查方向完全跑偏。
+        """
+        ins = mcp_server.server.instructions or ""
+        assert "【内网 DNS 解析链路拓扑" in ins
+        # 五跳都要出现，避免漏掉中间层
+        for ip in ("172.16.0.8", "172.16.7.2", "172.16.7.1",
+                   "172.16.0.192", "172.16.0.191"):
+            assert ip in ins, f"拓扑缺少 {ip}"
+        # 关键判别依据：有日志+127.0.0.1 = 本平台；无日志+NXDOMAIN = .7.1
+        assert "NXDOMAIN" in ins
+        assert "排障要点" in ins
+
     def test_bearer_middleware_blocks_without_token(self):
         """http 传输：无 token → 401；正确 token → 放行。"""
         import asyncio as aio
@@ -646,3 +666,75 @@ class TestHttpTransport:
                      status="dismissed")
         d = mcp_server.ai_findings(finding_type="dga_suspect", status="")
         assert any(i["target"] == "mcp-test-empty.icu" for i in d["items"])
+
+
+# ---------------------------------------------------------------------------
+# 7. 名单变更红线（用户 2026-10-13 明确要求）
+#    "不能擅自改动白名单/黑名单——改错会影响业务系统访问"
+# ---------------------------------------------------------------------------
+
+
+class TestListChangeRedline:
+    def test_default_settings_are_read_only(self):
+        """安全默认：未设置任何环境变量时，写能力关闭。"""
+        s = mcp_server.Settings.from_env({})
+        assert s.allow_write is False
+
+    def test_env_must_explicitly_enable_write(self, monkeypatch):
+        monkeypatch.setenv("DNSF_MCP_ALLOW_WRITE", "1")
+        assert mcp_server.Settings.from_env({"DNSF_MCP_ALLOW_WRITE": "1"}) \
+            .allow_write is True
+        assert mcp_server.Settings.from_env({"DNSF_MCP_ALLOW_WRITE": "0"}) \
+            .allow_write is False
+        # 空串/缺省均视为关闭
+        assert mcp_server.Settings.from_env({"DNSF_MCP_ALLOW_WRITE": ""}) \
+            .allow_write is False
+
+    @pytest.mark.parametrize("tool,kwargs", WRITE_CALLS)
+    def test_write_tools_refused_when_default_readonly(self, mcp_env, tool,
+                                                       kwargs):
+        """把服务置为默认（只读）后，连 confirm=true 也必须被拒。"""
+        mcp_env.allow_write = False
+        d = getattr(mcp_server, tool)(confirm=True, **kwargs)
+        assert d["ok"] is False and d["rejected"] == "write_disabled"
+
+    def test_write_disabled_message_points_to_manual_path(self, mcp_env):
+        """拒绝话术要明确：名单请在管理端人工操作 + 如何显式开启写能力。"""
+        mcp_env.allow_write = False
+        d = mcp_server.whitelist_add(value="mcp-test-redline.com",
+                                     confirm=True)
+        assert "只读模式" in d["message"]
+        assert "管理端页面" in d["message"]
+        assert "DNSF_MCP_ALLOW_WRITE=1" in d["message"]
+        assert d["pending_action"]["value"] == "mcp-test-redline.com"
+
+    def test_needs_confirmation_message_warns_about_list_risk(self, mcp_env):
+        """写能力开启但未确认时，话术必须提示"逐条明确同意 + 违规后果"。"""
+        d = mcp_server.whitelist_add(value="mcp-test-redline2.com")
+        assert d["rejected"] == "needs_confirmation"
+        assert "逐条明确同意" in d["message"]
+        assert "影响面" in d["message"]
+
+    def test_write_tool_docstrings_carry_high_risk_marker(self):
+        """写工具的 description（Agent 唯一可见契约）必须带高危标记与禁令。"""
+        tools = {t.name: t for t in asyncio.run(
+            mcp_server.server.list_tools())}
+        for name in ("whitelist_add", "blacklist_add",
+                     "list_entry_set_enabled", "list_entry_delete",
+                     "false_positive_whitelist"):
+            desc = tools[name].description or ""
+            assert "高危" in desc, name
+            assert "逐条明确" in desc, name
+            assert "自主调用" in desc, name
+
+    def test_server_instructions_state_the_redline(self):
+        ins = mcp_server.server.instructions or ""
+        assert "白名单" in ins and "黑名单" in ins
+        assert "自主决定" in ins
+        assert "管理端页面" in ins
+
+    def test_readonly_still_allows_read_tools(self, mcp_env):
+        """只读模式只禁写；查询能力不受影响（否则 Agent 就瞎了）。"""
+        mcp_env.allow_write = False
+        assert "ok" not in mcp_server.intel_sources()
+        assert mcp_server.domain_verdict("www.baidu.com")["domain"]

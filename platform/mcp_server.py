@@ -77,7 +77,7 @@ class Settings:
     api_user: str = "admin"
     api_password: str = ""
     timeout: float = 20.0
-    allow_write: bool = True
+    allow_write: bool = False          # 安全默认：只读（写能力必须显式开启）
     agent_name: str = "mcp-agent"
     transport: str = "stdio"
     host: str = "0.0.0.0"
@@ -100,7 +100,7 @@ class Settings:
             api_user=e.get("DNSF_API_USER") or "admin",
             api_password=e.get("DNSF_API_PASSWORD") or "",
             timeout=float(e.get("DNSF_MCP_TIMEOUT") or 20),
-            allow_write=flag("DNSF_MCP_ALLOW_WRITE", True),
+            allow_write=flag("DNSF_MCP_ALLOW_WRITE", False),
             agent_name=e.get("DNSF_MCP_AGENT") or "mcp-agent",
             transport=(e.get("DNSF_MCP_TRANSPORT") or "stdio").lower(),
             host=e.get("DNSF_MCP_HOST") or "0.0.0.0",
@@ -287,15 +287,30 @@ def _find_exact_entry(list_type: str, target: str, value: str) -> dict | None:
 
 
 def _guard(tool: str, confirm: bool, action: dict) -> dict | None:
-    """返回 None = 放行；返回 dict = 拒绝并回传待确认动作。"""
+    """返回 None = 放行；返回 dict = 拒绝并回传待确认动作。
+
+    ⚠️ 名单红线（用户 2026-10-13 明确要求）：白名单/黑名单是**直接影响
+    业务的策略**，改错会导致业务系统访问中断。因此：
+      1) 服务默认只读（DNSF_MCP_ALLOW_WRITE 默认 0）——新部署一律不能写；
+      2) 即便开启写能力，也必须调用方带 confirm=true（即用户已明确同意）；
+      3) 禁止任何"AI 自主决定"的名单变更——AI 只出建议与证据。
+    """
     if not _settings.allow_write:
         return {"ok": False, "rejected": "write_disabled",
-                "message": "本 MCP 服务运行在只读模式（DNSF_MCP_ALLOW_WRITE=0），"
-                           "拒绝一切写操作。请让管理员在服务配置中开启写能力。"}
+                "message": "本 MCP 服务运行在**只读模式**（默认），拒绝一切写操作。"
+                           "名单变更属高危操作（改错会中断业务访问），"
+                           "请在管理端页面人工操作；确需让 Agent 代改时，"
+                           "由管理员显式设置 DNSF_MCP_ALLOW_WRITE=1 并重启服务，"
+                           "用完立即改回。",
+                "pending_action": action,
+                "tool": tool,
+                "how_to_read_only_doc": "docs/…MCP 服务方案 V1.0.md §6 安全边界"}
     if not confirm:
         return {"ok": False, "rejected": "needs_confirmation",
-                "message": "写操作需要人工确认：请先向用户说明将要执行的改动"
-                           "并取得明确同意，再以 confirm=true 重新调用。",
+                "message": "写操作需要**用户逐条明确同意**：请先向用户说明将要"
+                           "执行的改动（改哪个名单、改哪条、影响面），"
+                           "得到明确同意后再以 confirm=true 重新调用。"
+                           "未经用户同意的名单变更属违规操作。",
                 "pending_action": action,
                 "tool": tool}
     return None
@@ -305,6 +320,66 @@ def _written(tool: str, result, detail: dict) -> dict:
     get_client().audit(tool, detail)
     return {"ok": True, "tool": tool, "result": result, "detail": detail,
             "note": _list_cache_hint}
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 内网 DNS 解析链路拓扑（供 Agent 排障时判断"拦截发生在哪一层"）
+# ══════════════════════════════════════════════════════════════════════
+
+# 2026-10-23 由用户口述 + 对各节点原始 DNS 报文实测确认。
+# 用途：domain_verdict / logs_query 只能看到本平台（.191）这一层的判定，
+# 但客户端实际访问链路有 5 跳。排查"某域名访问不通"时，必须先定位
+# 断点在哪一跳，否则会在错误的产品上反复加白。
+#
+#   客户端
+#     └─> 域控 DNS  172.16.0.8 / 172.16.0.3（双机）
+#           ├─ nimble.cn 本地域        → AD 本地解析
+#           ├─ 条件转发器（白名单域）   → 172.16.7.2（白名单服务器，隔离网段）
+#           └─ 常规外部域（DNS 转发器） → 172.16.7.1
+#                 ├─ .7.1 自有公网域名封禁表命中 → 封禁（NXDOMAIN）
+#                 └─ 未封禁                   → 转发 172.16.0.192
+#                       └─ Go 代理 .192：注入 EDNS0 ECS（客户端真实 IP）
+#                             └─ 172.16.0.191  ← 本 MCP 对应的平台
+#                                   └─ 上游 223.5.5.5
+#
+# 已知两个与本平台无关、但会导致"域名访问不通"的外部断点（2026-10-23 实测）：
+#   ① .7.1 对"顶级域自身无 A 记录、只靠 CNAME 挂 CDN"的域名返回 NXDOMAIN，
+#      例如 ves.io / crates.io / golang.io / rust-lang.io / npmjs.io /
+#      readthedocs.io / intercom.io / sentry.io / segment.io / branch.io。
+#      自身带 A 记录的 github.io / pypi.org / docker.io / go.dev 正常。
+#      连带影响：Go / Rust / Python 开发工具链不可达。
+#      注意：UUID 风格的 CNAME 标签（如 ves-io-8034cc52-…-7ba79c6d0bde）
+#      极易被 DGA / 熵值检测误判，是 .7.1 侧优先排查项。
+#   ② .7.2 白名单服务器仅对域控条件转发器命中的域生效；.7.1 这层没有
+#      对应的放行机制，两套名单各自为政。
+#
+# 排查口诀（避免误判）：
+#   - 本平台拦截 → 有日志 + 返回 alert_ip 127.0.0.1
+#   - .7.1 拦截 → 无本平台日志 + 返回 NXDOMAIN（且 .7.1 上有独立封禁表）
+#   - 平台加白只能解决"名单误收录"（如 hagezi_ult 收录了正常商业域），
+#     解决不了 .7.1 的 CNAME 缺陷——别在这类问题上反复加白。
+
+_TOPOLOGY_CONTEXT = """
+【内网 DNS 解析链路拓扑（2026-10-23 用户确认 + 实测）】
+客户端 → 域控 172.16.0.8 / .3
+  ├ nimble.cn 本地域 → AD 本地解析
+  ├ 条件转发器(白名单域) → 172.16.7.2（白名单服务器）
+  └ 常规外部域 → 转发器 → 172.16.7.1
+      ├ .7.1 自有公网域名封禁表命中 → NXDOMAIN
+      └ 未封禁 → 172.16.0.192（Go 代理，注入 ECS）
+          └ 172.16.0.191 ← 本平台 → 上游 223.5.5.5
+
+排障要点：
+- 本平台拦截的标志 = 有 logs 记录 + 返回 127.0.0.1
+- .7.1 拦截的标志 = 无本平台日志 + NXDOMAIN（.7.1 有独立封禁表，
+  响应形式与本平台的 127.0.0.1 不同，别混淆）
+- .7.1 对"顶级域无 A 记录、只靠 CNAME 挂 CDN"的域一律 NXDOMAIN
+  （ves.io/crates.io/golang.io/npmjs.io/rust-lang.io/readthedocs.io 等，
+  会导致 Go/Rust/Python 工具链不可达）。这属外部问题，平台加白无效。
+- 判断"域名是否被拦"以 domain_verdict 为准；判断"访问是否通"要同时
+  核对 CNAME 链每一跳（用原始 DNS 报文看 rcode/ancount，nslookup 的
+  文字输出会把 NOERROR+空 answer 显示成空白，易误判）。
+""".strip()
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -329,11 +404,18 @@ server = MCPServer(
         "→ 向用户确认 → false_positive_whitelist(confirm=true) 加白；\n"
         "4) 未知威胁：ai_findings(finding_type='dga_suspect'/'tunnel_suspect')"
         "、ai_findings(finding_type='threat_cluster') 看族群。\n\n"
+        + _TOPOLOGY_CONTEXT + "\n\n"
         "红线（必须遵守）：\n"
-        "- 写操作（加白/加黑/停用/删除/确认结论）一律先取得用户明确同意，"
-        "再以 confirm=true 调用；未确认时工具会返回 needs_confirmation；\n"
-        "- AI 只提供建议与证据，不自动改变任何拦截策略；\n"
-        "- 名单改动生效需 ≤60s（缓存重载），验证拦截请稍候再 dig。"
+        "- **白名单/黑名单是直接影响业务的策略，改错会中断业务系统访问**。"
+        "绝不允许 AI 自主决定任何名单变更：只有用户在当前对话中【逐条明确"
+        "要求】时，才可带 confirm=true 调用写工具；用户未点名具体条目时，"
+        "一律只输出建议与证据，让用户在管理端页面自行操作。\n"
+        "- 服务默认只读（DNSF_MCP_ALLOW_WRITE 默认 0）。只读模式下所有写工具"
+        "返回 write_disabled，这是预期行为，不要重试或绕过。\n"
+        "- 改动前先跑 list_query 把「要改哪条、当前值、影响面」报给用户确认。\n"
+        "- 名单改动生效需 ≤60s（缓存重载），验证拦截请稍候再查。\n"
+        "- 排障时先判断断点在哪一跳：见上方【内网 DNS 解析链路拓扑】。"
+        "对外部断点（.7.1 封禁、CNAME 缺陷）不要在本平台反复加白。"
     ),
 )
 
@@ -605,7 +687,10 @@ def ai_ask(question: str) -> dict:
 @_errors
 def whitelist_add(value: str, target: str = "domain", remark: str = "",
                   confirm: bool = False) -> dict:
-    """【写】加白名单（该域名/IP 直接放行，优先于所有检测层）。
+    """【写·高危】加白名单（该域名/IP 直接放行，优先于所有检测层）。
+
+    ⚠️ 高危：名单变更直接影响业务访问，**只在用户当前对话中逐条明确要求时**调用；
+    禁止因『分析结论』或『我认为该加白』而自主调用。
 
     调用前必须已获得用户明确同意；首次调用建议 confirm=false 以获取
     待确认动作回执，向用户复述后再 confirm=true 执行。
@@ -636,7 +721,10 @@ def whitelist_add(value: str, target: str = "domain", remark: str = "",
 @_errors
 def blacklist_add(value: str, target: str = "domain", remark: str = "",
                   confirm: bool = False) -> dict:
-    """【写】加黑名单（命中即拦截，返回告警应答 alert_ip）。
+    """【写·高危】加黑名单（命中即拦截，返回告警应答 alert_ip）。
+
+    ⚠️ 高危：名单变更直接影响业务访问，**只在用户当前对话中逐条明确要求时**调用；
+    禁止因『分析结论』或『我认为该加白』而自主调用。
 
     调用前必须已获得用户明确同意。注意：`*.com`、`*.jp` 这类**顶层通配**
     会影响整片互联网，切勿使用；如确需整域管控，请先向用户说明影响面。
@@ -664,7 +752,10 @@ def blacklist_add(value: str, target: str = "domain", remark: str = "",
 @_errors
 def list_entry_set_enabled(item_id: int, enabled: bool,
                            confirm: bool = False) -> dict:
-    """【写】启用/停用一条名单条目（停用 = 保留条目但不生效，可逆）。
+    """【写·高危】启用/停用一条名单条目（停用 = 保留条目但不生效，可逆）。
+
+    ⚠️ 高危：名单变更直接影响业务访问，**只在用户当前对话中逐条明确要求时**调用；
+    禁止因『分析结论』或『我认为该加白』而自主调用。
 
     调用前必须已获得用户明确同意。item_id 可由 list_query 获得。
     """
@@ -681,7 +772,10 @@ def list_entry_set_enabled(item_id: int, enabled: bool,
 @server.tool()
 @_errors
 def list_entry_delete(item_id: int, confirm: bool = False) -> dict:
-    """【写】删除一条名单条目（不可恢复，建议优先用停用）。
+    """【写·高危】删除一条名单条目（不可恢复，建议优先用停用）。
+
+    ⚠️ 高危：名单变更直接影响业务访问，**只在用户当前对话中逐条明确要求时**调用；
+    禁止因『分析结论』或『我认为该加白』而自主调用。
 
     调用前必须已获得用户明确同意；删除前请先用 list_query 向用户展示
     该条目的 value/remark，确认删的是正确条目。
@@ -698,6 +792,8 @@ def list_entry_delete(item_id: int, confirm: bool = False) -> dict:
 @_errors
 def finding_decide(finding_id: int, status: str, confirm: bool = False) -> dict:
     """【写】对 AI 结论做人工决断：confirmed（确认）或 dismissed（忽略）。
+
+    此操作**不改变任何拦截策略**（只记录人的判断），但仍需用户明确同意。
 
     仅记录人的判断（会保留、不被快照清理），**不改变任何拦截策略**。
     调用前必须已获得用户明确同意。finding_id 来自 ai_findings。
@@ -719,7 +815,10 @@ def finding_decide(finding_id: int, status: str, confirm: bool = False) -> dict:
 @_errors
 def false_positive_whitelist(domain: str, remark: str = "",
                              confirm: bool = False) -> dict:
-    """【写】把 AI 判定的疑似误伤域名一键加白（同时把该结论标记为已确认）。
+    """【写·高危】把 AI 判定的疑似误伤域名一键加白（同时把该结论标记为已确认）。
+
+    ⚠️ 高危：名单变更直接影响业务访问，**只在用户当前对话中逐条明确要求时**调用；
+    禁止因『分析结论』或『我认为该加白』而自主调用。
 
     误伤治理闭环的最后一步：ai_findings(finding_type='false_positive')
     拿到清单 → 向用户确认 → 本工具执行。调用前必须已获得用户明确同意。
