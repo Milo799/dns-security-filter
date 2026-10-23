@@ -70,8 +70,8 @@ MCP 服务——16 个工具（10 只读 + 6 写），写操作需 `confirm=true
 
 ```bash
 # 机 B（检测平台）：装 MCP SDK + 生成 Token + 装 systemd 服务 + 自检
-sudo ./deploy/install-mcp.sh                 # 读写模式，端口 8090
-sudo ./deploy/install-mcp.sh --read-only     # 只读模式（拒绝一切写操作）
+sudo ./deploy/install-mcp.sh                 # **默认只读**（名单变更请走管理端页面）
+sudo ./deploy/install-mcp.sh --allow-write   # 显式开启写能力（仍需用户逐条确认）
 ```
 
 接入方式（二者选一，详见 docs/…MCP 服务方案）：
@@ -86,7 +86,8 @@ sudo ./deploy/install-mcp.sh --read-only     # 只读模式（拒绝一切写操
 `false_positive_whitelist(confirm=true)` 加白（需先取得人工同意）。
 
 > 红线：MCP 不直连数据库，全部经平台 Web API（复用鉴权/校验/审计）；
-> AI 只给建议与证据，**落策略必须人工确认**；MCP 故障不影响 DNS 解析。
+> **白/黑名单只能由人改**（改错会中断业务访问）——MCP 默认只读，AI 只给建议与
+> 证据，落策略必须由用户逐条点名确认；MCP 故障不影响 DNS 解析。
 
 ### 方式三：裸机 / 开发调试（Linux）
 

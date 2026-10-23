@@ -15,7 +15,9 @@
 #     --api-password  STR    平台管理员密码          默认复用已有 mcp.env，其次读
 #                            platform.yaml 的初始密码。**管理员改过口令时必须
 #                            显式传入**——脚本会试登录校验，不一致直接报错。
-#     --read-only            以只读模式安装（拒绝一切写操作）
+#     --allow-write          开启写能力（**默认关闭**）。名单变更直接影响业务
+#                            访问，故默认只读安装；确需 Agent 代改时显式开启，
+#                            用完请再跑一次不带该参数的安装（即回到只读）
 #     --pip-proxy     URL    pip 代理（内网出站用）
 #     --install-dir   DIR    安装目录                默认 /opt/dns-security-filter
 #
@@ -39,7 +41,7 @@ HOST=0.0.0.0
 TOKEN=""
 API_BASE="http://127.0.0.1:8080"
 API_PASSWORD_ARG=""
-ALLOW_WRITE=1
+ALLOW_WRITE=0        # 安全默认：只读（名单变更属高危，需 --allow-write 显式开启）
 PIP_PROXY=""
 INSTALL_DIR=/opt/dns-security-filter
 ENV_FILE=/etc/dnsfilter/mcp.env
@@ -51,7 +53,8 @@ while [[ $# -gt 0 ]]; do
     --token) TOKEN="$2"; shift 2 ;;
     --api-base) API_BASE="$2"; shift 2 ;;
     --api-password) API_PASSWORD_ARG="$2"; shift 2 ;;
-    --read-only) ALLOW_WRITE=0; shift ;;
+    --allow-write) ALLOW_WRITE=1; shift ;;
+    --read-only) ALLOW_WRITE=0; shift ;;   # 兼容旧参数（现在也是默认行为）
     --pip-proxy) PIP_PROXY="$2"; shift 2 ;;
     --install-dir) INSTALL_DIR="$2"; shift 2 ;;
     -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
@@ -150,9 +153,9 @@ EOF
 chmod 600 "$ENV_FILE"
 chown root:root "$ENV_FILE" 2>/dev/null || true
 if [[ $ALLOW_WRITE -eq 1 ]]; then
-  log "环境文件已写入：$ENV_FILE（读写模式）"
+  log "环境文件已写入：$ENV_FILE（**写能力已开启**——名单变更仍需用户逐条确认）"
 else
-  log "环境文件已写入：$ENV_FILE（只读模式：拒绝一切写操作）"
+  log "环境文件已写入：$ENV_FILE（只读模式：写工具一律拒绝，名单请在管理端页面操作）"
 fi
 
 # ── 4 安装 systemd 服务 ────────────────────────────────────────────────────
