@@ -119,24 +119,27 @@ import asyncio, sys, json, urllib.request
 
 api_base, api_user, api_pass, token = sys.argv[1:5]
 
-# 1) 取平台 token
+# 1) 取平台 token（仅用于确认平台可连，不参与 MCP 握手）
 req = urllib.request.Request(
     api_base + '/api/auth/login',
     data=json.dumps({'username': api_user, 'password': api_pass}).encode(),
     headers={'Content-Type': 'application/json'})
 try:
     d = json.load(urllib.request.urlopen(req, timeout=10))
-    api_token = d['data']['token']
+    print('[ OK ] 平台 API 可登录')
 except Exception as e:
-    print('[警告] 平台登录失败（仅影响本次验证）:', e); api_token = ''
+    print('[警告] 平台登录失败（不影响 MCP 握手验证）:', e)
 
 # 2) 直连 MCP HTTP 端点做 initialize
 async def main():
     from mcp import ClientSession
-    from mcp.client.streamable_http import streamablehttp_client
-    async with streamablehttp_client(
-            'http://127.0.0.1:8090/mcp',
-            headers={'Authorization': 'Bearer ' + token}) as (r, w, _):
+    # mcp SDK 2.3.0 用 streamable_http_client；旧版叫 streamablehttp_client
+    try:
+        from mcp.client.streamable_http import streamable_http_client as mk
+    except ImportError:
+        from mcp.client.streamable_http import streamablehttp_client as mk
+    async with mk('http://127.0.0.1:8090/mcp',
+                  headers={'Authorization': 'Bearer ' + token}) as (r, w, _):
         async with ClientSession(r, w) as s:
             init = await s.initialize()
             ins = init.instructions or ''
@@ -150,7 +153,10 @@ async def main():
             if '【内网 DNS 解析链路拓扑' not in ins:
                 print('[失败] 下发的 instructions 不含拓扑段落'); sys.exit(1)
             print('[ OK ] 生产 MCP 已在 instructions 中下发完整拓扑')
-            print('[ OK ] 工具数符合预期（应为 16）:', len(tools))
+            if len(tools) != 16:
+                print('[警告] 工具数与预期 16 不符:', len(tools))
+            else:
+                print('[ OK ] 工具数 16，符合预期')
 
 asyncio.run(main())
 PYEOF

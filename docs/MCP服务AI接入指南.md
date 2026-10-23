@@ -414,6 +414,78 @@ curl -s http://127.0.0.1:8080/api/health
 **MCP 服务**：`/opt/dns-security-filter/platform/mcp_server.py`
 **HTTP 端口**：8090（强制 Bearer）｜**平台 Web**：8080（仅运维网段）｜**平台 DNS**：15353
 
+### 8.1 生产环境实录（2026-10-23 实测）
+
+| 主机 | 角色 | 监听端口 |
+|---|---|---|
+| **172.16.0.191** | 平台机（机B）：Web / DNS检测 / MCP | 8080 / 15353 / **8090** |
+| **172.16.0.192** | 代理机（机A）：`dns-proxy`（Go） | 53 |
+
+生产 MCP 服务 = `dnsfilter-mcp.service`，HTTP 模式，
+配置文件 `/etc/dnsfilter/mcp.env`（600 权限，仅 root）。
+
+**接入生产实例只需**：
+
+```json
+{
+  "mcpServers": {
+    "dns-security-filter": {
+      "type": "http",
+      "url": "http://172.16.0.191:8090/mcp",
+      "headers": { "Authorization": "Bearer <从 /etc/dnsfilter/mcp.env 取 DNSF_MCP_TOKEN>" }
+    }
+  }
+}
+```
+
+⚠️ 注意：**平台 DNS 服务 15353 只接受 .192 代理机的查询**
+（双机部署设计，platform.yaml 有明确注释）。
+**不要让终端直连 15353**，也不要用它做 DNS 解析测试——
+终端应配置域控 DNS（172.16.0.8 / .3）。
+
+### 8.2 用 Python SDK 直连生产 HTTP MCP（参考实现）
+
+生产 mcp SDK 为 **2.3.0**，其 `streamable_http_client` 签名与新版不同：
+
+```python
+# ✅ 2.3.0 的正确写法：headers 走 httpx.AsyncClient，不是 headers= 关键字
+import httpx
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client   # 2.3.0 是这个名字
+
+headers = {'Authorization': 'Bearer ' + token,
+           'Content-Type': 'application/json',
+           'Accept': 'application/json, text/event-stream'}
+async with httpx.AsyncClient(timeout=30, headers=headers) as hc:
+    async with streamable_http_client('http://172.16.0.191:8090/mcp',
+                                      http_client=hc) as streams:
+        r, w = streams[0], streams[1]      # 2.3.0 yield 2 元组，新版是 3 元组
+        async with ClientSession(r, w) as s:
+            init = await s.initialize()
+            print(len(init.instructions))   # 应为 1569（含内网 DNS 拓扑）
+```
+
+**三个易踩的坑**：
+1. 函数名：`streamable_http_client`（新版才是 `streamablehttp_client`）
+2. 不接受 `headers=` 关键字，必须自己建 `httpx.AsyncClient` 并带上 Bearer 头
+3. `yield` 的元组长度：2.3.0 是 2 元组，较新版本是 3 元组 → 写自适应解包
+
+### 8.3 更新生产 MCP 的标准流程
+
+用仓库自带的 `deploy/update-prod-mcp.sh`（六步 + 自动回滚）：
+
+```bash
+scp platform/mcp_server.py    root@172.16.0.191:/tmp/mcp_server.py.new
+scp deploy/update-prod-mcp.sh root@172.16.0.191:/tmp/
+ssh root@172.16.0.191 'NEW_FILE=/tmp/mcp_server.py.new bash /tmp/update-prod-mcp.sh'
+```
+
+脚本会依次做：语法检查 → 渲染检查（确认 instructions 含拓扑）→
+备份 → 替换 → 重启（失败自动回滚）→ 端到端握手验证。
+
+⚠️ **生产 git 工作区可能有本地改动**，直接 `git pull` 会冲突。
+脚本刻意只替换 `mcp_server.py` 单个文件，不动 git。
+
 ---
 
 ## 9. 一句话总结
