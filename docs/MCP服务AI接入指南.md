@@ -1,6 +1,6 @@
 # dns-security-filter MCP 服务 · AI Agent 接入与使用指南
 
-> **给 AI Agent 的说明**：读完本文，你就能完成安装、配置、调用与排障。
+> **给 AI Agent 的说明**：读完本文，你就能完成接入、配置、调用与排障。
 > 本文件是**自包含**的——不需要再读别的文档。
 >
 > 版本：2026-10-23 ｜ 适用平台：dns-security-filter（企业 DNS 安全过滤中间件）
@@ -95,110 +95,13 @@ def dnsq(name, server, qtype=1, timeout=6):
 
 ---
 
-## 2. 安装
+## 2. 接入（HTTP 模式，无需本地安装）
 
-### 方式一：stdio 模式（推荐给本地 AI 工具）
+生产环境已跑着 HTTP 模式的 MCP 服务，**强制 Bearer Token 认证**。
+接入任何 AI 工具都只需要一段 JSON 配置——不需要克隆代码、
+不需要装 Python 环境、不需要本地部署。
 
-**适用于**：WorkBuddy / CodeBuddy / Claude Code / Cursor 等本地工具。
-
-#### 步骤 1 · 拉取代码
-
-```bash
-git clone https://github.com/Milo799/dns-security-filter.git
-cd dns-security-filter
-```
-
-#### 步骤 2 · 准备 Python 环境
-
-需要 Python ≥ 3.10（推荐 3.12+）与 `mcp` SDK：
-
-```bash
-python3 -m venv venv
-./venv/bin/pip install -r platform/requirements-mcp.txt
-```
-
-> Windows：`.venv\Scripts\pip install -r platform\requirements-mcp.txt`
-
-#### 步骤 3 · 注册到 AI 工具
-
-**WorkBuddy / CodeBuddy** — 编辑 `~/.workbuddy/mcp.json`：
-
-```json
-{
-  "mcpServers": {
-    "dns-security-filter": {
-      "type": "stdio",
-      "command": "/绝对路径/dns-security-filter/venv/bin/python",
-      "args": ["/绝对路径/dns-security-filter/platform/mcp_server.py"],
-      "env": {
-        "DNSF_API_BASE": "http://172.16.0.191:8080",
-        "DNSF_API_USER": "admin",
-        "DNSF_API_PASSWORD": "你的平台管理员口令",
-        "DNSF_MCP_ALLOW_WRITE": "0",
-        "DNSF_MCP_TIMEOUT": "20",
-        "PYTHONIOENCODING": "utf-8"
-      }
-    }
-  }
-}
-```
-
-**Claude Code** — 一次性命令：
-
-```bash
-claude mcp add dns-security-filter -- \
-  --transport stdio \
-  --env DNSF_API_BASE=http://172.16.0.191:8080 \
-  --env DNSF_API_USER=admin \
-  --env DNSF_API_PASSWORD='你的平台管理员口令' \
-  --env DNSF_MCP_ALLOW_WRITE=0 \
-  -- /绝对路径/dns-security-filter/venv/bin/python \
-     /绝对路径/dns-security-filter/platform/mcp_server.py
-```
-
-**Cursor / 其他支持 `mcpServers` 的工具** — 同 WorkBuddy 的 JSON 结构，放到
-`~/.cursor/mcp.json`。
-
-#### 步骤 4 · 验证
-
-```bash
-# 确认 MCP 服务能启动并握手
-cd dns-security-filter/platform
-./../venv/bin/python -c "
-import asyncio
-from mcp import ClientSession
-from mcp.client.stdio import stdio_client, StdioServerParameters
-
-async def main():
-    p = StdioServerParameters(
-        command='/绝对路径/venv/bin/python',
-        args=['mcp_server.py'],
-        env={'DNSF_API_BASE':'http://172.16.0.191:8080',
-             'DNSF_API_USER':'admin','DNSF_API_PASSWORD':'你的口令',
-             'DNSF_MCP_ALLOW_WRITE':'0','PYTHONIOENCODING':'utf-8'})
-    async with stdio_client(p) as (r, w):
-        async with ClientSession(r, w) as s:
-            init = await s.initialize()
-            print('instructions 长度:', len(init.instructions or ''))
-            print('工具数:', len((await s.list_tools()).tools))
-asyncio.run(main())
-"
-```
-
-预期输出 `工具数: 16`。
-
-### 方式二：HTTP 模式（给远程 / 多人共用）
-
-生产已在 `http://172.16.0.191:8090/mcp` 跑着 HTTP 模式，**强制 Bearer Token**：
-
-```bash
-sudo ./deploy/install-mcp.sh --api-base http://127.0.0.1:8080 \
-  --api-password '你的平台管理员口令'
-# token 默认自动生成并写入 /etc/dnsfilter/mcp.env（600 权限）
-grep DNSF_MCP_TOKEN /etc/dnsfilter/mcp.env
-```
-
-客户端配置：
+### 接入配置
 
 ```json
 {
@@ -212,9 +115,32 @@ grep DNSF_MCP_TOKEN /etc/dnsfilter/mcp.env
 }
 ```
 
+适用：WorkBuddy / CodeBuddy / Claude Code / Cursor 及任何
+支持 `mcpServers` 结构的 AI 工具（各工具的配置文件位置不同，
+WorkBuddy 在 `~/.workbuddy/mcp.json`，Cursor 在 `~/.cursor/mcp.json`）。
+
+### Token 从哪来
+
+1. **管理员在 Web 界面轮换**：登录 `http://172.16.0.191:8080` →
+   「系统 → MCP 服务」→「轮换 Token」，新 Token 展示一次并附复制按钮；
+2. **或从服务器读取**（需 root）：`grep DNSF_MCP_TOKEN /etc/dnsfilter/mcp.env`。
+
+Token 轮换、写能力开关都在 Web 界面操作，详见 §4.5 与 §4.7。
+
+### 验证接入成功
+
+对该 AI 说一句：
+
+> "调用 system_status 看一下今日拦截量"
+
+返回数字就是通了（预期工具数 16，含内网 DNS 拓扑上下文）。
+
 ---
 
-## 3. 环境变量
+## 3. 服务端环境变量（运维参考，接入方无需关心）
+
+> 这些是 MCP **服务端**（生产 .191 上 `/etc/dnsfilter/mcp.env`）的配置，
+> 由运维通过 Web 界面或直接编辑管理。**接入方只需要 Token（§2）。**
 
 | 变量 | 必填 | 默认 | 说明 |
 |---|---|---|---|
