@@ -527,6 +527,23 @@ class TestProtocol:
         assert "NXDOMAIN" in ins
         assert "排障要点" in ins
 
+    def test_server_instructions_include_response_guide(self):
+        """instructions 必须携带「回答末尾引导式提示」的用户约定。
+
+        用户约定（2026-10-23 16:19）：每轮回答末尾附"接下来你可以这样问"
+        的引导提示，让用户不用背工具名就知道还能问什么。
+        缺失会导致接入的 AI 不带尾部引导，用户体验退化。
+        """
+        ins = mcp_server.server.instructions or ""
+        assert "【回答末尾必做" in ins
+        assert "接下来你可以这样问" in ins
+        # 素材场景至少覆盖核心四类
+        assert "domain_verdict" in ins or "domain_investigate" in ins
+        assert "false_positive" in ins
+        assert "system_status" in ins
+        # 引导约定也要在红线区再强调一次（保证遵守）
+        assert "回答末尾按【回答末尾必做】附引导式提示" in ins
+
     def test_bearer_middleware_blocks_without_token(self):
         """http 传输：无 token → 401；正确 token → 放行。"""
         import asyncio as aio
