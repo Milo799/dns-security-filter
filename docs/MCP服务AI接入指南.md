@@ -265,6 +265,153 @@ grep DNSF_MCP_TOKEN /etc/dnsfilter/mcp.env
 
 ---
 
+## 4.5 当前生产状态（2026-10-23 12:36 起）
+
+| 项 | 状态 |
+|---|---|
+| 服务 | `http://172.16.0.191:8090/mcp`（HTTP 模式，24×7） |
+| **写能力** | **已关闭（只读模式）** |
+| 拓扑上下文 | ✅ 已内嵌（instructions 自动下发） |
+| 工具数 | 16（10 只读可自由调用 + 6 写当前被闸门挡住） |
+
+**只读模式下**：所有查询类功能完全可用（拦截统计、域名判定、AI 结论、日志检索）。
+任何写操作（加白/加黑/名单变更）会返回 `write_disabled`——这是**预期行为**。
+
+### 需要临时开启写能力时（让 AI 能代你改名单）
+
+在能 SSH 到 .191 的机器上执行：
+
+```bash
+ssh root@172.16.0.191
+sed -i 's/^DNSF_MCP_ALLOW_WRITE=0$/DNSF_MCP_ALLOW_WRITE=1/' /etc/dnsfilter/mcp.env
+systemctl restart dnsfilter-mcp
+# 验证：journalctl -u dnsfilter-mcp -n 2 | grep 写能力   → 应显示「开」
+```
+
+**用完立即改回**（同样方式，把 1 改回 0 再重启）。
+开启后 AI 仍不能自主写——每个写操作还需要用户逐条确认（`confirm=true`），
+这是第二道闸门，见 §5。
+
+---
+
+## 4.6 人类使用手册：你可以这样问 AI
+
+接入 MCP 后，**你不需要记任何工具名**。像平时聊天一样问，AI 自己选工具。
+
+### 日常巡检类
+
+> "今天 DNS 拦截情况怎么样？"
+> → AI 会调 system_status / traffic_stats，给你总量、拦截率、五层分布
+
+> "最近 24 小时哪个时段拦截最多？"
+> → traffic_stats(hours=24)，按小时趋势
+
+> "现在系统健康吗？有没有积压或熔断？"
+
+### 排查"访问不通"类
+
+> "f5.com 访问不了，是被拦了吗？"
+> → domain_verdict + logs_query，还会核对 CNAME 链每一跳
+
+> "帮我看看 xxx.com 为什么被拦"
+> → domain_verdict 给出命中哪层哪条规则
+
+> "这个域名什么时候第一次出现的？可疑吗？"
+> → domain_investigate（首现时间、注册时间、AI 结论、拦截史）
+
+### 安全分析类
+
+> "有没有疑似 DNS 隧道的活动？"
+> → ai_findings(finding_type='tunnel_suspect')
+
+> "哪些域名像 DGA 生成的？"
+> → ai_findings(finding_type='dga_suspect')
+
+> "有没有哪台客户端行为异常（可能失陷）？"
+> → ai_findings(finding_type='client_anomaly')
+
+> "最近有哪些误报？该加白的？"
+> → ai_findings(finding_type='false_positive')
+
+### 名单与日志类
+
+> "黑名单里有没有包含 xxx 的条目？"
+> → list_query
+
+> "今天 cpolar 相关的拦截记录有多少条？"
+> → logs_query
+
+### 名单变更类（需要开写能力 + 你逐条确认）
+
+> "把 mktg.tags.f5.com.greylabeldelivery.com 加白，备注写 F5 营销域名"
+> → AI 会先复述影响面，你确认后才执行
+
+**如果写能力没开**，AI 会告诉你"当前只读，请到管理端页面操作"，
+或提示你按 §4.5 的方法临时开启。
+
+---
+
+## 4.7 授权：其它工具怎么接入
+
+### 需要授权吗？
+
+**需要。** 生产 MCP 强制 Bearer Token 认证：
+无 token 的请求一律返回 `HTTP 401 unauthorized`。
+Token 是一串 43 字符的随机串，存在生产机的
+`/etc/dnsfilter/mcp.env` 里（`DNSF_MCP_TOKEN=...`，600 权限，仅 root 可读）。
+
+### 授权三步走
+
+**第 1 步：取 Token**（在生产机或让管理员执行）
+
+```bash
+ssh root@172.16.0.191
+grep DNSF_MCP_TOKEN /etc/dnsfilter/mcp.env
+# 输出形如 DNSF_MCP_TOKEN=AbCdEf123...（43 字符）
+```
+
+**第 2 步：把 Token 填进 AI 工具的 MCP 配置**
+
+```json
+{
+  "mcpServers": {
+    "dns-security-filter": {
+      "type": "http",
+      "url": "http://172.16.0.191:8090/mcp",
+      "headers": { "Authorization": "Bearer <把Token粘贴到这里>" }
+    }
+  }
+}
+```
+
+**第 3 步：验证**（对该 AI 说）
+
+> "调用 system_status 看一下今日拦截量"
+
+能返回数字就是通了。
+
+### Token 的安全须知
+
+- **Token 等同于平台管理入口的钥匙**（能读所有拦截数据），
+  不要发到公开群、不要提交进代码仓库
+- 需要**轮换**时：让管理员改 `/etc/dnsfilter/mcp.env` 里的
+  `DNSF_MCP_TOKEN`（换成新的随机串）并 `systemctl restart dnsfilter-mcp`，
+  然后把新 Token 分发给使用者
+- 目前是**单 Token 模式**：所有使用者共用一个 Token，
+  无逐用户权限区分。审计日志里可通过 `DNSF_MCP_AGENT`
+  区分调用方标识（在生产 env 里设置，默认 `agent`）
+- 只在**运维网段**内使用（8090 端口仅运维网段可达）
+
+### 出现 401 怎么办
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| 一直 401 | Token 填错 / 已轮换 | 重新取 Token 核对 |
+| 突然全部 401 | 管理员轮换了 Token | 找管理员拿新 Token |
+| 连接超时 | 不在运维网段 / 端口不通 | 检查网络可达性 `curl http://172.16.0.191:8090/mcp` |
+
+---
+
 ## 5. 🔴 红线：写操作的正确姿势
 
 **这是最重要的一节，请务必读完。**
