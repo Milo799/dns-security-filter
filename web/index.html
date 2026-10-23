@@ -87,6 +87,10 @@
         <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
         操作审计
       </div>
+      <div class="nav-item" data-page="mcpadmin">
+        <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/><path d="M7 8l2 2-2 2"/><line x1="11" y1="12" x2="15" y2="12"/></svg>
+        MCP 服务
+      </div>
     </div>
 
     <div class="content">
@@ -700,6 +704,80 @@
         </div>
       </div>
 
+      <!-- ========== MCP 服务管理 ========== -->
+      <div class="page" id="page-mcpadmin">
+        <div class="page-head">
+          <div><div class="page-title">MCP 服务管理</div><div class="page-sub">AI Agent 接入接口 · 写能力开关与授权 Token</div></div>
+          <div class="toolbar"><button class="btn btn-normal btn-compact" onclick="loadMcpAdmin()">↻ 刷新</button></div>
+        </div>
+
+        <div class="card"><div class="card-head"><div class="card-title">服务状态</div></div>
+          <div class="card-body">
+            <div class="form-grid">
+              <div class="form-row"><label>运行状态</label><div class="form-hint" id="mcpRunning">加载中…</div></div>
+              <div class="form-row"><label>接入端点</label><div class="form-hint" id="mcpEndpoint">-</div></div>
+              <div class="form-row"><label>平台 API</label><div class="form-hint" id="mcpApiBase">-</div></div>
+              <div class="form-row"><label>Agent 标识</label><div class="form-hint" id="mcpAgent">-</div></div>
+            </div>
+            <div class="form-hint" style="margin-top:6px">配置文件 <code id="mcpEnvFile">/etc/dnsfilter/mcp.env</code> · systemd 服务 <code id="mcpService">dnsfilter-mcp</code> · 详细接入方法见仓库 docs/《MCP服务AI接入指南》</div>
+          </div>
+        </div>
+
+        <div class="card"><div class="card-head"><div class="card-title">写能力开关</div></div>
+          <div class="card-body">
+            <div class="switch-row">
+              <div>
+                <div class="switch-label">允许 AI 通过 MCP 修改名单</div>
+                <div class="switch-desc">开启后 AI 才能执行加白/加黑/名单变更；每个写操作仍需用户在对话中逐条确认（二道闸门）。默认只读更安全——查询类功能不受影响。</div>
+                <div class="form-hint" id="mcpWriteNote" style="margin-top:4px"></div>
+              </div>
+              <label class="switch"><input id="mcpWriteToggle" type="checkbox" onchange="onMcpWriteToggle(this)"><span class="slider"></span></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="card"><div class="card-head"><div class="card-title">授权 Token</div></div>
+          <div class="card-body">
+            <div class="form-grid">
+              <div class="form-row"><label>当前 Token（脱敏）</label>
+                <div style="display:flex;gap:8px;align-items:center">
+                  <code id="mcpTokenMasked" style="flex:1;user-select:all">-</code>
+                </div>
+                <div class="form-hint">完整 Token 仅在轮换后展示一次。AI 工具接入时填入 MCP 配置的 Authorization: Bearer 头。</div>
+              </div>
+              <div class="form-row"><label>操作</label>
+                <div style="display:flex;gap:8px">
+                  <button class="btn btn-normal btn-compact" onclick="rotateMcpToken()">🔑 轮换 Token</button>
+                </div>
+                <div class="form-hint">轮换后旧 Token 立即失效，所有已接入的 AI 工具需更新配置。操作会重启 MCP 服务（约 3 秒中断）。</div>
+              </div>
+            </div>
+            <div id="mcpNewTokenBox" style="display:none;margin-top:10px;padding:10px;border:1px dashed var(--border-color,#ccc);border-radius:6px">
+              <div style="font-size:12px;color:var(--text-secondary,#888);margin-bottom:4px">⚠️ 新 Token（仅此一次展示，请立即复制分发）：</div>
+              <div style="display:flex;gap:8px;align-items:center">
+                <code id="mcpNewToken" style="flex:1;word-break:break-all;user-select:all"></code>
+                <button class="btn btn-subtle btn-compact" onclick="copyMcpNewToken()">复制</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card"><div class="card-head"><div class="card-title">接入速查</div></div>
+          <div class="card-body">
+            <div class="form-hint">把下面的 JSON 填进 AI 工具的 MCP 配置（Cursor / Claude Code / WorkBuddy 等均支持 mcpServers 结构）：</div>
+            <pre id="mcpQuickConfig" style="margin-top:8px;padding:10px;background:var(--bg-inset,#f6f6f6);border-radius:6px;font-size:12px;overflow-x:auto;user-select:all">{
+  "mcpServers": {
+    "dns-security-filter": {
+      "type": "http",
+      "url": "<端点>",
+      "headers": { "Authorization": "Bearer <轮换后获得>" }
+    }
+  }
+}</pre>
+          </div>
+        </div>
+      </div>
+
       <!-- ========== 操作审计 ========== -->
       <div class="page" id="page-audit">
         <div class="page-head"><div><div class="page-title">操作审计</div><div class="page-sub">敏感操作留痕</div></div></div>
@@ -854,6 +932,7 @@
 <script src="js/pages/threatlist.js?v=39"></script>
 <script src="js/pages/config.js?v=39"></script>
 <script src="js/pages/audit.js?v=39"></script>
+<script src="js/pages/mcpadmin.js?v=40"></script>
 <script src="js/boot.js?v=39"></script>
 </body>
 </html>
