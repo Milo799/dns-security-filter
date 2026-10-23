@@ -117,6 +117,8 @@ def list_sources(_: str = Depends(get_current_user)):
     for s in threat_list.source_stats().values():
         s.update(sched.get(s["key"], {}))
         s["auto_update_on"] = auto_on
+        # 前端 threatlist.js 读 enabled 布尔（enabled_cnt > 0 表示启用）
+        s["enabled"] = s.get("enabled_cnt", 0) > 0
         items.append(s)
     return {"code": 0, "message": "ok", "data": {"items": items}}
 
