@@ -151,13 +151,19 @@ def _write_env_atomic(values: dict[str, str], path: str | None = None) -> None:
 
 
 def _ctl_argv(*args) -> list[str]:
-    """构造 systemctl 调用：root 直接执行；非 root（生产 platform-web
-    以 dnsfilter 用户运行）走 sudo（配套 sudoers：
-    /etc/sudoers.d/dnsfilter-mcp-restart 允许免密重启本服务）。
+    """构造 systemctl 调用。
+
+    - root：直接执行 systemctl；
+    - 非 root（生产 platform-web 以 dnsfilter 用户运行）：
+      也直接执行 systemctl——授权由 polkit 完成
+      （/etc/polkit-1/rules.d/49-dnsfilter-mcp-admin.rules 允许
+      dnsfilter 用户免密管理 dnsfilter-mcp 单个服务）。
+      注意不能用 sudo：platform-web 的 systemd 配置带
+      NoNewPrivileges=true，会阻断 sudo 的 setuid。
+
+    本函数保留（而非删除）是为了维持调用点统一与测试 patch 面。
     """
-    if os.geteuid() == 0:
-        return [_SYSTEMCTL] + list(args)
-    return ["sudo", "-n"] + [_SYSTEMCTL] + list(args)
+    return [_SYSTEMCTL] + list(args)
 
 
 def _restart_service() -> tuple[bool, str]:
